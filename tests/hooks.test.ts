@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import {
 	copyFileSync,
-	mkdirSync,
+	cpSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
@@ -25,8 +25,7 @@ function withRepository(check: (cwd: string) => void) {
 		]) {
 			copyFileSync(join(root, file), join(cwd, file));
 		}
-		mkdirSync(join(cwd, "src"));
-		copyFileSync(join(root, "src/index.ts"), join(cwd, "src/index.ts"));
+		cpSync(join(root, "src"), join(cwd, "src"), { recursive: true });
 		symlinkSync(
 			join(root, "node_modules"),
 			join(cwd, "node_modules"),

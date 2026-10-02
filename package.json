@@ -3,7 +3,7 @@
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
-	"description": "A minimal Pi extension project.",
+	"description": "A Pi extension for parent-only RPC subagent delegation.",
 	"keywords": [
 		"pi-package"
 	],
@@ -26,10 +26,12 @@
 		"postinstall": "lefthook install"
 	},
 	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
 		"@earendil-works/pi-coding-agent": "*"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.15",
+		"@earendil-works/pi-ai": "1.0.0",
 		"@earendil-works/pi-coding-agent": "1.0.0",
 		"@types/bun": "1.4.2",
 		"lefthook": "2.1.16",

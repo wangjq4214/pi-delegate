@@ -1,6 +1,6 @@
 # pi-delegate
 
-最小 Pi TypeScript extension 项目，使用 Bun 管理依赖、Biome 检查和格式化，以及 Lefthook 管理 Git hooks。当前仅提供 `/hello` 示例命令，不包含委派等业务功能。
+Pi TypeScript extension，提供 `delegate` 工具，通过 RPC 启动一次性子 agent。使用 Bun 管理依赖、Biome 检查和格式化，以及 Lefthook 管理 Git hooks。除 `delegate` 和子进程内部初始化命令外，不注册其他命令。
 
 ## 开始使用
 
@@ -32,7 +32,7 @@ bun run pi --extension ./src/index.ts
 pi --extension ./src/index.ts
 ```
 
-在 Pi 交互界面输入 `/hello` 或 `/hello Derek`，会显示问候通知。没有 UI 的模式下，该示例命令不会访问 UI。修改入口后可使用 Pi 的 `/reload`。
+修改入口后可使用 Pi 的 `/reload`。
 
 `package.json` 的 `pi.extensions` 声明了入口，也可以将本目录作为本地 Pi package 使用：
 
@@ -42,6 +42,29 @@ pi install /absolute/path/to/pi-delegate
 
 本地 package 的依赖需由开发者通过 Bun 安装。Pi 宿主依赖声明在 `peerDependencies`，并作为开发依赖提供本地类型；不将宿主模块打包进扩展。当前项目为 `private`，不会意外发布到 npm。
 
+## RPC 委派
+
+加载扩展后，主 agent 可以调用 `delegate`：
+
+```json
+{
+  "task": "检查 src/ 中的错误处理，返回发现和文件路径",
+  "context": "只分析，不修改文件"
+}
+```
+
+- `task` 必填且不能是空白文本；`context` 可选。不自动复制主 agent 的完整对话，需要的背景应明确提供。
+- 每次调用启动新的 Pi RPC 子进程、创建新的内存会话，等待最终答案返回；不复用会话、不返回后台任务句柄。
+- 沿用主 agent 的工作目录、环境、项目信任状态和当前模型/思考级别；通过常规配置发现、显式扩展参数和工具/命令来源重新加载扩展，并重放可获取的扩展 CLI flags。
+- 加载完整的继承工具集合，再恢复主 agent 的当前启用状态；保留 `tool_search` / `codemode` 可发现的工具。MCP 使用同一配置重新连接，不共享主进程连接或缓存。
+- **子 agent 不注册 `delegate`**，不能通过模型声明、工具搜索或 `codemode` 调用它；扩展本身仍会加载。
+- 子进程就绪后检查工具是否缺失、schema/exposure/namespace 是否不同，以及启用状态是否一致。无法重新加载的运行时工具明确报错，不静默省略、不退回代理。
+- 调用取消或父会话关闭时会终止子 agent；正常完成和失败也会清理子进程与临时初始化快照。控制命令有 40 秒响应超时，工具初始化最多等待 30 秒；模型任务本身没有固定时限，可由主调用取消。
+
+子进程使用已安装 Pi 宿主包中的 CLI。Node.js 宿主沿用当前 Node 可执行文件；Bun 宿主需要能从 PATH 找到 `node`。本扩展在 Pi 1.0.0 上验证。
+
+**边界：**“继承”是正常重新初始化，不是任意内存配置、闭包或宿主私有 flags 的序列化。配置文件在启动期间应保持稳定。注册限制不是沙箱，具有 shell 工具的子 agent 仍有进程级操作权限。支持的 RPC `select` / `confirm` / `input` 会转交父会话 UI；没有 UI 时取消请求，多行 editor 请求也会取消，避免取消任务后留下不可中断的编辑器。
+
 ## 开发命令
 
 | 命令 | 作用 |
@@ -50,7 +73,7 @@ pi install /absolute/path/to/pi-delegate
 | `bun run check:fix .` | 全项目格式化、安全 lint 修复和 import 整理 |
 | `bun run format` | 仅执行格式化 |
 | `bun run typecheck` | 检查 `src/` 与 `tests/` 的 TypeScript 类型 |
-| `bun test` | 扩展示例测试及隔离 Git 仓库的 hook 集成测试 |
+| `bun test` | 注册矩阵、RPC 生命周期、真实 Pi/确定性模型/MCP 集成测试及隔离 Git 仓库的 hook 测试 |
 | `bun run hooks:install` | 安装或更新 Lefthook 管理的 hook |
 
 `check:fix` 也接受文件路径。自动修复不使用 `--unsafe`，无法安全修复的问题需手动处理。
