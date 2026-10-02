@@ -1,0 +1,11 @@
+pre-commit:
+  parallel: false
+  commands:
+    biome:
+      priority: 1
+      glob: "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts,json,jsonc,css,graphql,gql}"
+      run: bun run check:fix --no-errors-on-unmatched -- {staged_files}
+      stage_fixed: true
+    typecheck:
+      priority: 2
+      run: bun run typecheck

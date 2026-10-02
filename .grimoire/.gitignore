@@ -1,0 +1,14 @@
+# Keep only shared Markdown knowledge and this policy in Git.
+*
+!/.gitignore
+!/CONTEXT.md
+!/CONTEXT-*.md
+!/adr/
+!/adr/**/
+!/adr/**/*.md
+!/spec/
+!/spec/**/
+!/spec/**/*.md
+!/ticket/
+!/ticket/**/
+!/ticket/**/*.md

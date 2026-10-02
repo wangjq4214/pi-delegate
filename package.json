@@ -1,0 +1,38 @@
+{
+	"name": "pi-delegate",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "A minimal Pi extension project.",
+	"keywords": [
+		"pi-package"
+	],
+	"packageManager": "bun@1.4.1",
+	"engines": {
+		"bun": ">=1.4.1"
+	},
+	"pi": {
+		"extensions": [
+			"./src/index.ts"
+		]
+	},
+	"scripts": {
+		"check": "biome check --error-on-warnings .",
+		"check:fix": "biome check --write --error-on-warnings",
+		"format": "biome format --write .",
+		"typecheck": "tsc --noEmit",
+		"test": "bun test",
+		"hooks:install": "lefthook install",
+		"postinstall": "lefthook install"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.15",
+		"@earendil-works/pi-coding-agent": "1.0.0",
+		"@types/bun": "1.4.2",
+		"lefthook": "2.1.16",
+		"typescript": "7.0.2"
+	}
+}
