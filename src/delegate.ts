@@ -6,9 +6,12 @@ import { fileURLToPath } from "node:url";
 import { Type, type Usage } from "@earendil-works/pi-ai";
 import {
 	type AgentSession,
+	DEFAULT_MAX_BYTES,
+	DEFAULT_MAX_LINES,
 	defineTool,
 	type ExtensionAPI,
 	type ExtensionToolContext,
+	formatSize,
 	getPackageDir,
 	type RpcExtensionUIRequest,
 	type RpcExtensionUIResponse,
@@ -23,6 +26,7 @@ import {
 	type InheritanceSnapshot,
 	SNAPSHOT_ENV,
 } from "./inheritance.ts";
+import { formatDelegationOutput } from "./output.ts";
 import { RpcProcess } from "./rpc.ts";
 
 export function resolveCli(): string {
@@ -160,9 +164,17 @@ export async function runDelegation(options: DelegationOptions) {
 			.join("\n");
 		const state = await rpc.request<{ sessionId: string }>("get_state");
 		options.signal?.throwIfAborted();
+		const { text: resultText, ...outputDetails } = await formatDelegationOutput(
+			text,
+			options.signal,
+		);
 		return {
-			content: [{ type: "text" as const, text }],
-			details: { status: "completed" as const, sessionId: state.sessionId },
+			content: [{ type: "text" as const, text: resultText }],
+			details: {
+				status: "completed" as const,
+				sessionId: state.sessionId,
+				...outputDetails,
+			},
 			usage: sumUsage(messages),
 		};
 	} catch (error) {
@@ -229,8 +241,7 @@ export function registerDelegate(pi: ExtensionAPI): void {
 		defineTool({
 			name: DELEGATE_TOOL,
 			label: "Delegate",
-			description:
-				"Run a task in a fresh Pi RPC subagent with the same extensions and inherited tools, excluding delegation. Waits for its final answer. Supply all necessary context explicitly.",
+			description: `Run a task in a fresh Pi RPC subagent with the same extensions and inherited tools, excluding delegation. Waits for its final answer. Supply all necessary context explicitly. Output is limited to ${formatSize(DEFAULT_MAX_BYTES)} or ${DEFAULT_MAX_LINES} lines (whichever is exceeded first); oversized answers include a head preview and a temporary file path for the complete output.`,
 			parameters: Type.Object({
 				task: Type.String({
 					minLength: 1,

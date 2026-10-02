@@ -10,6 +10,10 @@ import type {
 	SessionEntry,
 	ToolInfo,
 } from "@earendil-works/pi-coding-agent";
+import {
+	DEFAULT_MAX_BYTES,
+	DEFAULT_MAX_LINES,
+} from "@earendil-works/pi-coding-agent";
 import { resolveCli, runDelegation } from "../src/delegate.ts";
 import { captureInheritance } from "../src/inheritance.ts";
 import { RpcProcess } from "../src/rpc.ts";
@@ -335,4 +339,35 @@ test("configured extensions, including a hook-only extension, reload through nor
 		false,
 		true,
 	);
+}, 30_000);
+
+test("real Pi RPC: oversized answers survive child cleanup with session and usage details", async () => {
+	await withParent(async (_parent, state, args, env, logs) => {
+		for (const text of [
+			"x".repeat(DEFAULT_MAX_BYTES + 1),
+			Array.from({ length: DEFAULT_MAX_LINES + 1 }, (_, i) => `line-${i}`).join(
+				"\n",
+			),
+		]) {
+			const child = await runDelegation({
+				...inherited(state, args),
+				cwd: state.cwd,
+				env: { ...env, FIXTURE_FINAL_TEXT: text },
+				task: "oversized answer",
+			});
+			const path = child.details.fullOutputPath;
+			if (!path) throw new Error("Missing full output path");
+			try {
+				verifyCleanup(logs);
+				expect(readFileSync(path, "utf8")).toBe(text);
+				expect(child.content[0].text).toContain(path);
+				expect(child.details.truncation?.truncated).toBe(true);
+				expect(child.details.status).toBe("completed");
+				expect(child.details.sessionId).toBeTruthy();
+				expect(child.usage.totalTokens).toBe(3);
+			} finally {
+				await rm(dirname(path), { recursive: true, force: true });
+			}
+		}
+	});
 }, 30_000);

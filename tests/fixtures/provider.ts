@@ -207,17 +207,20 @@ export default function fixture(pi: ExtensionAPI): void {
 								.filter((block) => block.type === "text")
 								.map((block) => block.text)
 								.join("\n")
-						: JSON.stringify({
-								pid: process.pid,
-								calls,
-								prefix: pi.getFlag("fixture-prefix"),
-								active: pi.getActiveTools(),
-								tools: pi.getAllTools().map((tool) => tool.name),
-								prompt,
-								userCount: users.length,
-								lastResult: last?.content,
-								child: process.env.PI_DELEGATE_CHILD === "1",
-							});
+						: process.env.PI_DELEGATE_CHILD === "1" &&
+								process.env.FIXTURE_FINAL_TEXT !== undefined
+							? process.env.FIXTURE_FINAL_TEXT
+							: JSON.stringify({
+									pid: process.pid,
+									calls,
+									prefix: pi.getFlag("fixture-prefix"),
+									active: pi.getActiveTools(),
+									tools: pi.getAllTools().map((tool) => tool.name),
+									prompt,
+									userCount: users.length,
+									lastResult: last?.content,
+									child: process.env.PI_DELEGATE_CHILD === "1",
+								});
 				message.content = [{ type: "text", text }];
 				stream.push({ type: "text_start", contentIndex: 0, partial: message });
 				stream.push({
