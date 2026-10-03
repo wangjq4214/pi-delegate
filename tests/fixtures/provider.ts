@@ -128,8 +128,16 @@ export default function fixture(pi: ExtensionAPI): void {
 					);
 					return;
 				}
-				if (prompt.includes("fail-model")) {
+				if (
+					prompt.includes("fail-model") ||
+					(process.env.PI_DELEGATE_CHILD === "1" &&
+						prompt.includes("child-failure"))
+				) {
 					terminalError("error", "fixture model failure");
+					return;
+				}
+				if (prompt.includes("abort-model")) {
+					terminalError("aborted", "fixture model aborted");
 					return;
 				}
 				stream.push({ type: "start", partial: message });
@@ -235,8 +243,9 @@ export default function fixture(pi: ExtensionAPI): void {
 					content: text,
 					partial: message,
 				});
-				message.stopReason = "stop";
-				stream.push({ type: "done", reason: "stop", message });
+				const reason = prompt.includes("length-model") ? "length" : "stop";
+				message.stopReason = reason;
+				stream.push({ type: "done", reason, message });
 				stream.end();
 			});
 			return stream;

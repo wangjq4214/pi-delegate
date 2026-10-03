@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Type, type Usage } from "@earendil-works/pi-ai";
+import { type AssistantMessage, Type, type Usage } from "@earendil-works/pi-ai";
 import {
 	type AgentSession,
 	DEFAULT_MAX_BYTES,
@@ -91,102 +91,192 @@ export interface DelegationOptions {
 	env?: NodeJS.ProcessEnv;
 }
 
-export async function runDelegation(options: DelegationOptions) {
-	options.signal?.throwIfAborted();
-	const directory = await mkdtemp(join(tmpdir(), "pi-delegate-"));
+export type DelegationStatus =
+	| "completed"
+	| "incomplete"
+	| "failed"
+	| "cancelled";
+
+export interface DelegationDetails
+	extends Omit<Awaited<ReturnType<typeof formatDelegationOutput>>, "text"> {
+	status: DelegationStatus;
+	stopReason?: AssistantMessage["stopReason"];
+	sessionId?: string;
+	error?: string;
+}
+
+export interface DelegationResult {
+	content: [{ type: "text"; text: string }];
+	details: DelegationDetails;
+	usage: Usage;
+	isError: boolean;
+}
+
+function failedResult(
+	error: unknown,
+	cancelled = false,
+	details: Omit<DelegationDetails, "status" | "error"> = {},
+	usage = sumUsage([]),
+): DelegationResult {
+	const status = cancelled ? "cancelled" : "failed";
+	const message = cancelled
+		? "Delegation cancelled"
+		: error instanceof Error
+			? error.message
+			: String(error);
+	return {
+		content: [
+			{
+				type: "text",
+				text: `[Delegation ${status}: ${message}]${details.fullOutputPath ? `\nPartial output saved to: ${details.fullOutputPath}. Use read to retrieve it.` : ""}`,
+			},
+		],
+		details: { ...details, status, error: message },
+		usage,
+		isError: true,
+	};
+}
+
+export async function runDelegation(
+	options: DelegationOptions,
+): Promise<DelegationResult> {
+	let directory: string | undefined;
 	let rpc: RpcProcess | undefined;
 	let settlement: ReturnType<RpcProcess["waitForSettled"]> | undefined;
+	let usage = sumUsage([]);
+	const details: Omit<DelegationDetails, "status" | "error"> = {};
 	try {
-		const snapshotPath = join(directory, "inheritance.json");
-		await writeFile(snapshotPath, JSON.stringify(options.snapshot), {
-			mode: 0o600,
-		});
-		options.signal?.throwIfAborted();
-		rpc = new RpcProcess(
-			process.versions.bun ? "node" : process.execPath,
-			[options.cliPath ?? resolveCli(), "--mode", "rpc", ...options.args],
-			{
-				cwd: options.cwd,
-				env: {
-					...process.env,
-					...options.env,
-					[CHILD_ENV]: "1",
-					[SNAPSHOT_ENV]: snapshotPath,
-				},
-			},
-			options.signal,
-			options.ui,
-		);
-		await rpc.request("prompt", { message: `/${INIT_COMMAND}` });
-		const { entries } = await rpc.request<{ entries: SessionEntry[] }>(
-			"get_entries",
-		);
-		const initialized = [...entries]
-			.reverse()
-			.find(
-				(entry) => entry.type === "custom" && entry.customType === INIT_ENTRY,
-			);
-		const status =
-			initialized?.type === "custom"
-				? (initialized.data as { ok?: boolean; error?: string } | undefined)
-				: undefined;
-		if (!status?.ok)
-			throw new Error(status?.error ?? "Child initialization handshake failed");
-
-		settlement = rpc.waitForSettled();
-		// Prefixing prevents task text beginning with '/' from being dispatched as an extension command.
-		const message = `Task:\n${options.task}${options.context === undefined ? "" : `\n\nSupplementary context:\n${options.context}`}`;
-		const accepted = await rpc.request<{ disposition: string }>("prompt", {
-			message,
-		});
-		if (accepted.disposition !== "started")
-			throw new Error(`Child task did not start: ${accepted.disposition}`);
-		await settlement.promise;
-		const { messages } = await rpc.request<{
-			messages: AgentSession["messages"];
-		}>("get_messages");
-		const final = [...messages]
-			.reverse()
-			.find((item) => item.role === "assistant");
-		if (final?.role !== "assistant")
-			throw new Error("Child completed without an assistant result");
-		if (final.stopReason === "aborted") throw new Error("Child task cancelled");
-		if (final.stopReason === "error")
-			throw new Error(final.errorMessage ?? "Child model run failed");
-		if (final.stopReason !== "stop" && final.stopReason !== "length") {
-			throw new Error(
-				`Child did not finish with a final answer: ${final.stopReason}`,
-			);
-		}
-		const text = final.content
-			.filter((block) => block.type === "text")
-			.map((block) => block.text)
-			.join("\n");
-		const state = await rpc.request<{ sessionId: string }>("get_state");
-		options.signal?.throwIfAborted();
-		const { text: resultText, ...outputDetails } = await formatDelegationOutput(
-			text,
-			options.signal,
-		);
-		return {
-			content: [{ type: "text" as const, text: resultText }],
-			details: {
-				status: "completed" as const,
-				sessionId: state.sessionId,
-				...outputDetails,
-			},
-			usage: sumUsage(messages),
-		};
-	} catch (error) {
-		if (options.signal?.aborted) throw new Error("Delegation cancelled");
-		throw error;
-	} finally {
-		settlement?.dispose();
+		let result: DelegationResult;
 		try {
-			await rpc?.stop();
+			options.signal?.throwIfAborted();
+			directory = await mkdtemp(join(tmpdir(), "pi-delegate-"));
+			const snapshotPath = join(directory, "inheritance.json");
+			await writeFile(snapshotPath, JSON.stringify(options.snapshot), {
+				mode: 0o600,
+			});
+			options.signal?.throwIfAborted();
+			rpc = new RpcProcess(
+				process.versions.bun ? "node" : process.execPath,
+				[options.cliPath ?? resolveCli(), "--mode", "rpc", ...options.args],
+				{
+					cwd: options.cwd,
+					env: {
+						...process.env,
+						...options.env,
+						[CHILD_ENV]: "1",
+						[SNAPSHOT_ENV]: snapshotPath,
+					},
+				},
+				options.signal,
+				options.ui,
+			);
+			await rpc.request("prompt", { message: `/${INIT_COMMAND}` });
+			const { entries } = await rpc.request<{ entries: SessionEntry[] }>(
+				"get_entries",
+			);
+			const initialized = [...entries]
+				.reverse()
+				.find(
+					(entry) => entry.type === "custom" && entry.customType === INIT_ENTRY,
+				);
+			const initialization =
+				initialized?.type === "custom"
+					? (initialized.data as { ok?: boolean; error?: string } | undefined)
+					: undefined;
+			if (!initialization?.ok)
+				throw new Error(
+					initialization?.error ?? "Child initialization handshake failed",
+				);
+
+			settlement = rpc.waitForSettled();
+			// Prefixing prevents tasks beginning with '/' from becoming extension commands.
+			const message = `Task:\n${options.task}${options.context === undefined ? "" : `\n\nSupplementary context:\n${options.context}`}`;
+			const accepted = await rpc.request<{ disposition: string }>("prompt", {
+				message,
+			});
+			if (accepted.disposition !== "started")
+				throw new Error(`Child task did not start: ${accepted.disposition}`);
+			await settlement.promise;
+			// Projected get_messages can omit a length response during host recovery.
+			// Persisted entries retain every attempt, including the final truncated answer.
+			const { entries: resultEntries } = await rpc.request<{
+				entries: SessionEntry[];
+			}>("get_entries");
+			const messages = resultEntries.flatMap((entry) =>
+				entry.type === "message" ? [entry.message] : [],
+			);
+			usage = sumUsage(messages);
+			const final = [...messages]
+				.reverse()
+				.find((item) => item.role === "assistant");
+			if (final?.role !== "assistant")
+				throw new Error("Child completed without an assistant result");
+			details.stopReason = final.stopReason;
+			let status: DelegationStatus;
+			let error: string | undefined;
+			switch (final.stopReason) {
+				case "stop":
+					status = "completed";
+					break;
+				case "length":
+					status = "incomplete";
+					break;
+				case "error":
+					status = "failed";
+					error = final.errorMessage ?? "Child model run failed";
+					break;
+				case "aborted":
+					status = "cancelled";
+					error = final.errorMessage ?? "Child task cancelled";
+					break;
+				default:
+					status = "failed";
+					error = `Child did not finish with a final answer: ${final.stopReason}`;
+			}
+			const text = final.content
+				.filter((block) => block.type === "text")
+				.map((block) => block.text)
+				.join("\n");
+			const state = await rpc.request<{ sessionId: string }>("get_state");
+			details.sessionId = state.sessionId;
+			options.signal?.throwIfAborted();
+			const { text: resultText, ...outputDetails } =
+				await formatDelegationOutput(text, options.signal);
+			Object.assign(details, outputDetails);
+			const notice =
+				status === "completed"
+					? ""
+					: status === "incomplete"
+						? "[Delegation incomplete: generation reached its length limit; the answer may be unfinished.]"
+						: `[Delegation ${status}: ${error}]`;
+			result = {
+				content: [
+					{
+						type: "text",
+						text: notice ? `${notice}\n\n${resultText}` : resultText,
+					},
+				],
+				details: {
+					...details,
+					...outputDetails,
+					status,
+					...(error === undefined ? {} : { error }),
+				},
+				usage,
+				isError: status === "failed" || status === "cancelled",
+			};
 		} finally {
-			await rm(directory, { recursive: true, force: true });
+			settlement?.dispose();
+			try {
+				await rpc?.stop();
+			} finally {
+				if (directory) await rm(directory, { recursive: true, force: true });
+			}
 		}
+		options.signal?.throwIfAborted();
+		return result;
+	} catch (error) {
+		return failedResult(error, options.signal?.aborted, details, usage);
 	}
 }
 
@@ -241,7 +331,7 @@ export function registerDelegate(pi: ExtensionAPI): void {
 		defineTool({
 			name: DELEGATE_TOOL,
 			label: "Delegate",
-			description: `Run a task in a fresh Pi RPC subagent with the same extensions and inherited tools, excluding delegation. Waits for its final answer. Supply all necessary context explicitly. Output is limited to ${formatSize(DEFAULT_MAX_BYTES)} or ${DEFAULT_MAX_LINES} lines (whichever is exceeded first); oversized answers include a head preview and a temporary file path for the complete output.`,
+			description: `Run a task in a fresh Pi RPC subagent with the same extensions and inherited tools, excluding delegation. Waits for the child to settle and reports completed, incomplete (generation length limit), failed, or cancelled. Incomplete answers retain partial text; failures and cancellations are explicit. Supply all necessary context explicitly. Output is limited to ${formatSize(DEFAULT_MAX_BYTES)} or ${DEFAULT_MAX_LINES} lines (whichever is exceeded first); oversized answers include a head preview and a temporary file path for the complete output.`,
 			parameters: Type.Object({
 				task: Type.String({
 					minLength: 1,
@@ -255,24 +345,27 @@ export function registerDelegate(pi: ExtensionAPI): void {
 				),
 			}),
 			async execute(_id, params, signal, _onUpdate, ctx) {
-				if (!params.task.trim())
-					throw new Error("Delegation task must not be blank");
 				const controller = new AbortController();
 				const combined = signal
 					? AbortSignal.any([signal, controller.signal])
 					: controller.signal;
-				const inherited = captureInheritance(pi, ctx, entryPath);
-				const operation = runDelegation({
-					...inherited,
-					cwd: ctx.cwd,
-					task: params.task,
-					context: params.context,
-					signal: combined,
-					ui: (request) => forwardUi(ctx, combined, request),
-				});
-				active.set(controller, operation);
 				try {
+					combined.throwIfAborted();
+					if (!params.task.trim())
+						throw new Error("Delegation task must not be blank");
+					const inherited = captureInheritance(pi, ctx, entryPath);
+					const operation = runDelegation({
+						...inherited,
+						cwd: ctx.cwd,
+						task: params.task,
+						context: params.context,
+						signal: combined,
+						ui: (request) => forwardUi(ctx, combined, request),
+					});
+					active.set(controller, operation);
 					return await operation;
+				} catch (error) {
+					return failedResult(error, combined.aborted);
 				} finally {
 					active.delete(controller);
 				}

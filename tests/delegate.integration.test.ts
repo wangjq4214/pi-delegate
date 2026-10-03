@@ -249,15 +249,94 @@ test("real parent model delegates; child discovers and invokes inherited tools l
 
 test("real Pi model failure is not reported as successful prompt acceptance", async () => {
 	await withParent(async (_parent, state, args, env, logs) => {
-		await expect(
-			runDelegation({
+		const result = await runDelegation({
+			...inherited(state, args),
+			cwd: state.cwd,
+			env,
+			task: "fail-model",
+		});
+		expect(result.details.status).toBe("failed");
+		expect(result.details.stopReason).toBe("error");
+		expect(result.details.error).toContain("fixture model failure");
+		expect(result.isError).toBe(true);
+		expect(result.usage.totalTokens).toBe(3);
+		verifyCleanup(logs);
+	});
+}, 30_000);
+
+for (const [task, status, reason, isError] of [
+	["length-model", "incomplete", "length", false],
+	["abort-model", "cancelled", "aborted", true],
+] as const) {
+	test(`real Pi RPC: ${reason} produces ${status} and cleans the child`, async () => {
+		await withParent(async (_parent, state, args, env, logs) => {
+			const child = await runDelegation({
 				...inherited(state, args),
 				cwd: state.cwd,
-				env,
-				task: "fail-model",
-			}),
-		).rejects.toThrow("fixture model failure");
+				env: { ...env, FIXTURE_FINAL_TEXT: "partial model answer" },
+				task,
+			});
+			expect(child.details.status).toBe(status);
+			expect(child.details.stopReason).toBe(reason);
+			expect(child.isError).toBe(isError);
+			expect(child.usage.totalTokens).toBe(3);
+			expect(child.details.sessionId).toBeTruthy();
+			expect(child.content[0].text).toContain(`Delegation ${status}`);
+			if (status === "incomplete")
+				expect(child.content[0].text).toContain("partial model answer");
+			verifyCleanup(logs);
+		});
+	}, 30_000);
+}
+
+test("real parent tool results preserve structured failure and isError", async () => {
+	await withParent(async (parent, _state, _args, _env, logs) => {
+		const settled = parent.waitForSettled();
+		try {
+			await parent.request("prompt", { message: "DELEGATE child-failure" });
+			await settled.promise;
+		} finally {
+			settled.dispose();
+		}
+		const { messages } = await parent.request<{
+			messages: AgentSession["messages"];
+		}>("get_messages");
+		const delegated = messages.find(
+			(item) => item.role === "toolResult" && item.toolName === "delegate",
+		);
+		expect(delegated?.role === "toolResult" && delegated.isError).toBe(true);
+		expect(delegated?.role === "toolResult" && delegated.details).toMatchObject(
+			{
+				status: "failed",
+				stopReason: "error",
+				error: "fixture model failure",
+			},
+		);
 		verifyCleanup(logs);
+	});
+}, 30_000);
+
+test("length limit and presentation truncation remain independent", async () => {
+	await withParent(async (_parent, state, args, env, logs) => {
+		const text = "partial".repeat(DEFAULT_MAX_BYTES);
+		const child = await runDelegation({
+			...inherited(state, args),
+			cwd: state.cwd,
+			env: { ...env, FIXTURE_FINAL_TEXT: text },
+			task: "length-model",
+		});
+		const path = child.details.fullOutputPath;
+		if (!path) throw new Error("Missing partial output file");
+		try {
+			expect(child.details.status).toBe("incomplete");
+			expect(child.details.truncation?.truncated).toBe(true);
+			expect(child.isError).toBe(false);
+			expect(child.content[0].text).toContain("Delegation incomplete");
+			expect(readFileSync(path, "utf8")).toBe(text);
+			verifyCleanup(logs);
+		} finally {
+			await rm(dirname(path), { recursive: true, force: true });
+		}
 	});
 }, 30_000);
 

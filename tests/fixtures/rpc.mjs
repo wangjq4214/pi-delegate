@@ -10,6 +10,7 @@ if (process.env.FIXTURE_LOG_DIR)
 		join(process.env.FIXTURE_LOG_DIR, `${process.pid}.json`),
 		JSON.stringify({ pid: process.pid, snapshot }),
 	);
+if (scenario === "startup-exit") process.exit(7);
 const send = (record) => process.stdout.write(`${JSON.stringify(record)}\n`);
 const reply = (command, data) =>
 	send({
@@ -33,7 +34,7 @@ function command(record) {
 		reply(record, { disposition: "handled" });
 		return;
 	}
-	if (record.type === "get_entries") {
+	if (record.type === "get_entries" && !prompt) {
 		reply(record, {
 			entries: [
 				{
@@ -69,33 +70,76 @@ function command(record) {
 		if (scenario === "exit") {
 			process.exit(7);
 		}
-		if (scenario === "fast") send({ type: "agent_settled" }); // deliberately before acceptance
+		if (["fast", "recovered", "cleanup-cancel"].includes(scenario))
+			send({ type: "agent_settled" }); // deliberately before acceptance
 		reply(record, {
 			disposition: scenario === "handled" ? "handled" : "started",
 		});
 		if (scenario === "slow")
 			setTimeout(() => send({ type: "agent_settled" }), 200);
-		if (scenario === "error") send({ type: "agent_settled" });
+		if (
+			[
+				"error",
+				"length",
+				"aborted",
+				"toolUse",
+				"pending",
+				"deferred",
+				"missing",
+			].includes(scenario)
+		)
+			send({ type: "agent_settled" });
 		return;
 	}
-	if (record.type === "get_messages") {
+	if (record.type === "get_entries") {
 		const data = {
 			type: "response",
 			command: record.type,
 			id: record.id,
 			success: true,
 			data: {
-				messages: [
+				entries: [
 					{
-						role: "assistant",
-						content: [{ type: "text", text: `${prompt}\n雪\u2028\u2029` }],
-						usage,
-						stopReason: scenario === "error" ? "error" : "stop",
-						errorMessage: "fixture model failure",
+						type: "message",
+						message: {
+							role: "assistant",
+							content: [
+								{
+									type: "text",
+									text:
+										process.env.FIXTURE_FINAL_TEXT ??
+										`${prompt}\n雪\u2028\u2029`,
+								},
+							],
+							usage,
+							stopReason: [
+								"error",
+								"length",
+								"aborted",
+								"toolUse",
+								"pending",
+								"deferred",
+							].includes(scenario)
+								? scenario
+								: "stop",
+							errorMessage: "fixture model failure",
+						},
 					},
 				],
 			},
 		};
+		if (scenario === "missing") data.data.entries = [];
+		if (scenario === "recovered") {
+			const final = data.data.entries[0];
+			data.data.entries.unshift({
+				type: "message",
+				message: {
+					...final.message,
+					stopReason: "length",
+					content: [{ type: "text", text: "old partial" }],
+				},
+			});
+		}
 		// Split in the middle of a multi-byte character and use CRLF, not Unicode separators.
 		const bytes = Buffer.from(`${JSON.stringify(data)}\r\n`);
 		const split = bytes.indexOf(Buffer.from("雪")) + 1;
@@ -138,5 +182,8 @@ process.stdin.on("data", (chunk) => {
 });
 process.stdin.on("end", () => {
 	if (scenario === "ignore-end") setInterval(() => {}, 1_000);
-	else process.exit(0);
+	else if (scenario === "cleanup-cancel") {
+		writeFileSync(join(process.env.FIXTURE_LOG_DIR, "shutdown"), "shutdown");
+		setTimeout(() => process.exit(0), 200);
+	} else process.exit(0);
 });

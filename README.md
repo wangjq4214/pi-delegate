@@ -61,6 +61,8 @@ pi install /absolute/path/to/pi-delegate
 - 子进程就绪后检查工具是否缺失、schema/exposure/namespace 是否不同，以及启用状态是否一致。无法重新加载的运行时工具明确报错，不静默省略、不退回代理。
 - 调用取消或父会话关闭时会终止子 agent；正常完成和失败也会清理子进程与临时初始化快照。控制命令有 40 秒响应超时，工具初始化最多等待 30 秒；模型任务本身没有固定时限，可由主调用取消。
 - 最终文本采用 Pi 默认输出上限（50 KB / 2000 行，任一超限即截断），返回开头的完整行预览、截断信息及完整 UTF-8 原文文件路径。超长首行可能没有预览；可通过 `read` 读取完整文件。输出文件独立于初始化快照，调用结束后仍保留，使用完毕后可删除，或交由系统临时文件维护清理。
+- 委派结果统一在 `details.status` 中返回四种状态：`stop → completed`、`length → incomplete`、`error → failed`、`aborted → cancelled`。未完成结果保留部分文本并提示生成长度限制；失败和取消保留可获取的诊断、会话及 usage，并设置 `isError: true`，不再只抛异常。启动、继承和 RPC 失败也返回 `failed`；父调用取消返回 `cancelled`。尚未获取的会话/停止原因字段省略，未获取的 usage 为零。
+- `incomplete` 不自动续写，也不代表运行错误（`isError: false`）。展示截断独立使用 `details.truncation` 表示；正常生成但超出展示上限时仍是 `completed`。
 
 子进程使用已安装 Pi 宿主包中的 CLI。Node.js 宿主沿用当前 Node 可执行文件；Bun 宿主需要能从 PATH 找到 `node`。本扩展在 Pi 1.0.0 上验证。
 
