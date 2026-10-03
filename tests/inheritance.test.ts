@@ -11,6 +11,7 @@ import extension from "../src/index.ts";
 import {
 	CHILD_ENV,
 	captureInheritance,
+	DELEGATION_TOOLS,
 	snapshotTool,
 	validateChild,
 } from "../src/inheritance.ts";
@@ -56,9 +57,11 @@ test("reloads tool and command extensions, retains deferred registry and strips 
 			[
 				tool("read"),
 				tool("delegate", entry),
+				tool("delegate_status", entry),
+				tool("delegate_cancel", entry),
 				tool("optional", source, "deferred"),
 			],
-			["read", "delegate"],
+			["read", ...DELEGATION_TOOLS],
 		),
 		getCommands: () => [
 			{
@@ -156,6 +159,18 @@ test("validates exposure/schema and restores only the active subset", () => {
 	).toThrow("optional");
 });
 
+for (const name of DELEGATION_TOOLS) {
+	test(`child validation rejects parent-only capability ${name}`, () => {
+		expect(() =>
+			validateChild(api([tool(name, entry)], []), {
+				version: 1,
+				tools: [],
+				active: [],
+			}),
+		).toThrow("Delegation must not be registered");
+	});
+}
+
 test("child registration excludes delegate entirely, not just its activation", () => {
 	const previous = process.env[CHILD_ENV];
 	try {
@@ -170,7 +185,7 @@ test("child registration excludes delegate entirely, not just its activation", (
 				registerCommand: (name: string) => commands.push(name),
 				on: () => () => {},
 			} as unknown as ExtensionAPI);
-			expect(tools).toEqual(child ? [] : ["delegate"]);
+			expect(tools).toEqual(child ? [] : DELEGATION_TOOLS);
 			expect(commands).toEqual(child ? ["pi-delegate-init"] : []);
 		}
 	} finally {

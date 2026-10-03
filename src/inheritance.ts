@@ -8,6 +8,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 export const DELEGATE_TOOL = "delegate";
+export const DELEGATION_TOOLS = [
+	DELEGATE_TOOL,
+	"delegate_status",
+	"delegate_cancel",
+];
 export const CHILD_ENV = "PI_DELEGATE_CHILD";
 export const SNAPSHOT_ENV = "PI_DELEGATE_SNAPSHOT";
 export const INIT_COMMAND = "pi-delegate-init";
@@ -51,7 +56,7 @@ export function validateChild(
 	snapshot: InheritanceSnapshot,
 ): void {
 	const tools = pi.getAllTools();
-	if (tools.some((tool) => tool.name === DELEGATE_TOOL)) {
+	if (tools.some((tool) => DELEGATION_TOOLS.includes(tool.name))) {
 		throw new Error("Delegation must not be registered in a child agent");
 	}
 	const actual = new Map(tools.map((tool) => [tool.name, snapshotTool(tool)]));
@@ -88,7 +93,9 @@ export function captureInheritance(
 	argv: string[] = process.argv.slice(2),
 ): { args: string[]; snapshot: InheritanceSnapshot } {
 	const parsed = parseArgs(argv);
-	const tools = pi.getAllTools().filter((tool) => tool.name !== DELEGATE_TOOL);
+	const tools = pi
+		.getAllTools()
+		.filter((tool) => !DELEGATION_TOOLS.includes(tool.name));
 	const paths = new Set<string>();
 	const addSource = (path: string, owner: string) => {
 		if (path.startsWith("builtin:")) {
@@ -139,7 +146,7 @@ export function captureInheritance(
 	if (tools.length)
 		args.push("--tools", tools.map((tool) => tool.name).join(","));
 	else args.push("--no-tools");
-	args.push("--exclude-tools", DELEGATE_TOOL);
+	args.push("--exclude-tools", DELEGATION_TOOLS.join(","));
 	if (ctx.model)
 		args.push("--provider", ctx.model.provider, "--model", ctx.model.id);
 	if (ctx.thinkingLevel) args.push("--thinking", ctx.thinkingLevel);
@@ -159,7 +166,9 @@ export function captureInheritance(
 		snapshot: {
 			version: 1,
 			tools: tools.map(snapshotTool),
-			active: pi.getActiveTools().filter((name) => name !== DELEGATE_TOOL),
+			active: pi
+				.getActiveTools()
+				.filter((name) => !DELEGATION_TOOLS.includes(name)),
 		},
 	};
 }

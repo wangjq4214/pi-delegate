@@ -17,6 +17,7 @@ import {
 	type RpcExtensionUIResponse,
 	type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
+import { BACKGROUND_MESSAGE, BackgroundTasks } from "./background.ts";
 import {
 	CHILD_ENV,
 	captureInheritance,
@@ -324,14 +325,28 @@ async function forwardUi(
 	return undefined;
 }
 
-export function registerDelegate(pi: ExtensionAPI): void {
+export function registerDelegate(
+	pi: ExtensionAPI,
+	run: typeof runDelegation = runDelegation,
+): void {
 	const active = new Map<AbortController, Promise<unknown>>();
+	const background = new BackgroundTasks(run, failedResult, (result) => {
+		pi.sendMessage(
+			{
+				customType: BACKGROUND_MESSAGE,
+				content: result.content,
+				display: true,
+				details: result.details,
+			},
+			{ triggerTurn: true, deliverAs: "followUp" },
+		);
+	});
 	const entryPath = fileURLToPath(new URL("./index.ts", import.meta.url));
 	pi.registerTool(
 		defineTool({
 			name: DELEGATE_TOOL,
 			label: "Delegate",
-			description: `Run a task in a fresh Pi RPC subagent with the same extensions and inherited tools, excluding delegation. Waits for the child to settle and reports completed, incomplete (generation length limit), failed, or cancelled. Incomplete answers retain partial text; failures and cancellations are explicit. Supply all necessary context explicitly. Output is limited to ${formatSize(DEFAULT_MAX_BYTES)} or ${DEFAULT_MAX_LINES} lines (whichever is exceeded first); oversized answers include a head preview and a temporary file path for the complete output.`,
+			description: `Run a task in a fresh Pi RPC subagent with the same extensions and inherited tools, excluding delegation. By default waits for completed, incomplete (generation length limit), failed, or cancelled. Set background:true in a long-lived TUI/RPC session to return a taskId without waiting; completion is delivered to the parent after its current work, waking it if idle. Query with delegate_status or cancel with delegate_cancel. Background usage is separate from Pi parent-session totals. Supply necessary context explicitly. Output is limited to ${formatSize(DEFAULT_MAX_BYTES)} or ${DEFAULT_MAX_LINES} lines; oversized answers include a preview and complete-output file path.`,
 			parameters: Type.Object({
 				task: Type.String({
 					minLength: 1,
@@ -341,6 +356,11 @@ export function registerDelegate(pi: ExtensionAPI): void {
 					Type.String({
 						description:
 							"Supplementary context; the parent conversation is not copied",
+					}),
+				),
+				background: Type.Optional(
+					Type.Boolean({
+						description: "Return a background taskId instead of waiting",
 					}),
 				),
 			}),
@@ -353,13 +373,21 @@ export function registerDelegate(pi: ExtensionAPI): void {
 					combined.throwIfAborted();
 					if (!params.task.trim())
 						throw new Error("Delegation task must not be blank");
+					if (params.background && ctx.mode !== "tui" && ctx.mode !== "rpc")
+						throw new Error(
+							"Background delegation requires a long-lived TUI or RPC parent session",
+						);
 					const inherited = captureInheritance(pi, ctx, entryPath);
-					const operation = runDelegation({
+					const options: DelegationOptions = {
 						...inherited,
 						cwd: ctx.cwd,
 						task: params.task,
 						context: params.context,
 						signal: combined,
+					};
+					if (params.background) return background.start(options, ctx);
+					const operation = run({
+						...options,
 						ui: (request) => forwardUi(ctx, combined, request),
 					});
 					active.set(controller, operation);
@@ -372,8 +400,37 @@ export function registerDelegate(pi: ExtensionAPI): void {
 			},
 		}),
 	);
+	for (const cancel of [false, true]) {
+		pi.registerTool(
+			defineTool({
+				name: cancel ? "delegate_cancel" : "delegate_status",
+				label: cancel ? "Cancel delegated task" : "Delegated task status",
+				description: cancel
+					? "Cancel a background task by taskId and await its resource cleanup. Completed tasks retain their result. Does not cancel the parent turn."
+					: "Query a background task by taskId, including status, available result and separate usage. Results remain queryable if a completion message was cleared. IDs belong to the current session/branch scope; exit, reload, session replacement or tree navigation invalidates them.",
+				parameters: Type.Object({ taskId: Type.String({ minLength: 1 }) }),
+				async execute(_id, params) {
+					return cancel
+						? await background.cancel(params.taskId)
+						: background.query(params.taskId);
+				},
+			}),
+		);
+	}
+	pi.on("agent_settled", () => background.scheduleDelivery());
+	pi.on("session_compact", () => background.scheduleDelivery());
+	pi.on("session_compact_failed", () => background.scheduleDelivery());
+	pi.on("session_before_tree", async (event) => {
+		if (event.preparation.targetId !== event.preparation.oldLeafId)
+			await background.invalidate();
+	});
+	pi.on("session_tree", async (event) => {
+		// A prompt may accept new work while before-tree handlers/summarization await.
+		// Commit invalidation prevents that source-branch work reaching the new leaf.
+		if (event.newLeafId !== event.oldLeafId) await background.invalidate();
+	});
 	pi.on("session_shutdown", async () => {
 		for (const controller of active.keys()) controller.abort();
-		await Promise.allSettled(active.values());
+		await Promise.allSettled([...active.values(), background.invalidate(true)]);
 	});
 }

@@ -9,7 +9,7 @@ function registeredTool() {
 	let tool: Parameters<ExtensionAPI["registerTool"]>[0] | undefined;
 	registerDelegate({
 		registerTool: (definition: Parameters<ExtensionAPI["registerTool"]>[0]) => {
-			tool = definition;
+			if (definition.name === "delegate") tool = definition;
 		},
 		on: () => () => {},
 		getAllTools: () => {
