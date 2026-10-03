@@ -3,7 +3,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type AssistantMessage, Type, type Usage } from "@earendil-works/pi-ai";
+import {
+	type AssistantMessage,
+	type Static,
+	Type,
+	type Usage,
+} from "@earendil-works/pi-ai";
 import {
 	type AgentSession,
 	DEFAULT_MAX_BYTES,
@@ -28,6 +33,13 @@ import {
 	SNAPSHOT_ENV,
 } from "./inheritance.ts";
 import { formatDelegationOutput } from "./output.ts";
+import {
+	type PressureOverrides,
+	pressureParameters,
+	resolvePressure,
+	TaskPressure,
+	validatePressureInput,
+} from "./pressure.ts";
 import { RpcProcess } from "./rpc.ts";
 
 export function resolveCli(): string {
@@ -84,6 +96,7 @@ export interface DelegationOptions {
 	snapshot: InheritanceSnapshot;
 	task: string;
 	context?: string;
+	pressure?: PressureOverrides;
 	signal?: AbortSignal;
 	ui?: (
 		request: RpcExtensionUIRequest,
@@ -144,12 +157,15 @@ export async function runDelegation(
 	let directory: string | undefined;
 	let rpc: RpcProcess | undefined;
 	let settlement: ReturnType<RpcProcess["waitForSettled"]> | undefined;
+	let pressure: TaskPressure | undefined;
+	let unsubscribePressure: (() => void) | undefined;
 	let usage = sumUsage([]);
 	const details: Omit<DelegationDetails, "status" | "error"> = {};
 	try {
 		let result: DelegationResult;
 		try {
 			options.signal?.throwIfAborted();
+			const policy = resolvePressure(options.pressure);
 			directory = await mkdtemp(join(tmpdir(), "pi-delegate-"));
 			const snapshotPath = join(directory, "inheritance.json");
 			await writeFile(snapshotPath, JSON.stringify(options.snapshot), {
@@ -190,6 +206,14 @@ export async function runDelegation(
 				);
 
 			settlement = rpc.waitForSettled();
+			const child = rpc;
+			pressure = new TaskPressure(policy, (message) =>
+				child.request("steer", { message }),
+			);
+			unsubscribePressure = rpc.subscribe(pressure.observe);
+			options.signal?.addEventListener("abort", pressure.dispose, {
+				once: true,
+			});
 			// Prefixing prevents tasks beginning with '/' from becoming extension commands.
 			const message = `Task:\n${options.task}${options.context === undefined ? "" : `\n\nSupplementary context:\n${options.context}`}`;
 			const accepted = await rpc.request<{ disposition: string }>("prompt", {
@@ -197,7 +221,8 @@ export async function runDelegation(
 			});
 			if (accepted.disposition !== "started")
 				throw new Error(`Child task did not start: ${accepted.disposition}`);
-			await settlement.promise;
+			await Promise.race([settlement.promise, pressure.failure]);
+			pressure.dispose();
 			// Projected get_messages can omit a length response during host recovery.
 			// Persisted entries retain every attempt, including the final truncated answer.
 			const { entries: resultEntries } = await rpc.request<{
@@ -267,6 +292,10 @@ export async function runDelegation(
 				isError: status === "failed" || status === "cancelled",
 			};
 		} finally {
+			pressure?.dispose();
+			unsubscribePressure?.();
+			if (pressure)
+				options.signal?.removeEventListener("abort", pressure.dispose);
 			settlement?.dispose();
 			try {
 				await rpc?.stop();
@@ -342,28 +371,47 @@ export function registerDelegate(
 		);
 	});
 	const entryPath = fileURLToPath(new URL("./index.ts", import.meta.url));
+	const parameters = Type.Object({
+		task: Type.String({
+			minLength: 1,
+			description: "Task for the subagent",
+		}),
+		context: Type.Optional(
+			Type.String({
+				description:
+					"Supplementary context; the parent conversation is not copied",
+			}),
+		),
+		background: Type.Optional(
+			Type.Boolean({
+				description: "Return a background taskId instead of waiting",
+			}),
+		),
+		pressure: Type.Optional(pressureParameters),
+	});
 	pi.registerTool(
 		defineTool({
 			name: DELEGATE_TOOL,
 			label: "Delegate",
-			description: `Run a task in a fresh Pi RPC subagent with the same extensions and inherited tools, excluding delegation. By default waits for completed, incomplete (generation length limit), failed, or cancelled. Set background:true in a long-lived TUI/RPC session to return a taskId without waiting; completion is delivered to the parent after its current work, waking it if idle. Query with delegate_status or cancel with delegate_cancel. Background usage is separate from Pi parent-session totals. Supply necessary context explicitly. Output is limited to ${formatSize(DEFAULT_MAX_BYTES)} or ${DEFAULT_MAX_LINES} lines; oversized answers include a preview and complete-output file path.`,
-			parameters: Type.Object({
-				task: Type.String({
-					minLength: 1,
-					description: "Task for the subagent",
-				}),
-				context: Type.Optional(
-					Type.String({
-						description:
-							"Supplementary context; the parent conversation is not copied",
-					}),
-				),
-				background: Type.Optional(
-					Type.Boolean({
-						description: "Return a background taskId instead of waiting",
-					}),
-				),
-			}),
+			description: `Run a task in a fresh Pi RPC subagent with the same extensions and inherited tools, excluding delegation. By default waits for completed, incomplete (generation length limit), failed, or cancelled. Set background:true in a long-lived TUI/RPC session to return a taskId without waiting; completion is delivered to the parent after its current work, waking it if idle. Query with delegate_status or cancel with delegate_cancel. Background usage is separate from Pi parent-session totals. Configure task-local pressure.warning/urgent afterSeconds/afterTurns; omitted values default to 300s OR 20 turns and 600s OR 40 turns. Each urgent threshold must exceed warning after defaults. Each stage steers once to encourage finishing, never automatically cancels. Supply necessary context explicitly. Output is limited to ${formatSize(DEFAULT_MAX_BYTES)} or ${DEFAULT_MAX_LINES} lines; oversized answers include a preview and complete-output file path.`,
+			parameters,
+			prepareArguments(args) {
+				if (args === null || typeof args !== "object" || Array.isArray(args))
+					return args as Static<typeof parameters>;
+				const prepared = { ...(args as Record<string, unknown>) };
+				// Private, clone-safe diagnostic: Pi clones prepared args before execute.
+				// Never trust an internal diagnostic supplied by a caller.
+				delete prepared.__piDelegatePressureError;
+				try {
+					validatePressureInput(prepared.pressure);
+				} catch (error) {
+					// Preserve raw rejection without letting host validation bypass failedResult.
+					delete prepared.pressure;
+					prepared.__piDelegatePressureError =
+						error instanceof Error ? error.message : String(error);
+				}
+				return prepared as Static<typeof parameters>;
+			},
 			async execute(_id, params, signal, _onUpdate, ctx) {
 				const controller = new AbortController();
 				const combined = signal
@@ -371,18 +419,26 @@ export function registerDelegate(
 					: controller.signal;
 				try {
 					combined.throwIfAborted();
+					const preparationError = (
+						params as Static<typeof parameters> & {
+							__piDelegatePressureError?: string;
+						}
+					).__piDelegatePressureError;
+					if (preparationError !== undefined) throw new Error(preparationError);
 					if (!params.task.trim())
 						throw new Error("Delegation task must not be blank");
 					if (params.background && ctx.mode !== "tui" && ctx.mode !== "rpc")
 						throw new Error(
 							"Background delegation requires a long-lived TUI or RPC parent session",
 						);
+					const policy = resolvePressure(params.pressure);
 					const inherited = captureInheritance(pi, ctx, entryPath);
 					const options: DelegationOptions = {
 						...inherited,
 						cwd: ctx.cwd,
 						task: params.task,
 						context: params.context,
+						pressure: policy,
 						signal: combined,
 					};
 					if (params.background) return background.start(options, ctx);

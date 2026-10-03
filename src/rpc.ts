@@ -184,6 +184,11 @@ export class RpcProcess {
 		});
 	}
 
+	subscribe(listener: (record: RecordValue) => void): () => void {
+		this.listeners.add(listener);
+		if (this.failure) listener({ type: "rpc_failure", error: this.failure });
+		return () => this.listeners.delete(listener);
+	}
 	waitForSettled(): { promise: Promise<void>; dispose(): void } {
 		let listener: (record: RecordValue) => void;
 		const promise = new Promise<void>((resolve, reject) => {

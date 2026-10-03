@@ -64,6 +64,33 @@ pi install /absolute/path/to/pi-delegate
 - 委派结果统一在 `details.status` 中返回四种状态：`stop → completed`、`length → incomplete`、`error → failed`、`aborted → cancelled`。未完成结果保留部分文本并提示生成长度限制；失败和取消保留可获取的诊断、会话及 usage，并设置 `isError: true`，不再只抛异常。启动、继承和 RPC 失败也返回 `failed`；父调用取消返回 `cancelled`。尚未获取的会话/停止原因字段省略，未获取的 usage 为零。
 - `incomplete` 不自动续写，也不代表运行错误（`isError: false`）。展示截断独立使用 `details.truncation` 表示；正常生成但超出展示上限时仍是 `completed`。
 
+### Subagent 收尾催促
+
+主 agent 可以在每次 `delegate` 调用中通过 `pressure` 配置两档催促阈值；配置与提醒状态只属于本次任务，同步和后台模式都生效。**这是软约束，不是超时强制取消。**
+
+```json
+{
+  "task": "检查 src/ 的错误处理，汇报发现和未完成项",
+  "pressure": {
+    "warning": { "afterSeconds": 180, "afterTurns": 15 },
+    "urgent": { "afterSeconds": 360, "afterTurns": 30 }
+  }
+}
+```
+
+| 档位 | 未配置时的默认值 | 催促意图 |
+| --- | --- | --- |
+| `warning` | 300 秒 **或** 20 个完成轮次 | 聚焦核心目标，停止扩展范围，准备最终汇报 |
+| `urgent` | 600 秒 **或** 40 个完成轮次 | 尽快结束探索，汇总已有结果，明确未完成项与阻碍 |
+
+- 时间或轮次达到（`>=`）阈值，任一条件即可触发；每档最多提醒一次，不会因两个条件都达到而重复发送。
+- `pressure`、某一档或某个字段省略时，**逐项**使用对应默认值。例如只设置 `warning.afterSeconds: 180`，提醒档仍保留默认的 20 轮阈值。
+- `afterSeconds` 单位为秒，允许正的小数；`afterTurns` 必须为正整数。所有数值必须有限，`0` / `null` 不能用来关闭催促。
+- 补齐默认值后，`urgent.afterSeconds` 必须大于 `warning.afterSeconds`，`urgent.afterTurns` 也必须大于 `warning.afterTurns`。错误配置会在启动子进程前明确失败，不自动排序、改写或退回默认值；后台调用也不会接受这种任务。
+- 计时从实际子任务开始，不含进程／继承工具初始化；包含模型、工具执行及等待时间。一轮是一次 assistant 响应及其关联工具全部结束，多个、并行或嵌套工具不额外计轮。
+- 通过 RPC `steer` 向子 agent 发送模型可见的催促。消息在当前轮工具执行完毕、后续模型请求前有机会被消费，**不会打断**正在执行的模型请求或工具。RPC 接受／排队不等于模型已消费或遵从；继承扩展的输入处理也可能处理或改写消息。
+- 超过两档仍不会自动杀进程、禁用工具或改变任务结果状态。子 agent 可能继续工作，不能保证最大运行时间／轮数；显式取消和原有会话清理机制保持不变。
+
 ### 后台委派
 
 仅长期运行的 TUI / RPC 主会话支持后台模式；在一次性 print / JSON 模式中请求后台执行会明确报错。
