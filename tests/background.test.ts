@@ -74,8 +74,8 @@ for (const status of [
 			(message) => messages.push(message),
 		);
 		const accepted = tasks.start(options, idle);
-		expect(calls).toBe(0);
-		expect(accepted.details.status).toBe("running");
+		expect(calls).toBe(1);
+		expect(accepted.details.status).toBe("queued");
 		await waitFor(() => messages.length === 1);
 		const final = tasks.query(accepted.details.taskId);
 		expect(final.details.status).toBe(status);
@@ -147,7 +147,7 @@ test("parent abort is detached; explicit task cancellation awaits cleanup", asyn
 	await waitFor(() => childSignal !== undefined);
 	parent.abort();
 	expect(childSignal?.aborted).toBe(false);
-	expect(tasks.query(taskId).details.status).toBe("running");
+	expect(tasks.query(taskId).details.status).toBe("queued");
 	const final = await tasks.cancel(taskId);
 	expect(cleaned).toBe(true);
 	expect(final.details.status).toBe("cancelled");
@@ -254,7 +254,7 @@ for (const closing of [false, true]) {
 				expect(messages).toHaveLength(0);
 				if (fresh) {
 					expect(runs.get("fresh")?.signal.aborted).toBe(false);
-					expect(tasks.query(fresh).details.status).toBe("running");
+					expect(tasks.query(fresh).details.status).toBe("queued");
 					runs.get("fresh")?.finish();
 					await waitFor(() => messages.length === 1);
 					expect(messages[0].details.taskId).toBe(fresh);
@@ -352,7 +352,7 @@ test("registered TUI tools acknowledge, query and trigger model-visible completi
 	if (!start) throw new Error("Missing delegation acknowledgement");
 	const taskId = (start.details as BackgroundTaskResult["details"]).taskId;
 	expect((start.details as BackgroundTaskResult["details"]).status).toBe(
-		"running",
+		"initializing",
 	);
 	await waitFor(() => messages.length === 1);
 	expect(messages[0]).toMatchObject({

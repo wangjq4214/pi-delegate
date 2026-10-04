@@ -222,7 +222,7 @@ for (const background of [false, true]) {
 					registration.ctx,
 				);
 				expect(result.details).toMatchObject({
-					status: background ? "running" : "completed",
+					status: background ? "initializing" : "completed",
 				});
 				await waitFor(() => calls.length === 1);
 				expect(calls[0].pressure).toEqual(resolvePressure(pressure));

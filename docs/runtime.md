@@ -6,7 +6,7 @@ pi-delegate uses a fresh Pi RPC child for every task. This document explains wha
 
 ## Process model
 
-Each invocation launches a separate Pi CLI process in RPC mode and creates a new in-memory session. Child sessions are not reused, and the parent's full conversation is not transferred. Only the explicit task and optional supplementary context are supplied as task input.
+Each admitted invocation launches a separate Pi CLI process in RPC mode and creates a new in-memory session. Child sessions are not reused, and the parent's full conversation is not transferred. Only the explicit task and optional supplementary context are supplied as task input.
 
 The child uses the CLI from the installed Pi host package:
 
@@ -14,6 +14,27 @@ The child uses the CLI from the installed Pi host package:
 - A Bun host requires `node` on `PATH`.
 
 RPC control commands have a 40-second response timeout. Inherited-tool initialization waits up to 30 seconds for missing tools to become available. The model task itself has no fixed timeout; [soft pressure](usage.md#soft-pressure) is advisory rather than a hard execution budget.
+
+## Concurrency scheduling
+
+Synchronous and background tasks share a runtime-local FIFO pool, excluding the parent. The default maximum is **4**. Set `PI_DELEGATE_CONCURRENCY` to a positive safe integer before Pi starts; it is read when the extension registers and cannot be adjusted at runtime. Invalid values fail extension registration rather than silently removing the limit.
+
+POSIX shell example:
+
+```sh
+PI_DELEGATE_CONCURRENCY=1 pi --extension ./src/index.ts
+```
+
+PowerShell example:
+
+```powershell
+$env:PI_DELEGATE_CONCURRENCY = "1"
+pi --extension ./src/index.ts
+```
+
+Excess tasks remain `queued` with captured invocation/model/thinking inputs and no child process. Admitted tasks are `initializing` until observed original-task execution makes them `running`. Initialization and owned cleanup both occupy capacity; settlement alone does not release it. Queued cancellation settles without launching a child. Background acceptance remains immediate and independent of ordinary parent-turn cancellation; synchronous calls wait through admission, execution and cleanup.
+
+Queue residence and initialization do not advance execution clocks, turns or soft pressure, and are not steer-ready. Scheduling adds no timeout, priority, preemption or automatic cost-budget cancellation.
 
 ## Tool and configuration inheritance
 
@@ -63,6 +84,16 @@ Background execution is asynchronous work inside the current Pi session, not a p
 Normal completion and failure also release the child process and temporary initialization snapshot.
 
 Usage is collected from final child entries when available. If cancellation or a transport failure prevents collection, results retain usage already observed in message events and the latest cumulative streaming update. Unreported provider usage cannot be recovered; these failure-path totals can be partial. Streaming updates, final messages, and final entries are not added together twice.
+
+The authoritative readback includes assistant/tool-result messages, standalone usage entries and usage-bearing compaction/branch-summary entries. Nested tool usage already included in a tool result is not counted again; reasoning and cache-write subsets are not extra output/cache charges.
+
+### Delegated usage visibility
+
+The Agents area shows latest task usage and an explicitly labelled cumulative **Delegated total**, separate from Pi's parent-session totals. Contributions are replaced by new snapshots, not charged again on queries, completion delivery or final readback. Completed, failed and cancelled consumption survives the five-second row expiry. Branch navigation removes task handles/rows but retains consumed usage, including available late cleanup reconciliation. Session replacement/reload creates a fresh total; no cross-runtime usage history is persisted.
+
+The compact format is `↑8.2k ↓1.1k R20k W0 · $0.04`: ↑ is model input tokens, ↓ is output tokens, R is cache-read tokens and W is cache-write tokens. These are not network bytes, and cache tokens are separate from input. Display rounding does not change stored accounting precision.
+
+The dollar value is Pi's provider-reported/calculated **estimate**, not the supplier invoice. Subscription and custom-provider pricing may differ or report zero. Updates depend on provider/host reporting; failure/cancellation totals may be partial and unreported consumption cannot be recovered. Do not add delegated totals to parent totals: synchronous usage is already represented through host tool-result accounting, whereas background usage is separately reported. The ledger and scheduling work without the TUI widget.
 
 Full-output files are separate result artifacts and intentionally survive this cleanup so callers can retrieve truncated text. See [large output](usage.md#large-output).
 

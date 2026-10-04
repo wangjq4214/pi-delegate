@@ -47,8 +47,10 @@ import {
 	validatePressureInput,
 } from "./pressure.ts";
 import { RpcProcess } from "./rpc.ts";
+import { Admission, concurrencyLimit } from "./scheduling.ts";
 import { AgentStatus, type StatusObserver } from "./status.ts";
 import { type SteeringControl, TaskSteering } from "./steering.ts";
+import { entriesUsage, sumUsage, UsageLedger } from "./usage.ts";
 
 export function resolveCli(): string {
 	const root = getPackageDir();
@@ -61,40 +63,6 @@ export function resolveCli(): string {
 	throw new Error("Cannot locate the Pi CLI in the installed host package");
 }
 
-function sumUsage(usages: Iterable<Usage>): Usage {
-	const sum: Usage = {
-		input: 0,
-		output: 0,
-		cacheRead: 0,
-		cacheWrite: 0,
-		totalTokens: 0,
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-	};
-	for (const usage of usages) {
-		for (const key of [
-			"input",
-			"output",
-			"cacheRead",
-			"cacheWrite",
-			"totalTokens",
-		] as const)
-			sum[key] += usage[key];
-		for (const key of [
-			"input",
-			"output",
-			"cacheRead",
-			"cacheWrite",
-			"total",
-		] as const)
-			sum.cost[key] += usage.cost[key];
-		if (usage.reasoning !== undefined)
-			sum.reasoning = (sum.reasoning ?? 0) + usage.reasoning;
-		if (usage.cacheWrite1h !== undefined)
-			sum.cacheWrite1h = (sum.cacheWrite1h ?? 0) + usage.cacheWrite1h;
-	}
-	return sum;
-}
-
 export interface DelegationOptions {
 	cwd: string;
 	args: string[];
@@ -105,6 +73,8 @@ export interface DelegationOptions {
 	pressure?: PressureOverrides;
 	status?: StatusObserver;
 	onSteeringControl?: (control: SteeringControl) => void;
+	onPhase?: (phase: "queued" | "initializing" | "running") => void;
+	onUsage?: (usage: Usage) => void;
 	signal?: AbortSignal;
 	ui?: (
 		request: RpcExtensionUIRequest,
@@ -163,6 +133,7 @@ function failedResult(
 export async function runDelegation(
 	options: DelegationOptions,
 ): Promise<DelegationResult> {
+	options.onPhase?.("initializing");
 	let directory: string | undefined;
 	let rpc: RpcProcess | undefined;
 	let settlement: ReturnType<RpcProcess["waitForSettled"]> | undefined;
@@ -212,6 +183,9 @@ export async function runDelegation(
 			const { entries } = await rpc.request<{ entries: SessionEntry[] }>(
 				"get_entries",
 			);
+			observedUsage = entriesUsage(entries);
+			completedUsage = observedUsage;
+			options.onUsage?.(observedUsage);
 			const initialized = [...entries]
 				.reverse()
 				.find(
@@ -295,6 +269,8 @@ export async function runDelegation(
 					...pendingToolUsage.values(),
 					...(streamingUsage ? [streamingUsage] : []),
 				]);
+				options.onUsage?.(observedUsage);
+				if (record.type === "agent_start") options.onPhase?.("running");
 				steering?.observe(record);
 				pressure?.observe(record);
 				options.status?.observe(record);
@@ -322,14 +298,8 @@ export async function runDelegation(
 			const messages = resultEntries.flatMap((entry) =>
 				entry.type === "message" ? [entry.message] : [],
 			);
-			usage = sumUsage(
-				messages.flatMap((message) =>
-					(message.role === "assistant" || message.role === "toolResult") &&
-					message.usage
-						? [message.usage]
-						: [],
-				),
-			);
+			usage = entriesUsage(resultEntries);
+			options.onUsage?.(usage);
 			const final = [...messages]
 				.reverse()
 				.find((item) => item.role === "assistant");
@@ -466,14 +436,40 @@ export function registerDelegate(
 ): void {
 	const active = new Map<AbortController, Promise<unknown>>();
 	const status = new AgentStatus();
+	const admission = new Admission(concurrencyLimit(), (capacity) =>
+		status.capacity(capacity),
+	);
+	const ledger = new UsageLedger((total) => status.total(total));
 	const observedRun: typeof runDelegation = async (options) => {
+		const task = {};
+		let latest = sumUsage([]);
+		const report = (usage: Usage) => {
+			latest = structuredClone(usage);
+			ledger.update(task, usage);
+			options.status?.usage?.(usage);
+			options.onUsage?.(usage);
+		};
+		let release: (() => void) | undefined;
+		const phase = (value: "queued" | "initializing" | "running") => {
+			options.status?.phase?.(value);
+			options.onPhase?.(value);
+		};
 		try {
-			const result = await run(options);
+			phase("queued");
+			release = await admission.acquire(options.signal, () =>
+				phase("initializing"),
+			);
+			options.signal?.throwIfAborted();
+			const result = await run({ ...options, onPhase: phase, onUsage: report });
+			report(result.usage);
 			options.status?.finish(result.details.status);
 			return result;
 		} catch (error) {
-			options.status?.finish(options.signal?.aborted ? "cancelled" : "failed");
-			throw error;
+			const result = failedResult(error, options.signal?.aborted, {}, latest);
+			options.status?.finish(result.details.status);
+			return result;
+		} finally {
+			release?.();
 		}
 	};
 	const background = new BackgroundTasks(
@@ -683,6 +679,7 @@ export function registerDelegate(
 	});
 	pi.on("session_shutdown", async () => {
 		status.close();
+		ledger.close();
 		for (const controller of active.keys()) controller.abort();
 		await Promise.allSettled([...active.values(), background.invalidate(true)]);
 	});

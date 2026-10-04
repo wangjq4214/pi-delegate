@@ -138,7 +138,8 @@ for (const background of [false, true]) {
 				);
 				if (background) {
 					const taskId = (result.details as { taskId: string }).taskId;
-					await waitFor(() => !host.frame().includes("Agents"));
+					await waitFor(() => !host.frame().includes("1  UI proof"));
+					expect(host.frame()).toContain("Delegated total");
 					const retained = await query.execute(
 						"query",
 						{ taskId },

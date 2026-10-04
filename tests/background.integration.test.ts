@@ -161,7 +161,7 @@ async function withParent(
 				await prompt(`START ${task}`);
 				const result = tool(await messages(), "delegate");
 				expect(result.isError).toBe(false);
-				expect(details(result).status).toBe("running");
+				expect(details(result).status).toBe("initializing");
 				expect(details(result).taskId).toBeTruthy();
 				expect(details(result).result).toBeUndefined();
 				expect(result.usage).toBeUndefined();
@@ -236,7 +236,7 @@ test("real Pi RPC: acknowledges gated background work, proceeds independently, a
 		await host.prompt(`STATUS ${id}`);
 		const running = tool(await host.messages(), "delegate_status");
 		expect(details(running).status).toBe("running");
-		expect(details(running).usage).toBeUndefined();
+		expect(details(running).usage).toMatchObject({ input: 0, output: 0 });
 		expect(completions(await host.messages())).toHaveLength(0);
 		expect(existsSync(join(host.logs, `${child.pid}.closed`))).toBe(false);
 		await host.release("child");

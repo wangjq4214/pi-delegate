@@ -116,7 +116,7 @@ test("acknowledged pressure is monotone, independent and invalidated with old ca
 	one.accepted("urgent");
 	one.accepted("warning");
 	expect(status.render(200)[1]).toContain("pressure: urgent");
-	expect(status.render(200)[4]).toContain("pressure: none");
+	expect(status.render(200)[5]).toContain("pressure: none");
 	const oldTimer = required([...time.jobs][0]).callback;
 	status.clear();
 	const three = required(status.add("third"));
@@ -217,4 +217,45 @@ test("confirmed configuration expires with terminal rows and old callbacks canno
 	expect(text()).toContain("model: unconfirmed");
 	expect(text()).not.toContain("thinking: low");
 	status.close();
+});
+
+test("capacity and delegated total survive row expiry and branch clearing without reviving old rows", () => {
+	const { status, time, text } = setup();
+	status.capacity({ occupied: 1, queued: 2, maximum: 4 });
+	const row = required(status.add("consumed"));
+	const usage = {
+		input: 8200,
+		output: 1100,
+		cacheRead: 20000,
+		cacheWrite: 0,
+		totalTokens: 29300,
+		cost: {
+			input: 0.01,
+			output: 0.03,
+			cacheRead: 0,
+			cacheWrite: 0,
+			total: 0.04,
+		},
+	};
+	row.phase?.("queued");
+	expect(text()).toContain("└─ queued");
+	time.advance(30);
+	expect(text()).toContain("0s · 0 turns");
+	row.usage?.(usage);
+	status.total(usage);
+	expect(text()).toContain("active: 1/4 · queued: 2");
+	expect(text()).toContain("│  ↑8.2k ↓1.1k R20k W0 · $0.04");
+	row.finish("cancelled");
+	time.advance(5);
+	expect(text()).not.toContain("consumed");
+	expect(text()).toContain("Delegated total · ↑8.2k");
+	status.clear();
+	row.usage?.({ ...usage, input: 1000000 });
+	expect(text()).not.toContain("1000k");
+	expect(text()).toContain("Delegated total · ↑8.2k");
+	for (const width of [1, 2, 8, 20, 80, 200])
+		for (const line of status.render(width))
+			expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+	status.close();
+	expect(text()).toBe("");
 });

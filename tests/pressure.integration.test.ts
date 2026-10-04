@@ -512,7 +512,7 @@ test("pressure real RPC: background pressure survives initiating parent completi
 		await host.begin({ calls: [call] }); // Initiating parent turn is already finished, before actual child task.
 		const acknowledgement = tool(await host.messages(), "delegate");
 		const id = background(acknowledgement).taskId;
-		expect(background(acknowledgement).status).toBe("running");
+		expect(background(acknowledgement).status).toBe("initializing");
 		expect(acknowledgement.usage).toBeUndefined();
 		const child = await host.child();
 		await host.release(child, "init");
@@ -652,7 +652,7 @@ test("pressure real RPC: concurrent sync/background calls keep distinct threshol
 		);
 		if (!syncResult) throw new Error("Missing sync result");
 		assertResult(syncResult, sync, "isolated-sync");
-		const ack = delegated.find((r) => background(r).status === "running");
+		const ack = delegated.find((r) => background(r).status === "initializing");
 		if (!ack) throw new Error("Missing background acknowledgement");
 		for (let n = 0; n < 3; n++) await host.advance(bg, n);
 		await host.event(

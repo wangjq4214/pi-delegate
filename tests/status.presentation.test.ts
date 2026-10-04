@@ -39,7 +39,7 @@ test.serial(
 				.frame(80)
 				.split("\n")
 				.map((line) => line.trimEnd());
-			expect(lines).toHaveLength(8);
+			expect(lines).toHaveLength(9);
 			expect(lines[0]).toBe("CONTENT SENTINEL");
 			expect(lines[1]).toBe("");
 			expect(lines[2]).toBe("  Agents");
@@ -48,10 +48,11 @@ test.serial(
 			expect(lines[4]).toBe(
 				"    │  model: unconfirmed · thinking: unconfirmed",
 			);
-			expect(lines[5]).toBe("    └─ initializing…");
-			expect(lines[6]).toBe("");
-			expect(lines[7]).toBe("INPUT SENTINEL");
-			for (const index of [2, 3, 4, 5])
+			expect(lines[5]).toBe("    │  ↑0 ↓0 R0 W0 · $0.00");
+			expect(lines[6]).toBe("    └─ initializing…");
+			expect(lines[7]).toBe("");
+			expect(lines[8]).toBe("INPUT SENTINEL");
+			for (const index of [2, 3, 4, 5, 6])
 				expect(visibleWidth(required(lines[index]))).toBeLessThanOrEqual(78);
 			for (const width of [1, 2, 8, 20, 40, 42, 44, 50, 80, 160, 50, 80]) {
 				for (const line of host.styledFrame(width).split("\n"))
@@ -285,7 +286,7 @@ test.serial(
 				for (let i = 0; i < lines.length; i++) {
 					const metadata = required(lines[i]);
 					if (!metadata.includes("│") || !metadata.includes("model:")) continue;
-					const activity = required(lines[i + 1]);
+					const activity = required(lines[i + 2]);
 					expect(visibleWidth(metadata.slice(0, metadata.indexOf("│")))).toBe(
 						visibleWidth(activity.slice(0, activity.indexOf("└"))),
 					);

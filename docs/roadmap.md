@@ -14,7 +14,7 @@ If parallel code modification by multiple subagents becomes the primary use case
   - Include title, elapsed time, turns, current tool, pressure, usage, and result details. Establish an explicit relationship between TUI numeric labels and `taskId`.
   - Add a TUI task panel for inspecting results, cancelling work, and sending additional instructions.
 - [x] **Per-task model selection:** allow a delegation to override the model and thinking level, retaining parent inheritance by default, to balance task complexity, speed, and cost.
-- [ ] **Concurrency scheduling and cost visibility:** support a maximum concurrency limit with excess tasks queued, distinguishing `queued / initializing / running`.
+- [x] **Concurrency scheduling and cost visibility:** support a maximum concurrency limit with excess tasks queued, distinguishing `queued / initializing / running`.
   - Aggregate subtask token/cost usage while maintaining a clear boundary from Pi's parent-session totals and avoiding duplicate accounting.
   - Evaluate explicit, opt-in hard budget policies when needed. Preserve soft pressure as advisory rather than silently turning it into forced timeouts.
 - [ ] **Safe parallel modification:** allow declared file-modification scopes and warn about scope conflicts across tasks.

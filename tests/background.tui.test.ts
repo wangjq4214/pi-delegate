@@ -182,7 +182,7 @@ for (const busy of [false, true]) {
 				const ack = tool(parent, "delegate");
 				const details = ack.details as unknown as BackgroundTaskDetails;
 				expect(ack.isError).toBe(false);
-				expect(details.status).toBe("running");
+				expect(details.status).toBe("initializing");
 				expect(details.result).toBeUndefined();
 				expect(details.taskId).toBeTruthy();
 				expect(ack.usage).toBeUndefined();

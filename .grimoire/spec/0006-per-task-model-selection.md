@@ -16,6 +16,8 @@
 
 Selected endpoint: **spec-only**, one contract for startup selection and its UI visibility, with a compatibility cross-reference in spec 0004. No slice, tickets, implementation plan, production/test edits or runtime/UI QA are authorized. The spec consumes settled requirements and established choices only: organize and express them, but do not invent or revise domain facts, requirements, constraints, acceptance semantics, architecture or unconfirmed assumptions. Meaningful assertions must trace to the handoff or sources. A needed new fact/decision returns to refine for clarification and live recording before this stage resumes; formatting and execution ordering do not authorize filling semantic gaps. Results return to refine at this endpoint.
 
+**Concurrency/usage extension (2026-10-04):** [Spec 0007 — Concurrency scheduling and delegated cost visibility](./0007-concurrency-scheduling-and-cost-visibility.md) separately authorizes queued-phase visibility, capacity/aggregate information and an aligned per-task usage row in the same Agents area. Invocation-captured selection, child confirmation before original-task submission, requested-versus-effective truthfulness and R6–R7's model/activity alignment remain applicable. This cross-reference is a spec-only compatibility update, not implementation evidence for the new scheduling/usage feature.
+
 ## Requirements
 
 ### R1 — Independent optional selection inputs

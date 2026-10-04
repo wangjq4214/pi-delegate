@@ -38,9 +38,18 @@ input.on("line", (line) => {
 		}
 		reply({
 			entries: started
-				? (scenario === "usage-readback" ? [assistant(13)] : messages).map(
-						(message) => ({ type: "message", message }),
-					)
+				? [
+						...(scenario === "usage-readback" ? [assistant(13)] : messages).map(
+							(message) => ({ type: "message", message }),
+						),
+						...(scenario === "usage-auxiliary"
+							? [
+									{ type: "usage", usage: usage(7) },
+									{ type: "compaction", usage: usage(11) },
+									{ type: "branch_summary", usage: usage(13) },
+								]
+							: []),
+					]
 				: [
 						{
 							type: "custom",

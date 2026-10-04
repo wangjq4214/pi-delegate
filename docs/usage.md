@@ -57,7 +57,7 @@ Terminal synchronous results expose `details.configuration.requested` and, when 
 }
 ```
 
-The call remains pending until the child finishes or fails. Cancelling the initiating call cancels its child. Each invocation creates a new process and a fresh in-memory session; previous child conversations are not reused.
+The call waits for capacity, then remains pending through child execution and cleanup. See [startup concurrency configuration](runtime.md#concurrency-scheduling). Cancelling the initiating call cancels its child. Each invocation creates a new process and a fresh in-memory session; previous child conversations are not reused.
 
 ### Background execution
 
@@ -72,7 +72,7 @@ Background mode is supported only in long-lived TUI and RPC parent sessions. Req
 }
 ```
 
-The call immediately returns `details.taskId` and `details.status: "running"`. This acknowledges acceptance, not child readiness or successful completion. The parent can continue other work while initialization and execution proceed.
+The call immediately returns `details.taskId` and its applicable `details.status`: `queued`, `initializing`, or `running`. This acknowledges acceptance, not child readiness or successful completion. The parent can continue other work while waiting, initialization and execution proceed.
 
 When the child reaches a terminal outcome, the extension sends a model-visible `pi-delegate:completed` message with the task ID, outcome, and available output:
 
@@ -103,7 +103,7 @@ Pass this object to `delegate_status` to query, or to `delegate_cancel` to cance
 | Field | Meaning |
 | --- | --- |
 | `details.taskId` | Background task identifier. |
-| `details.status` | `running` or one of the four terminal outcomes below. |
+| `details.status` | `queued`, `initializing`, `running`, or one of the four terminal outcomes below. |
 | `details.result` | Available child-result metadata, including session/stop reason, errors, truncation, and full-output path when present. |
 | `details.usage` | Available child token and cost usage. |
 | `details.accounting` | Reminder that background usage is separate from Pi's parent-session totals. |
@@ -124,7 +124,7 @@ Call `delegate_steer` with the existing background ID (not its numeric TUI label
 
 This adds instructions to the same child and original task without cancelling/restarting it. It never falls back to `prompt` or implicitly starts idle/terminal work. It does not interrupt an in-flight provider request or associated tools; queued text is eligible after the current assistant turn’s tools finish and before a subsequent provider request, subject to continued execution and the host’s steering mode.
 
-Readiness requires successful inherited-tool initialization **and original-task start**. `running` alone is insufficient. During initialization or before task start, `not_ready` returns immediately: the rejected instruction is not buffered or submitted later. A later explicit call can use the same active ID.
+Readiness requires successful inherited-tool initialization **and original-task start**. `running` alone is insufficient. While queued, during initialization or before task start, `not_ready` returns immediately: the rejected instruction is not buffered or submitted later. A later explicit call can use the same active ID.
 
 Steering results are operation receipts, not task outcomes:
 
@@ -192,7 +192,7 @@ Configure two stages on each `delegate` call. The policy applies to both synchro
 - `afterSeconds` must be a positive finite number; fractions are allowed. `afterTurns` must be a positive finite integer. `0` and `null` do not disable pressure.
 - After defaults are filled in, `urgent.afterSeconds` must exceed `warning.afterSeconds`, and `urgent.afterTurns` must exceed `warning.afterTurns`.
 - Invalid policies fail before child startup, including background calls. Values are not silently sorted, rewritten, or replaced with defaults.
-- Timing starts at actual task execution, excluding process/tool initialization. Model calls, tools, and waiting time count.
+- Timing starts at actual task execution, excluding queue residence and process/tool initialization. Model calls, tools, and waiting time count.
 - One turn is a completed assistant response plus all associated tool execution. Individual, parallel, or nested tool calls do not add extra turns.
 
 ### Delivery guarantees
@@ -214,20 +214,21 @@ Each child has:
 - Actual task-running seconds and English `turn` / `turns` labels.
 - `pressure: none / warning / urgent`.
 - A separate `│  model: provider/id · thinking: level` row showing confirmed startup configuration; before confirmation it says `unconfirmed`. The `│` aligns with the activity connector and `model` aligns with activity text. Thinking metadata does not imply observed thinking activity.
+- An aligned `│  ↑... ↓... R... W... · $...` usage row; see [usage accounting and estimate limits](runtime.md#delegated-usage-visibility).
 - A subordinate line with only current observed activity, such as `thinking…` or `toolcall · read`.
 
-The list does not display thinking content, tool arguments, results, roles, tokens, or costs. Initialization is excluded from time/turn counts, and elapsed time continues during tool waits.
+The heading shows occupied/maximum capacity and queued count, followed by a separately labelled Delegated total. The list does not display thinking content, tool arguments, results, or roles. Queued and initializing phases are explicit and excluded from time/turn counts; elapsed execution time continues during provider/tool waits.
 
 Pressure advances only after the child's RPC accepts that stage's steering request; it does not indicate consumption or compliance.
 
-Terminal outcomes remain visible for 5 seconds and are then removed from the UI only. Background results stay queryable while their scope remains valid. Scope changes, reload, and shutdown clear old displays and callbacks.
+Terminal outcomes remain visible for 5 seconds and are then removed from the UI only. Background results stay queryable while their scope remains valid. Branch changes clear task rows/callbacks but retain cumulative delegated usage. Session replacement/reload and shutdown end the owning total.
 
 The Agents area has 2-column horizontal insets when space permits and a 1-line gap above and below, counting Pi's existing widget spacing rather than doubling it. Insets shrink on narrow terminals before consuming space needed for identity and summary metadata.
 
 Colors follow Pi's active theme, including theme switches and host-supported custom-theme hot reload, without separate extension color settings. English status text remains visible alongside color:
 
 - Running/thinking/tool activity uses `accent`; completed uses `success`, incomplete uses `warning`, and failed uses `error`.
-- Initializing, finishing, and cancelled states use `muted`. Titles use normal text color; time, turns, and separators use secondary styling.
+- Queued, initializing, finishing, and cancelled states use `muted`. Titles use normal text color; time, turns, and separators use secondary styling.
 - Pressure independently uses `dim` for none, `warning` for warning, and `error` for urgent. Urgent pressure does not mean the task failed.
 
 Narrow terminals preserve space for the numeric label, time, turns, and pressure where possible, shortening the title first. Extremely narrow output is truncated to terminal width. RPC, print, and JSON execution do not depend on this component.

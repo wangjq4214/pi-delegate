@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Usage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type {
 	DelegationOptions,
@@ -14,7 +15,7 @@ export const BACKGROUND_MESSAGE = "pi-delegate:completed";
 type TaskContext = Pick<ExtensionContext, "isIdle" | "hasPendingMessages">;
 export interface BackgroundTaskDetails {
 	taskId: string;
-	status: "running" | DelegationStatus;
+	status: "queued" | "initializing" | "running" | DelegationStatus;
 	result?: DelegationResult["details"];
 	usage?: DelegationResult["usage"];
 	accounting: string;
@@ -42,6 +43,8 @@ interface Task {
 	controller: AbortController;
 	context: TaskContext;
 	operation: Promise<void>;
+	phase: "queued" | "initializing" | "running";
+	usage?: Usage;
 	steering?: SteeringControl;
 	result?: DelegationResult;
 	pendingDelivery: boolean;
@@ -73,20 +76,27 @@ export class BackgroundTasks {
 			context,
 			operation: Promise.resolve(),
 			pendingDelivery: false,
+			phase: "queued",
 		};
 		this.tasks.set(task.id, task);
-		// Acknowledgement and its tool result precede even an immediately finished child.
-		task.operation = new Promise<void>((resolve) => setImmediate(resolve))
-			.then(() =>
-				this.run({
-					...options,
-					signal: task.controller.signal,
-					ui: undefined,
-					onSteeringControl: (control) => {
-						task.steering = control;
-					},
-				}),
-			)
+		// Reserve admission at acceptance; async settlement still follows acknowledgement.
+		task.operation = (async () =>
+			this.run({
+				...options,
+				signal: task.controller.signal,
+				ui: undefined,
+				onPhase: (phase) => {
+					task.phase = phase;
+					options.onPhase?.(phase);
+				},
+				onUsage: (usage) => {
+					task.usage = structuredClone(usage);
+					options.onUsage?.(usage);
+				},
+				onSteeringControl: (control) => {
+					task.steering = control;
+				},
+			}))()
 			.catch((error: unknown) =>
 				this.failure(error, task.controller.signal.aborted),
 			)
@@ -180,7 +190,7 @@ export class BackgroundTasks {
 
 	private view(task: Task): BackgroundTaskResult {
 		const result = task.result;
-		const status = result?.details.status ?? "running";
+		const status = result?.details.status ?? task.phase;
 		return {
 			content: [
 				{
@@ -192,6 +202,7 @@ export class BackgroundTasks {
 				taskId: task.id,
 				status,
 				...(result ? { result: result.details, usage: result.usage } : {}),
+				...(!result && task.usage ? { usage: task.usage } : {}),
 				accounting: BACKGROUND_USAGE_NOTICE,
 				...(task.deliveryError ? { deliveryError: task.deliveryError } : {}),
 			},

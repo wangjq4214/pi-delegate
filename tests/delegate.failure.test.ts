@@ -47,14 +47,17 @@ for (const [scenario, status, sum] of [
 	["usage-state-failure", "failed", 10],
 	["usage-completed", "completed", 10],
 	["usage-readback", "completed", 13],
+	["usage-auxiliary", "completed", 41],
 ] as const) {
 	test(`${scenario}: retain available usage without counting cumulative updates, turn_end or nested tools twice`, async () => {
+		const updates: number[] = [];
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort(), 4_000);
 		try {
 			const result = await runDelegation({
 				...options(scenario),
 				signal: controller.signal,
+				onUsage: (usage) => updates.push(usage.input),
 				status: {
 					observe(record) {
 						if (record.type === "fixture_ready") controller.abort();
@@ -65,6 +68,9 @@ for (const [scenario, status, sum] of [
 			});
 			expect(result.details.status).toBe(status);
 			expect(result.usage).toEqual(expectedUsage(sum));
+			expect(updates).toContain(1);
+			expect(updates).toContain(2);
+			expect(updates.at(-1)).toBe(sum);
 		} finally {
 			clearTimeout(timeout);
 			controller.abort();

@@ -192,7 +192,7 @@ async function withRuntime(
 				const ack = tool(host.session, "delegate");
 				const d = ack.details as unknown as BackgroundTaskDetails;
 				expect(ack.isError).toBe(false);
-				expect(d.status).toBe("running");
+				expect(d.status).toBe("initializing");
 				expect(ack.usage).toBeUndefined();
 				const child = await eventually(
 					() =>

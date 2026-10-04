@@ -1,3 +1,4 @@
+import type { Usage } from "@earendil-works/pi-ai";
 import type {
 	ExtensionContext,
 	Theme,
@@ -8,6 +9,8 @@ import type { TaskConfiguration } from "./configuration.ts";
 import type { DelegationStatus } from "./delegate.ts";
 import type { PressureClock } from "./pressure.ts";
 
+import type { Capacity } from "./scheduling.ts";
+import { formatUsage, sumUsage } from "./usage.ts";
 export type AcceptedPressure = "none" | "warning" | "urgent";
 const pressureColors: Record<AcceptedPressure, ThemeColor> = {
 	none: "dim",
@@ -24,6 +27,8 @@ export interface StatusObserver {
 	observe(record: Record<string, unknown>): void;
 	accepted(stage: Exclude<AcceptedPressure, "none">): void;
 	configured?(configuration: TaskConfiguration): void;
+	phase?(phase: "queued" | "initializing" | "running"): void;
+	usage?(usage: Usage): void;
 	finish(status: DelegationStatus): void;
 }
 interface Row {
@@ -38,6 +43,7 @@ interface Row {
 	tools: Map<string, string>;
 	status?: DelegationStatus;
 	configuration?: TaskConfiguration;
+	usage: Usage;
 }
 const clock: PressureClock = {
 	now: () => performance.now() / 1000,
@@ -66,11 +72,45 @@ export class AgentStatus {
 	private requestRender?: () => void;
 	private cancelTimer?: () => void;
 
+	private pool?: Capacity;
+	private delegated?: Usage;
 	constructor(private time: PressureClock = clock) {}
+
+	capacity(capacity: Capacity): void {
+		this.pool = capacity;
+		this.mount();
+		this.refresh();
+	}
+	total(usage: Usage): void {
+		this.delegated = structuredClone(usage);
+		this.mount();
+		this.refresh();
+	}
+
+	private mount(): void {
+		if (!this.ui || this.requestRender || (!this.rows.size && !this.delegated))
+			return;
+		const generation = this.generation;
+		this.ui.setWidget(
+			"pi-delegate:agents",
+			(tui, theme) => {
+				if (generation === this.generation)
+					this.requestRender = () => tui.requestRender();
+				return {
+					render: (width) =>
+						generation === this.generation ? this.render(width, theme) : [],
+					invalidate() {},
+				};
+			},
+			{ placement: "aboveEditor" },
+		);
+	}
 
 	bind(ctx: Pick<ExtensionContext, "mode" | "ui">): void {
 		this.clear(true);
 		this.ui = ctx.mode === "tui" ? ctx.ui : undefined;
+		this.mount();
+		this.refresh();
 	}
 
 	clear(resetNumbers = false): void {
@@ -81,8 +121,11 @@ export class AgentStatus {
 		this.ui?.setWidget("pi-delegate:agents", undefined);
 		this.requestRender = undefined;
 		if (resetNumbers) this.next = 0;
+		this.mount();
+		this.refresh();
 	}
 	close(): void {
+		this.delegated = undefined;
 		this.clear();
 		this.ui = undefined;
 	}
@@ -99,28 +142,25 @@ export class AgentStatus {
 			pressure: "none",
 			activity: "initializing…",
 			tools: new Map(),
+			usage: sumUsage([]),
 		};
 		const generation = this.generation;
 		const valid = () =>
 			generation === this.generation && this.rows.get(row.id) === row;
 		this.rows.set(row.id, row);
-		if (this.rows.size === 1) {
-			this.ui.setWidget(
-				"pi-delegate:agents",
-				(tui, theme) => {
-					if (generation === this.generation)
-						this.requestRender = () => tui.requestRender();
-					return {
-						render: (width) =>
-							generation === this.generation ? this.render(width, theme) : [],
-						invalidate() {},
-					};
-				},
-				{ placement: "aboveEditor" },
-			);
-		}
+		this.mount();
 		this.refresh();
 		return {
+			phase: (phase) => {
+				if (!valid() || row.status || row.startedAt !== undefined) return;
+				row.activity = phase === "queued" ? "queued" : `${phase}…`;
+				this.refresh();
+			},
+			usage: (usage) => {
+				if (!valid()) return;
+				row.usage = structuredClone(usage);
+				this.refresh();
+			},
 			configured: (configuration) => {
 				if (!valid() || row.status) return;
 				row.configuration = structuredClone(configuration);
@@ -199,7 +239,7 @@ export class AgentStatus {
 	}
 
 	render(width: number, theme?: Pick<Theme, "fg">): string[] {
-		if (!this.rows.size || width <= 0) return [];
+		if ((!this.rows.size && !this.delegated) || width <= 0) return [];
 		const fg = (color: ThemeColor, text: string) =>
 			theme ? theme.fg(color, text) : text;
 		const summaries = [...this.rows.values()].map((row) => {
@@ -231,7 +271,21 @@ export class AgentStatus {
 		const contentWidth = width - padding * 2;
 		const line = (text: string, ellipsis = "") =>
 			" ".repeat(padding) + truncateToWidth(text, contentWidth, ellipsis);
-		const lines = [line("Agents", "…")];
+		const lines = [
+			line(
+				this.pool
+					? `Agents · active: ${this.pool.occupied}/${this.pool.maximum} · queued: ${this.pool.queued}`
+					: "Agents",
+				"…",
+			),
+		];
+		if (this.delegated)
+			lines.push(
+				line(
+					fg("muted", `  Delegated total · ${formatUsage(this.delegated)}`),
+					"…",
+				),
+			);
 		for (const { row, prefix, metadata, pressure } of summaries) {
 			const title = truncateToWidth(
 				row.title,
@@ -257,13 +311,16 @@ export class AgentStatus {
 					"…",
 				),
 			);
+			lines.push(line(fg("muted", `  │  ${formatUsage(row.usage)}`), "…"));
 			const tool = [...row.tools.values()].at(-1);
 			const activity =
 				row.status ?? (tool ? `toolcall · ${tool}` : row.activity);
 			const color = row.status
 				? outcomeColors[row.status]
 				: !tool &&
-						(row.activity === "initializing…" || row.activity === "finishing…")
+						(row.activity === "queued" ||
+							row.activity === "initializing…" ||
+							row.activity === "finishing…")
 					? "muted"
 					: "accent";
 			lines.push(line(fg("muted", "  └─ ") + fg(color, activity), "…"));
@@ -282,11 +339,12 @@ export class AgentStatus {
 				this.rows.delete(row.id);
 		}
 		this.requestRender?.();
-		if (!this.rows.size) {
+		if (!this.rows.size && !this.delegated) {
 			this.ui?.setWidget("pi-delegate:agents", undefined);
 			this.requestRender = undefined;
 			return;
 		}
+		if (!this.rows.size) return;
 		const generation = this.generation;
 		const expiry = Math.min(
 			...[...this.rows.values()].map((row) =>

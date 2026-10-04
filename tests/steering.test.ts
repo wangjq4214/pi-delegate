@@ -169,6 +169,7 @@ for (const terminal of [
 		});
 		const owner = new BackgroundTasks(
 			async (input) => {
+				await new Promise<void>((resolve) => setImmediate(resolve));
 				input.onSteeringControl?.(steering.control);
 				return finished.promise;
 			},
