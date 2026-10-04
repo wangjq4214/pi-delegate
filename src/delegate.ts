@@ -11,12 +11,9 @@ import {
 } from "@earendil-works/pi-ai";
 import {
 	type AgentSession,
-	DEFAULT_MAX_BYTES,
-	DEFAULT_MAX_LINES,
 	defineTool,
 	type ExtensionAPI,
 	type ExtensionToolContext,
-	formatSize,
 	getPackageDir,
 	type RpcExtensionUIRequest,
 	type RpcExtensionUIResponse,
@@ -415,22 +412,24 @@ export function registerDelegate(
 	const parameters = Type.Object({
 		task: Type.String({
 			minLength: 1,
-			description: "Task for the subagent",
+			description:
+				"Self-contained task: specify the goal, scope, constraints, and expected deliverable.",
 		}),
 		title: Type.Optional(
 			Type.String({
-				description: "Short display title; defaults to the first task line",
+				description: "Short UI label; defaults to the first task line",
 			}),
 		),
 		context: Type.Optional(
 			Type.String({
 				description:
-					"Supplementary context; the parent conversation is not copied",
+					"Relevant background, decisions, or file paths. The parent conversation is not copied.",
 			}),
 		),
 		background: Type.Optional(
 			Type.Boolean({
-				description: "Return a background taskId instead of waiting",
+				description:
+					"Return a taskId without waiting. Default false; requires a long-lived TUI/RPC session. Tasks do not survive exit, reload, session replacement, or branch navigation. Usage is separate from parent-session totals.",
 			}),
 		),
 		pressure: Type.Optional(pressureParameters),
@@ -439,7 +438,8 @@ export function registerDelegate(
 		defineTool({
 			name: DELEGATE_TOOL,
 			label: "Delegate",
-			description: `Run a task in a fresh Pi RPC subagent with the same extensions and inherited tools, excluding delegation. By default waits for completed, incomplete (generation length limit), failed, or cancelled. Set background:true in a long-lived TUI/RPC session to return a taskId without waiting; completion is delivered to the parent after its current work, waking it if idle. Query with delegate_status, steer active background work with delegate_steer, or cancel with delegate_cancel. Background usage is separate from Pi parent-session totals. Configure task-local pressure.warning/urgent afterSeconds/afterTurns; omitted values default to 300s OR 20 turns and 600s OR 40 turns. Each urgent threshold must exceed warning after defaults. Each stage steers once to encourage finishing, never automatically cancels. Supply necessary context explicitly. Output is limited to ${formatSize(DEFAULT_MAX_BYTES)} or ${DEFAULT_MAX_LINES} lines; oversized answers include a preview and complete-output file path.`,
+			description:
+				"Run a self-contained task in a fresh subagent with inherited tools except delegation. The parent conversation is not copied; supply necessary context. The subagent shares the working directory, so coordinate file edits. By default, wait for the result. With background:true, return a taskId and deliver completion automatically; use delegate_status, delegate_steer, or delegate_cancel to manage the task. Large results include a full-output file path.",
 			parameters,
 			prepareArguments(args) {
 				if (args === null || typeof args !== "object" || Array.isArray(args))
@@ -509,9 +509,15 @@ export function registerDelegate(
 				name: cancel ? "delegate_cancel" : "delegate_status",
 				label: cancel ? "Cancel delegated task" : "Delegated task status",
 				description: cancel
-					? "Cancel a background task by taskId and await its resource cleanup. Completed tasks retain their result. Does not cancel the parent turn."
-					: "Query a background task by taskId, including status, available result and separate usage. Results remain queryable if a completion message was cleared. IDs belong to the current session/branch scope; exit, reload, session replacement or tree navigation invalidates them.",
-				parameters: Type.Object({ taskId: Type.String({ minLength: 1 }) }),
+					? "Cancel a background task and wait for cleanup. Already-finished tasks return their existing result. Does not cancel the parent turn or undo changes already made."
+					: "Get a background task's current status, available result, and separate usage without waiting for completion. Completion is delivered automatically; repeated polling is unnecessary. Results remain queryable if the completion message was cleared.",
+				parameters: Type.Object({
+					taskId: Type.String({
+						minLength: 1,
+						description:
+							"Exact taskId returned by delegate with background:true in the current session/branch runtime.",
+					}),
+				}),
 				async execute(_id, params) {
 					return cancel
 						? await background.cancel(params.taskId)
@@ -525,10 +531,17 @@ export function registerDelegate(
 			name: "delegate_steer",
 			label: "Steer delegated task",
 			description:
-				"Submit additional plain-text instructions to an existing active background task in the current session/branch. Does not cancel/restart it or interrupt current provider/tool work. Initialization/before original-task start returns not_ready without waiting or buffering. queued means Pi queued the input; handled means a trusted input handler consumed it. Neither confirms durable queue residence, provider/model consumption, execution, compliance or a final result. A timeout is an uncertain submission outcome: do not automatically retry. Unknown, terminal, cancelling, settled or invalidated tasks are rejected. No public synchronous handles or numeric UI IDs.",
+				"Send additional instructions to an active background task without restarting it or interrupting its current operation. Acceptance does not mean the instructions have been followed. Do not automatically retry after a timeout: submission may have succeeded.",
 			parameters: Type.Object({
-				taskId: Type.String({ minLength: 1 }),
-				message: Type.String(),
+				taskId: Type.String({
+					minLength: 1,
+					description:
+						"Exact taskId returned by delegate with background:true in the current session/branch runtime.",
+				}),
+				message: Type.String({
+					description:
+						"Additional instructions or corrections; specify what should change and which constraints still apply.",
+				}),
 			}),
 			async execute(_id, params) {
 				return background.steer(params.taskId, params.message);

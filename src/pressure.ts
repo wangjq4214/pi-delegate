@@ -27,7 +27,7 @@ export const pressureParameters = Type.Object(
 	{
 		additionalProperties: false,
 		description:
-			"Task-local soft pressure. Omitted values default to warning: 300 seconds OR 20 turns; urgent: 600 seconds OR 40 turns. Urgent thresholds must each exceed warning. Each stage reminds once, never automatically cancels.",
+			"Soft reminders to wrap up, not timeouts. Each stage reminds once when either threshold is reached; never auto-cancels. Omitted fields default to warning: 300 seconds or 20 turns; urgent: 600 seconds or 40 turns. Each urgent threshold must exceed its corresponding warning threshold.",
 	},
 );
 
