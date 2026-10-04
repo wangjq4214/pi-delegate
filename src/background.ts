@@ -6,6 +6,7 @@ import type {
 	DelegationStatus,
 } from "./delegate.ts";
 
+import type { SteeringControl, SteeringReceipt } from "./steering.ts";
 export const BACKGROUND_USAGE_NOTICE =
 	"Background task usage is reported separately and is not automatically included in Pi parent-session totals.";
 export const BACKGROUND_MESSAGE = "pi-delegate:completed";
@@ -24,11 +25,24 @@ export interface BackgroundTaskResult {
 	details: BackgroundTaskDetails;
 	isError: boolean;
 }
+export type BackgroundSteeringResult = {
+	content: [{ type: "text"; text: string }];
+	details: { taskId: string } & (
+		| SteeringReceipt
+		| {
+				status: "unknown_task" | "terminal" | "cancelling" | "closing";
+				error: string;
+		  }
+	);
+	isError: boolean;
+};
+
 interface Task {
 	id: string;
 	controller: AbortController;
 	context: TaskContext;
 	operation: Promise<void>;
+	steering?: SteeringControl;
 	result?: DelegationResult;
 	pendingDelivery: boolean;
 	deliveryError?: string;
@@ -63,12 +77,20 @@ export class BackgroundTasks {
 		// Acknowledgement and its tool result precede even an immediately finished child.
 		task.operation = new Promise<void>((resolve) => setImmediate(resolve))
 			.then(() =>
-				this.run({ ...options, signal: task.controller.signal, ui: undefined }),
+				this.run({
+					...options,
+					signal: task.controller.signal,
+					ui: undefined,
+					onSteeringControl: (control) => {
+						task.steering = control;
+					},
+				}),
 			)
 			.catch((error: unknown) =>
 				this.failure(error, task.controller.signal.aborted),
 			)
 			.then((result) => {
+				task.steering = undefined;
 				task.result = result;
 				task.pendingDelivery = true;
 				if (this.tasks.get(task.id) === task) this.scheduleDelivery();
@@ -90,6 +112,59 @@ export class BackgroundTasks {
 			};
 		}
 		return this.view(task);
+	}
+
+	async steer(
+		taskId: string,
+		message: string,
+	): Promise<BackgroundSteeringResult> {
+		const task = this.tasks.get(taskId);
+		let receipt: BackgroundSteeringResult["details"];
+		if (this.closed)
+			receipt = {
+				taskId,
+				status: "closing",
+				error: "Background task owner is closing",
+			};
+		else if (!task)
+			receipt = {
+				taskId,
+				status: "unknown_task",
+				error: `Unknown background task: ${taskId}`,
+			};
+		else if (task.result)
+			receipt = {
+				taskId,
+				status: "terminal",
+				error: `Background task is ${task.result.details.status}`,
+			};
+		else if (task.controller.signal.aborted)
+			receipt = {
+				taskId,
+				status: "cancelling",
+				error: "Background task is cancelling",
+			};
+		else
+			receipt = {
+				taskId,
+				...(task.steering
+					? await task.steering.steer(message)
+					: {
+							status: "not_ready" as const,
+							error: "Child initialization has not completed",
+						}),
+			};
+		const notice =
+			receipt.status === "accepted"
+				? `${receipt.disposition}: ${receipt.disposition === "handled" ? "A trusted Pi input handler handled this submission." : "Pi queued this instruction; it may already have drained or been cleared."} This is not a provider/model-consumption, execution, compliance, or final-result acknowledgement.`
+				: `${receipt.status}: ${receipt.error}${receipt.status === "uncertain" ? " Submission outcome is uncertain; host processing may still finish. Do not automatically retry." : ""}`;
+		return {
+			content: [
+				{ type: "text", text: `[Background steering ${taskId}] ${notice}` },
+			],
+			details: receipt,
+			isError: receipt.status !== "accepted",
+		};
 	}
 
 	async cancel(taskId: string): Promise<BackgroundTaskResult> {

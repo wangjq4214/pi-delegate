@@ -16,6 +16,7 @@ export interface PressureFixtureTask {
 	batch?: boolean;
 	fast?: boolean;
 	reason?: "stop" | "length" | "error";
+	reachability?: boolean;
 }
 export interface PressureFixtureCall {
 	task: PressureFixtureTask;
@@ -38,6 +39,8 @@ export interface PressureTrace {
 	text?: string;
 	reminders?: string[];
 	tools?: { name: string; parameters: unknown }[];
+	users?: string[];
+	probeResults?: { name: string; isError: boolean; content: unknown }[];
 	toolName?: string;
 	parentToolCallId?: string;
 	isError?: boolean;
@@ -156,7 +159,15 @@ export default function pressureProvider(pi: ExtensionAPI): void {
 			label: "Pressure fixture step",
 			description:
 				"A deterministic held or immediate tool, deliberately usable after urgent pressure",
-			parameters: Type.Object({ round: Type.Integer(), hold: Type.Boolean() }),
+			parameters: Type.Object({
+				round: Type.Integer({
+					description:
+						child && process.env.STEERING_FAIL_INIT === "1"
+							? "incompatible child schema"
+							: "fixture round",
+				}),
+				hold: Type.Boolean(),
+			}),
 			async execute(_id, params, signal, update) {
 				trace("tool-start", { call: params.round });
 				update?.({
@@ -330,6 +341,14 @@ export default function pressureProvider(pi: ExtensionAPI): void {
 							id: task.id,
 							call,
 							reminders,
+							users,
+							probeResults: context.messages
+								.filter((m) => m.role === "toolResult")
+								.map((m) => ({
+									name: m.toolName,
+									isError: m.isError,
+									content: m.content,
+								})),
 							tools: getCurrentTools(context.messages).map((t) => ({
 								name: t.name,
 								parameters: t.parameters,
@@ -342,10 +361,24 @@ export default function pressureProvider(pi: ExtensionAPI): void {
 								`REPORT:${task.id}: current findings; unfinished work and blockers disclosed.`,
 								task.reason,
 							);
+						else if (task.reachability && call < 2)
+							invoke([
+								call === 0
+									? { name: "tool_search", args: { query: "delegate_steer" } }
+									: {
+											name: "codemode",
+											args: {
+												code: 'text(searchTools("delegate_steer")); text(await tools.delegate_steer({taskId:"forbidden",message:"forbidden"}));',
+											},
+										},
+							]);
 						else {
 							const tools: { name: string; args: Record<string, unknown> }[] = [
 								{
-									name: "pressure_step",
+									name:
+										task.reachability && call === 2
+											? "steering_reachability"
+											: "pressure_step",
 									args: {
 										round: call,
 										hold: task.holdToolsAt?.includes(call) ?? false,
@@ -399,7 +432,16 @@ export default function pressureProvider(pi: ExtensionAPI): void {
 									await gate("parent-after-ack", options?.signal);
 								respond("PARENT_FINISHED");
 							}
-						} else if (prompt.startsWith("STATUS ") && results.length === 0)
+						} else if (prompt.startsWith("STEERS ") && results.length === 0)
+							invoke(
+								(
+									JSON.parse(prompt.slice(7)) as {
+										taskId: string;
+										message: string;
+									}[]
+								).map((args) => ({ name: "delegate_steer", args })),
+							);
+						else if (prompt.startsWith("STATUS ") && results.length === 0)
 							invoke([
 								{ name: "delegate_status", args: { taskId: prompt.slice(7) } },
 							]);

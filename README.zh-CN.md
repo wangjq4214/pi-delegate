@@ -12,6 +12,7 @@ pi-delegate 是一个 Pi TypeScript 扩展，通过 RPC 启动一次性子 agent
 - **工具继承**：重新初始化主 agent 的工具和扩展，保留启用状态与可发现性。
 - **同步与后台执行**：等待结果，或在会话所属任务运行期间继续其他工作。
 - **任务管理**：接收模型可见的完成消息，查询后台结果，并显式取消任务。
+- **运行时 steering**：向活跃后台子 agent 补充背景、缩小范围或请求报告，无需取消并重启。
 - **软催促与状态 UI**：配置任务级收尾提醒，在 TUI 输入框上方查看子 agent 状态。
 
 ## 环境要求
@@ -74,6 +75,7 @@ pi install /absolute/path/to/pi-delegate
 | `delegate` | 启动全新的同步或后台子 agent。 |
 | `delegate_status` | 使用返回的 `taskId` 查询后台任务。 |
 | `delegate_cancel` | 取消后台任务并等待资源清理。 |
+| `delegate_steer` | 使用 `taskId` 向活跃后台任务提交纯文本指令。 |
 
 参数、结果状态、催促配置和状态 UI 的详细说明请参阅[使用指南](docs/usage.md)。
 
@@ -83,6 +85,7 @@ pi install /absolute/path/to/pi-delegate
 - 主／子 agent 共享工作目录；扩展不提供工作区隔离或操作系统沙箱。
 - 不会自动复制主 agent 的完整对话，请明确提供相关背景。
 - 软催促只是建议，不是强制超时。后台 usage 与 Pi 主会话总量分开报告。
+- Steering 回执只确认 RPC 处理结果，不确认模型消费或任务完成；初始化期间返回 `not_ready`，超时结果不确定，不应自动重试。
 
 工具继承、生命周期、交互和清理边界请参阅[运行机制与安全边界](docs/runtime.md)。
 

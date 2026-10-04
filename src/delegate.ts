@@ -42,6 +42,7 @@ import {
 } from "./pressure.ts";
 import { RpcProcess } from "./rpc.ts";
 import { AgentStatus, type StatusObserver } from "./status.ts";
+import { type SteeringControl, TaskSteering } from "./steering.ts";
 
 export function resolveCli(): string {
 	const root = getPackageDir();
@@ -99,6 +100,7 @@ export interface DelegationOptions {
 	context?: string;
 	pressure?: PressureOverrides;
 	status?: StatusObserver;
+	onSteeringControl?: (control: SteeringControl) => void;
 	signal?: AbortSignal;
 	ui?: (
 		request: RpcExtensionUIRequest,
@@ -161,6 +163,7 @@ export async function runDelegation(
 	let settlement: ReturnType<RpcProcess["waitForSettled"]> | undefined;
 	let pressure: TaskPressure | undefined;
 	let unsubscribePressure: (() => void) | undefined;
+	let steering: TaskSteering | undefined;
 	let usage = sumUsage([]);
 	const details: Omit<DelegationDetails, "status" | "error"> = {};
 	try {
@@ -209,8 +212,13 @@ export async function runDelegation(
 
 			settlement = rpc.waitForSettled();
 			const child = rpc;
+			const taskSteering = new TaskSteering((message) =>
+				child.request("steer", { message }),
+			);
+			steering = taskSteering;
+			options.onSteeringControl?.(steering.control);
 			pressure = new TaskPressure(policy, async (message) => {
-				const response = await child.request("steer", { message });
+				const response = await taskSteering.submit(message);
 				options.status?.accepted(
 					message.startsWith("[pi-delegate pressure: urgent]")
 						? "urgent"
@@ -219,12 +227,15 @@ export async function runDelegation(
 				return response;
 			});
 			unsubscribePressure = rpc.subscribe((record) => {
+				steering?.observe(record);
 				pressure?.observe(record);
 				options.status?.observe(record);
 			});
 			options.signal?.addEventListener("abort", pressure.dispose, {
 				once: true,
 			});
+			options.signal?.addEventListener("abort", steering.close, { once: true });
+			if (options.signal?.aborted) steering.close();
 			// Prefixing prevents tasks beginning with '/' from becoming extension commands.
 			const message = `Task:\n${options.task}${options.context === undefined ? "" : `\n\nSupplementary context:\n${options.context}`}`;
 			const accepted = await rpc.request<{ disposition: string }>("prompt", {
@@ -232,6 +243,7 @@ export async function runDelegation(
 			});
 			if (accepted.disposition !== "started")
 				throw new Error(`Child task did not start: ${accepted.disposition}`);
+			steering.confirmStart();
 			await Promise.race([settlement.promise, pressure.failure]);
 			pressure.dispose();
 			// Projected get_messages can omit a length response during host recovery.
@@ -303,6 +315,9 @@ export async function runDelegation(
 				isError: status === "failed" || status === "cancelled",
 			};
 		} finally {
+			steering?.close();
+			if (steering)
+				options.signal?.removeEventListener("abort", steering.close);
 			pressure?.dispose();
 			unsubscribePressure?.();
 			if (pressure)
@@ -424,7 +439,7 @@ export function registerDelegate(
 		defineTool({
 			name: DELEGATE_TOOL,
 			label: "Delegate",
-			description: `Run a task in a fresh Pi RPC subagent with the same extensions and inherited tools, excluding delegation. By default waits for completed, incomplete (generation length limit), failed, or cancelled. Set background:true in a long-lived TUI/RPC session to return a taskId without waiting; completion is delivered to the parent after its current work, waking it if idle. Query with delegate_status or cancel with delegate_cancel. Background usage is separate from Pi parent-session totals. Configure task-local pressure.warning/urgent afterSeconds/afterTurns; omitted values default to 300s OR 20 turns and 600s OR 40 turns. Each urgent threshold must exceed warning after defaults. Each stage steers once to encourage finishing, never automatically cancels. Supply necessary context explicitly. Output is limited to ${formatSize(DEFAULT_MAX_BYTES)} or ${DEFAULT_MAX_LINES} lines; oversized answers include a preview and complete-output file path.`,
+			description: `Run a task in a fresh Pi RPC subagent with the same extensions and inherited tools, excluding delegation. By default waits for completed, incomplete (generation length limit), failed, or cancelled. Set background:true in a long-lived TUI/RPC session to return a taskId without waiting; completion is delivered to the parent after its current work, waking it if idle. Query with delegate_status, steer active background work with delegate_steer, or cancel with delegate_cancel. Background usage is separate from Pi parent-session totals. Configure task-local pressure.warning/urgent afterSeconds/afterTurns; omitted values default to 300s OR 20 turns and 600s OR 40 turns. Each urgent threshold must exceed warning after defaults. Each stage steers once to encourage finishing, never automatically cancels. Supply necessary context explicitly. Output is limited to ${formatSize(DEFAULT_MAX_BYTES)} or ${DEFAULT_MAX_LINES} lines; oversized answers include a preview and complete-output file path.`,
 			parameters,
 			prepareArguments(args) {
 				if (args === null || typeof args !== "object" || Array.isArray(args))
@@ -505,6 +520,21 @@ export function registerDelegate(
 			}),
 		);
 	}
+	pi.registerTool(
+		defineTool({
+			name: "delegate_steer",
+			label: "Steer delegated task",
+			description:
+				"Submit additional plain-text instructions to an existing active background task in the current session/branch. Does not cancel/restart it or interrupt current provider/tool work. Initialization/before original-task start returns not_ready without waiting or buffering. queued means Pi queued the input; handled means a trusted input handler consumed it. Neither confirms durable queue residence, provider/model consumption, execution, compliance or a final result. A timeout is an uncertain submission outcome: do not automatically retry. Unknown, terminal, cancelling, settled or invalidated tasks are rejected. No public synchronous handles or numeric UI IDs.",
+			parameters: Type.Object({
+				taskId: Type.String({ minLength: 1 }),
+				message: Type.String(),
+			}),
+			async execute(_id, params) {
+				return background.steer(params.taskId, params.message);
+			},
+		}),
+	);
 	pi.on("session_start", (_event, ctx) => status.bind(ctx));
 	pi.on("agent_settled", () => background.scheduleDelivery());
 	pi.on("session_compact", () => background.scheduleDelivery());

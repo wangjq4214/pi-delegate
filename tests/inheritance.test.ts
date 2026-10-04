@@ -59,6 +59,7 @@ test("reloads tool and command extensions, retains deferred registry and strips 
 				tool("delegate", entry),
 				tool("delegate_status", entry),
 				tool("delegate_cancel", entry),
+				tool("delegate_steer", entry),
 				tool("optional", source, "deferred"),
 			],
 			["read", ...DELEGATION_TOOLS],

@@ -12,6 +12,14 @@ interface Pending {
 	timer: ReturnType<typeof setTimeout>;
 }
 
+/** A control response timeout leaves host preprocessing/submission outcome uncertain. */
+export class RpcTimeoutError extends Error {
+	constructor(type: string) {
+		super(`Pi RPC command timed out: ${type}`);
+		this.name = "RpcTimeoutError";
+	}
+}
+
 export class RpcProcess {
 	readonly child: ChildProcessWithoutNullStreams;
 	private pending = new Map<string, Pending>();
@@ -169,7 +177,7 @@ export class RpcProcess {
 		return new Promise<T>((resolve, reject) => {
 			const timer = setTimeout(() => {
 				this.pending.delete(id);
-				reject(new Error(`Pi RPC command timed out: ${type}`));
+				reject(new RpcTimeoutError(type));
 			}, 40_000);
 			this.pending.set(id, {
 				resolve: (value) => resolve(value as T),

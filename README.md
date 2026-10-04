@@ -12,6 +12,7 @@ pi-delegate is a TypeScript extension for Pi. It launches one-off subagents over
 - **Tool inheritance:** reconstruct the parent's tools and extensions, preserving activation and discoverability.
 - **Synchronous and background execution:** wait for a result or continue working while a session-owned task runs.
 - **Task management:** receive model-visible completion messages, query background results, and cancel tasks explicitly.
+- **Runtime steering:** add context, narrow scope, or request a report from an active background child without restarting it.
 - **Soft pressure and status UI:** configure task-local finish reminders and monitor subagents above the TUI input.
 
 ## Requirements
@@ -74,6 +75,7 @@ By default, the call waits for the child's final outcome. To continue working wh
 | `delegate` | Start a fresh synchronous or background subagent. |
 | `delegate_status` | Query a background task by its returned `taskId`. |
 | `delegate_cancel` | Cancel a background task and wait for resource cleanup. |
+| `delegate_steer` | Submit plain-text instructions to an active background task by `taskId`. |
 
 See the [usage guide](docs/usage.md) for parameters, result states, pressure settings, and the status UI.
 
@@ -83,6 +85,7 @@ See the [usage guide](docs/usage.md) for parameters, result states, pressure set
 - Parent and child agents share the working directory; the extension does not provide workspace isolation or an operating-system sandbox.
 - The parent's full conversation is not copied automatically. Supply relevant context explicitly.
 - Soft pressure is advisory, not a hard timeout. Background usage is reported separately from Pi's parent-session totals.
+- Steering returns RPC handling receipts, not model-consumption or completion confirmation; initialization returns `not_ready`, and a timeout is uncertain, not a reason to retry automatically.
 
 See [runtime and safety](docs/runtime.md) for inheritance, lifecycle, interaction, and cleanup boundaries.
 

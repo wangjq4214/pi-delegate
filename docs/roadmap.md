@@ -2,13 +2,13 @@
 
 [Back to README](../README.md) · [Usage](usage.md) · [Runtime and safety](runtime.md) · [Development](development.md)
 
-These are unimplemented capability candidates, listed in suggested priority order. Tool names are illustrative; behavior and interfaces should be agreed before implementation. This list is not a release commitment.
+Unchecked items are unimplemented capability candidates, listed in suggested priority order. Tool names are illustrative; behavior and interfaces should be agreed before implementation. This list is not a release commitment.
 
 If parallel code modification by multiple subagents becomes the primary use case, move workspace isolation earlier in the priority order.
 
 ## TODO
 
-- [ ] **Runtime steering:** expose a capability such as `delegate_steer({ taskId, message })` so the parent can supply new context, narrow scope, or request a final report without cancelling and restarting a running task.
+- [x] **Runtime steering:** `delegate_steer({ taskId, message })` lets the parent supply new context, narrow scope, or request a final report without cancelling and restarting a running task.
   - Distinguish RPC acceptance from model consumption or execution. Do not promise to interrupt an in-flight model request or tool.
 - [ ] **Task listing and details:** expose a capability such as `delegate_list` to list running and terminal tasks in the current session scope.
   - Include title, elapsed time, turns, current tool, pressure, usage, and result details. Establish an explicit relationship between TUI numeric labels and `taskId`.

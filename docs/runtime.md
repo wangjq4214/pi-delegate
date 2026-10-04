@@ -36,7 +36,7 @@ Keep configuration files stable during child startup. Unobservable host-private 
 
 ## Parent-only delegation
 
-The child loads this extension, but does not register `delegate`, `delegate_status`, or `delegate_cancel`. These capabilities are unavailable through direct model declarations, tool search, and nested `codemode` calls.
+The child loads this extension, but does not register `delegate`, `delegate_status`, `delegate_cancel`, or `delegate_steer`. These capabilities are unavailable through direct model declarations, tool search, and nested `codemode` calls.
 
 This is a tool-registration boundary, not an operating-system sandbox. A child with shell access still has process-level capabilities and can launch other processes.
 
@@ -61,6 +61,14 @@ Background execution is asynchronous work inside the current Pi session, not a p
 Normal completion and failure also release the child process and temporary initialization snapshot.
 
 Full-output files are separate result artifacts and intentionally survive this cleanup so callers can retrieve truncated text. See [large output](usage.md#large-output).
+
+## Runtime steering control
+
+The background task owner resolves scope-local IDs and receives only a narrow `steer(message)` capability. The execution runner continues to own the process, transport, readiness observations and cleanup. Manual steering and pressure await RPC outcomes through the same task-local serial submission boundary; stdin write serialization alone would not order asynchronous Pi input handlers.
+
+Readiness begins only after initialization and original-task start. Cancellation/invalidation disables controls synchronously, and `agent_settled` closes control before result collection/cleanup completes. Low-level `agent_end` may precede continuation and does not close it. Pending local submissions recheck closure before sending; an already-submitted host handler can finish after settlement without reopening the control or triggering a replacement run.
+
+Manual text uses non-slash-prefixed raw RPC `steer`, preserving trusted handlers and host consumption mode. The prefix is not a sandbox against trusted handlers. The handling receipt is distinct from queue residence, transcript injection and eventual provider input. A control timeout has an uncertain submission outcome and is never automatically retried; it is not a new delivery/completion SLA. Manual-operation failures are separate from task outcomes; underlying transport/execution failures remain governed by normal delegation lifecycle. See [steering usage and receipt fields](usage.md#steering-an-active-background-task).
 
 ## Completion delivery
 

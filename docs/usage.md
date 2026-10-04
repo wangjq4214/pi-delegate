@@ -6,13 +6,14 @@ This guide describes the model-callable tools provided by pi-delegate. Load the 
 
 ## Tools
 
-The parent agent receives three tools:
+The parent agent receives four tools:
 
 | Tool | Purpose |
 | --- | --- |
 | `delegate` | Start a fresh subagent and wait for its outcome, or accept a background task. |
 | `delegate_status` | Retrieve a background task's state and available result. |
 | `delegate_cancel` | Cancel a background task and wait for execution-resource cleanup. |
+| `delegate_steer` | Submit additional plain-text instructions to an active background task. |
 
 Children do not register any of these tools. Apart from an internal child-initialization command, the extension does not register user commands.
 
@@ -91,6 +92,38 @@ Pass this object to `delegate_status` to query, or to `delegate_cancel` to cance
 | `details.deliveryError` | Completion-delivery error, when one was observed. |
 
 Background usage is reported separately and is **not automatically included in Pi's parent-session totals**. Query and cancellation tools do not return top-level usage, preventing duplicate accounting. Synchronous usage reporting is unchanged.
+
+## Steering an active background task
+
+Call `delegate_steer` with the existing background ID (not its numeric TUI label):
+
+```json
+{
+  "taskId": "<taskId returned by delegate>",
+  "message": "Focus only on src/rpc.ts; finish with a report of current findings and unfinished work."
+}
+```
+
+This adds instructions to the same child and original task without cancelling/restarting it. It never falls back to `prompt` or implicitly starts idle/terminal work. It does not interrupt an in-flight provider request or associated tools; queued text is eligible after the current assistant turn’s tools finish and before a subsequent provider request, subject to continued execution and the host’s steering mode.
+
+Readiness requires successful inherited-tool initialization **and original-task start**. `running` alone is insufficient. During initialization or before task start, `not_ready` returns immediately: the rejected instruction is not buffered or submitted later. A later explicit call can use the same active ID.
+
+Steering results are operation receipts, not task outcomes:
+
+| `details.status` | Meaning |
+| --- | --- |
+| `accepted` + `details.disposition: "queued"` | Pi queued the instruction, possibly after a trusted handler transformed it. It may already have drained, been cleared, or missed further execution. |
+| `accepted` + `details.disposition: "handled"` | A trusted Pi input handler consumed this submission rather than placing it in the steering queue. |
+| `not_ready` | Initialization/original-task start is not complete; no readiness waiting or buffering. |
+| `unknown_task`, `terminal`, `cancelling`, `closing`, `closed` | The ID or execution is unavailable in the current owning session/branch. |
+| `failed` | This steering operation failed; it alone does not fail/cancel a healthy task. |
+| `uncertain` | The 40-second control-response timeout expired. Host preprocessing may still finish; **do not automatically retry**. |
+
+Every receipt includes `details.taskId`; unsuccessful receipts include `details.error` and `isError: true`. No top-level task usage is attached. Neither `queued` nor `handled` confirms durable queue residence, provider/model consumption, execution, compliance, or a final result. Query and completion messaging remain the ordinary result channels.
+
+Manual instructions and automatic pressure share one task-local submission boundary that waits for the preceding RPC outcome. This is not a priority policy or a model-consumption guarantee. After an uncertain timeout, the earlier host preprocessing may still run. Slash-leading caller text is prefixed as instruction text, while trusted host input handling and host steering mode remain intact.
+
+Controls close on `agent_settled` (not low-level `agent_end`), cancellation, ownership invalidation and cleanup—even if public status still says `running` during result collection. Settlement can race an already-submitted handler: even a late successful receipt may be unconsumed and cannot reopen the task. Ordinary parent-turn completion/cancellation leaves accepted background work and its active control intact. Public synchronous steering handles, TUI steering panels and enforced filesystem permissions are not provided.
 
 ## Terminal outcomes
 
@@ -180,4 +213,4 @@ Colors follow Pi's active theme, including theme switches and host-supported cus
 
 Narrow terminals preserve space for the numeric label, time, turns, and pressure where possible, shortening the title first. Extremely narrow output is truncated to terminal width. RPC, print, and JSON execution do not depend on this component.
 
-The numeric UI label does not replace the background `taskId` used for queries and cancellation.
+The numeric UI label does not replace the background `taskId` used for queries, steering and cancellation.

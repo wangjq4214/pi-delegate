@@ -68,6 +68,7 @@ The test suite includes:
 - RPC execution, result states, output truncation, and cleanup.
 - Background completion delivery, cancellation, session replacement/reload, and branch-navigation boundaries.
 - Pressure timing/turn semantics and TUI status behavior.
+- Background runtime steering readiness/closure, manual-pressure serialization, trusted handlers, slash safety, both host modes, real control timeout, provider-input boundaries, and child discovery/nested/codemode exclusion.
 - Real Pi processes with deterministic local model providers and MCP fixtures.
 - Hook behavior in isolated temporary Git repositories.
 
@@ -110,6 +111,7 @@ src/child.ts             Internal child initialization
 src/rpc.ts               Child-process RPC transport and cleanup
 src/background.ts        Session-owned background tasks and completion delivery
 src/pressure.ts          Per-task finish-reminder policy
+src/steering.ts          Runner-owned task steering control and RPC submission boundary
 src/status.ts            TUI child-status component
 src/output.ts            Output truncation and retained result files
 tests/                   Bun tests and local fixtures

@@ -651,7 +651,7 @@ test("direct runner abort after actual task start disposes pressure/subscription
 				expect(unsubscribed).toBe(1);
 				expect(
 					removed.mock.calls.filter(([event]) => event === "abort"),
-				).toHaveLength(2);
+				).toHaveLength(3);
 				assertRunnerCleaned(records());
 			} finally {
 				controller.abort();

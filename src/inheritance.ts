@@ -12,6 +12,7 @@ export const DELEGATION_TOOLS = [
 	DELEGATE_TOOL,
 	"delegate_status",
 	"delegate_cancel",
+	"delegate_steer",
 ];
 export const CHILD_ENV = "PI_DELEGATE_CHILD";
 export const SNAPSHOT_ENV = "PI_DELEGATE_SNAPSHOT";

@@ -26,6 +26,15 @@ export default function backgroundProvider(pi: ExtensionAPI): void {
 			}),
 		);
 	});
+	pi.on("input", (event) => {
+		if (
+			child &&
+			event.text === "[pi-delegate instruction]\nHANDLED TUI proof"
+		) {
+			mark("steering-handled", event.text);
+			return { action: "handled" };
+		}
+	});
 	pi.on("session_shutdown", () => {
 		mark("closed");
 	});
@@ -236,6 +245,8 @@ export default function backgroundProvider(pi: ExtensionAPI): void {
 					call("delegate_status", { taskId: prompt.slice(7) });
 				} else if (prompt.startsWith("CANCEL ")) {
 					call("delegate_cancel", { taskId: prompt.slice(7) });
+				} else if (prompt.startsWith("STEER ")) {
+					call("delegate_steer", JSON.parse(prompt.slice(6)));
 				} else if (prompt === "BUSY") {
 					gate("parent", () => respond("PARENT_BUSY_FINISHED"));
 				} else respond(`PARENT_REPLY:${prompt}`);

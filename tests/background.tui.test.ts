@@ -149,6 +149,7 @@ for (const busy of [false, true]) {
 						"delegate",
 						"delegate_status",
 						"delegate_cancel",
+						"delegate_steer",
 						"background_dialogs",
 					],
 				}));
@@ -213,6 +214,20 @@ for (const busy of [false, true]) {
 					"observed thinking status",
 				);
 				expect(statusHost.frame()).not.toContain("PRIVATE THINKING CONTENT");
+				await parent.prompt(
+					`STEER ${JSON.stringify({ taskId: details.taskId, message: "HANDLED TUI proof" })}`,
+				);
+				await parent.waitForIdle();
+				const steering = tool(parent, "delegate_steer");
+				expect(steering.details).toMatchObject({
+					taskId: details.taskId,
+					status: "accepted",
+					disposition: "handled",
+				});
+				expect(steering.usage).toBeUndefined();
+				expect(
+					readFileSync(join(logs, `${child.pid}.steering-handled`), "utf8"),
+				).toContain("HANDLED TUI proof");
 				await parent.prompt("UNRELATED");
 				await parent.waitForIdle();
 				expect(
@@ -286,6 +301,13 @@ for (const busy of [false, true]) {
 				expect(statusHost.frame()).toContain("└─ completed");
 				expect(statusHost.frame()).toContain("1 turn · pressure: none");
 				expect(statusHost.frame()).not.toContain("CHILD_RESULT");
+				await parent.prompt(
+					`STEER ${JSON.stringify({ taskId: details.taskId, message: "after settlement" })}`,
+				);
+				await parent.waitForIdle();
+				expect(tool(parent, "delegate_steer").details).toMatchObject({
+					status: "terminal",
+				});
 				expect(errors).toEqual([]);
 			} finally {
 				try {
