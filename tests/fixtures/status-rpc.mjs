@@ -84,7 +84,12 @@ createInterface({ input: process.stdin })
 						],
 			});
 		} else if (command.type === "get_state")
-			reply(command, { sessionId: "fixture" });
+			reply(command, {
+				sessionId: "fixture",
+				model: { provider: "fixture", id: "fixture-model" },
+				thinkingLevel: "off",
+			});
+		else reply(command, {});
 	})
 	.on("close", () => {
 		clearInterval(timer);

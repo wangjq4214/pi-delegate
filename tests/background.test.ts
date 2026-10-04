@@ -14,6 +14,7 @@ import {
 	type DelegationStatus,
 	registerDelegate,
 } from "../src/delegate.ts";
+import { configurationContext } from "./fixtures/configuration-context.ts";
 
 function result(status: DelegationStatus = "completed"): DelegationResult {
 	return {
@@ -241,6 +242,7 @@ function registration(run: typeof import("../src/delegate.ts").runDelegation) {
 		run,
 	);
 	const ctx = {
+		...configurationContext,
 		...idle,
 		cwd: process.cwd(),
 		mode: "tui",

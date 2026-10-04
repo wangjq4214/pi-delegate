@@ -4,6 +4,7 @@ import type {
 	ThemeColor,
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { TaskConfiguration } from "./configuration.ts";
 import type { DelegationStatus } from "./delegate.ts";
 import type { PressureClock } from "./pressure.ts";
 
@@ -22,6 +23,7 @@ const outcomeColors: Record<DelegationStatus, ThemeColor> = {
 export interface StatusObserver {
 	observe(record: Record<string, unknown>): void;
 	accepted(stage: Exclude<AcceptedPressure, "none">): void;
+	configured?(configuration: TaskConfiguration): void;
 	finish(status: DelegationStatus): void;
 }
 interface Row {
@@ -35,6 +37,7 @@ interface Row {
 	activity: string;
 	tools: Map<string, string>;
 	status?: DelegationStatus;
+	configuration?: TaskConfiguration;
 }
 const clock: PressureClock = {
 	now: () => performance.now() / 1000,
@@ -49,7 +52,7 @@ function clean(text: string): string {
 		text
 			// biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately remove terminal escape sequences.
 			.replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
-			.replace(/[\p{Cc}\p{Cf}]/gu, " ")
+			.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ")
 			.trim()
 	);
 }
@@ -118,6 +121,11 @@ export class AgentStatus {
 		}
 		this.refresh();
 		return {
+			configured: (configuration) => {
+				if (!valid() || row.status) return;
+				row.configuration = structuredClone(configuration);
+				this.refresh();
+			},
 			observe: (record) => {
 				if (!valid() || row.status || row.stoppedAt !== undefined) return;
 				if (record.type === "agent_start" && row.startedAt === undefined) {
@@ -234,6 +242,19 @@ export class AgentStatus {
 					fg("text", prefix + title) +
 						fg("muted", metadata) +
 						fg(pressureColors[row.pressure], pressure),
+				),
+			);
+			const configuration = row.configuration;
+			lines.push(
+				line(
+					fg(
+						"muted",
+						"  │  " +
+							(configuration
+								? `model: ${clean(configuration.model.provider)}/${clean(configuration.model.id)} · thinking: ${clean(configuration.thinkingLevel)}`
+								: "model: unconfirmed · thinking: unconfirmed"),
+					),
+					"…",
 				),
 			);
 			const tool = [...row.tools.values()].at(-1);

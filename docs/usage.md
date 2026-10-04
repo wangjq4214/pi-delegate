@@ -27,7 +27,25 @@ Children do not register any of these tools. Apart from an internal child-initia
 | `context` | No | Supplementary context. The parent's complete conversation is not copied. |
 | `title` | No | Short TUI display title. Defaults to the shortened first line of `task`. |
 | `background` | No | Set to `true` to return a background task ID instead of waiting. Defaults to synchronous execution. |
+| `model` | No | Exact configured `{ "provider": "...", "id": "..." }` identity; omitted inherits the current parent model. |
+| `thinkingLevel` | No | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`; omitted independently inherits the current parent level. |
 | `pressure` | No | Per-task warning and urgent finish-reminder thresholds. Omitted fields use defaults. |
+
+### Per-task model and thinking selection
+
+```json
+{
+  "task": "Analyze this module",
+  "model": { "provider": "anthropic", "id": "claude-sonnet-4-20250514" },
+  "thinkingLevel": "low"
+}
+```
+
+Both fields work independently in synchronous and background mode. Omitted values are captured from the parent at invocation time, not from a target model's saved defaults. Unknown/partial model identities and malformed inputs fail before background acceptance. IDs containing slashes or colons are exact IDs, not CLI patterns or thinking suffixes.
+
+After inherited tools initialize, the runner selects the exact model, applies the requested level using Pi's native capability adjustment, and reads back the configuration before submitting the task. Unavailable child providers/models/auth configuration fail explicitly without fallback. Overrides do not change the parent's selection or saved defaults.
+
+Terminal synchronous results expose `details.configuration.requested` and, when startup was confirmed, `details.configuration.effective`; each contains `model: { provider, id }` and `thinkingLevel`. Background query/completion results carry these under `details.result.configuration`. The effective level can differ from the request (for example, a non-reasoning model uses `off`). Pre-confirmation failures have no effective value; later execution failures/cancellation retain confirmed startup values. This is startup configuration, not proof of provider consumption or immutable routing during execution.
 
 ### Synchronous execution
 
@@ -195,6 +213,7 @@ Each child has:
 - Its supplied `title`, or a shortened first task line without an extra model call.
 - Actual task-running seconds and English `turn` / `turns` labels.
 - `pressure: none / warning / urgent`.
+- A separate `│  model: provider/id · thinking: level` row showing confirmed startup configuration; before confirmation it says `unconfirmed`. The `│` aligns with the activity connector and `model` aligns with activity text. Thinking metadata does not imply observed thinking activity.
 - A subordinate line with only current observed activity, such as `thinking…` or `toolcall · read`.
 
 The list does not display thinking content, tool arguments, results, roles, tokens, or costs. Initialization is excluded from time/turn counts, and elapsed time continues during tool waits.

@@ -17,6 +17,14 @@ import {
 import { resolveCli, runDelegation } from "../src/delegate.ts";
 import { captureInheritance } from "../src/inheritance.ts";
 import { RpcProcess } from "../src/rpc.ts";
+import { AgentStatus } from "../src/status.ts";
+import { statusUI } from "./fixtures/status-ui.ts";
+
+function required<T>(value: T | undefined): T {
+	if (value === undefined)
+		throw new Error("Missing configuration fixture value");
+	return value;
+}
 
 const entry = resolve("src/index.ts");
 const provider = resolve("tests/fixtures/provider.ts");
@@ -450,3 +458,277 @@ test("real Pi RPC: oversized answers survive child cleanup with session and usag
 		}
 	});
 }, 30_000);
+
+const exactModel = {
+	provider: "delegate-fixture",
+	id: "reasoning/path:variant",
+};
+async function until(predicate: () => boolean | Promise<boolean>) {
+	const deadline = Date.now() + 10000;
+	while (!(await predicate())) {
+		if (Date.now() >= deadline)
+			throw new Error("Configuration fixture timed out");
+		await Bun.sleep(10);
+	}
+}
+
+for (const background of [false, true]) {
+	for (const overrides of [
+		{},
+		{ model: exactModel },
+		{ thinkingLevel: "max" },
+		{
+			model: { ...exactModel, provider: "delegate-fixture-other" },
+			thinkingLevel: "max",
+		},
+	]) {
+		test(`real public Pi selection ${background ? "background" : "sync"} ${JSON.stringify(overrides)}`, async () => {
+			await withParent(async (parent, state, _args, env, logs) => {
+				const settings = join(
+					required(env.PI_CODING_AGENT_DIR),
+					"settings.json",
+				);
+				const saved = JSON.stringify({
+					defaultThinkingLevel: "low",
+					modelThinkingLevels: {
+						"delegate-fixture/reasoning/path:variant": "high",
+						"delegate-fixture-other/reasoning/path:variant": "high",
+					},
+				});
+				await writeFile(settings, saved);
+				const before = await parent.request("get_state");
+				const settled = parent.waitForSettled();
+				try {
+					await parent.request("prompt", {
+						message: `CONFIG ${JSON.stringify({ task: "configuration probe", background, ...overrides })}`,
+					});
+					await settled.promise;
+				} finally {
+					settled.dispose();
+				}
+				let result: import("../src/delegate.ts").DelegationDetails | undefined;
+				let output = "";
+				await until(async () => {
+					const { messages } = await parent.request<{
+						messages: AgentSession["messages"];
+					}>("get_messages");
+					const message = messages.find((m) =>
+						background
+							? m.role === "custom" && m.customType === "pi-delegate:completed"
+							: m.role === "toolResult" && m.toolName === "delegate",
+					);
+					if (
+						!message ||
+						(message.role !== "custom" && message.role !== "toolResult")
+					)
+						return false;
+					result = background
+						? (
+								message.details as {
+									result?: import("../src/delegate.ts").DelegationDetails;
+								}
+							).result
+						: (message.details as import("../src/delegate.ts").DelegationDetails);
+					output =
+						typeof message.content === "string"
+							? message.content
+							: message.content
+									.filter((b) => b.type === "text")
+									.map((b) => b.text)
+									.join("\n");
+					return result !== undefined;
+				});
+				const model = overrides.model ?? {
+					provider: required(state.model).provider,
+					id: required(state.model).id,
+				};
+				const requested = {
+					model,
+					thinkingLevel: overrides.thinkingLevel ?? state.thinkingLevel,
+				};
+				const effective = {
+					model,
+					thinkingLevel:
+						model.id === "deterministic"
+							? "off"
+							: overrides.thinkingLevel === "max"
+								? "high"
+								: requested.thinkingLevel,
+				};
+				expect(result).toMatchObject({
+					status: "completed",
+					configuration: { requested, effective },
+				});
+				const onsetFiles = readdirSync(logs).filter(
+					(name) =>
+						name.endsWith(".onset") &&
+						JSON.parse(
+							readFileSync(join(logs, name.replace(".onset", ".json")), "utf8"),
+						).child,
+				);
+				expect(onsetFiles).toHaveLength(1);
+				expect(
+					JSON.parse(readFileSync(join(logs, required(onsetFiles[0])), "utf8")),
+				).toEqual(effective);
+				expect(output).toContain("startupConfiguration");
+				const after = await parent.request<{
+					model: unknown;
+					thinkingLevel: unknown;
+				}>("get_state");
+				expect({
+					model: after.model,
+					thinkingLevel: after.thinkingLevel,
+				}).toEqual({
+					model: (before as typeof after).model,
+					thinkingLevel: (before as typeof after).thinkingLevel,
+				});
+				expect(readFileSync(settings, "utf8")).toBe(saved);
+				verifyCleanup(logs);
+			});
+		}, 30000);
+	}
+}
+
+for (const failure of [
+	"missing-model",
+	"missing-auth",
+	"cancel-init",
+] as const) {
+	test(`real startup ${failure} preserves request without submitting original task`, async () => {
+		await withParent(async (_parent, state, args, env, logs) => {
+			const controller = new AbortController();
+			const requested = {
+				model:
+					failure === "missing-auth"
+						? { ...exactModel, provider: "delegate-fixture-no-auth" }
+						: exactModel,
+				thinkingLevel: "low" as const,
+			};
+			const operation = runDelegation({
+				...inherited(state, args),
+				cwd: state.cwd,
+				task: "MUST NOT EXECUTE",
+				requestedConfiguration: requested,
+				env: {
+					...env,
+					...(failure === "missing-model" ? { FIXTURE_HIDE_MODEL: "1" } : {}),
+					...(failure === "cancel-init" ? { FIXTURE_HOLD_INIT: "1" } : {}),
+				},
+				signal: controller.signal,
+			});
+			if (failure === "cancel-init") {
+				await until(() =>
+					readdirSync(logs).some((name) => name.endsWith(".pending")),
+				);
+				controller.abort();
+			}
+			const result = await operation;
+			expect(result.details).toMatchObject({
+				status: failure === "cancel-init" ? "cancelled" : "failed",
+				configuration: { requested },
+			});
+			expect(result.details.configuration).not.toHaveProperty("effective");
+			expect(result.usage.totalTokens).toBe(0);
+			expect(
+				readdirSync(logs).filter((name) => name.endsWith(".onset")),
+			).toEqual([]);
+			if (failure === "missing-model")
+				expect(result.details.error).toContain("Model not found");
+			if (failure === "missing-auth")
+				expect(result.details.error).toContain("Model not found");
+			// Forced cancellation during host session_start need not emit session_shutdown.
+			for (const file of readdirSync(logs).filter((name) =>
+				name.endsWith(".json"),
+			)) {
+				const data = JSON.parse(readFileSync(join(logs, file), "utf8"));
+				if (data.child) {
+					expect(existsSync(dirname(data.snapshot))).toBe(false);
+					expect(() => process.kill(data.pid, 0)).toThrow();
+				}
+			}
+		});
+	}, 30000);
+}
+
+test("real concurrent child startup and UI retain snapshots across parent changes and cancellation", async () => {
+	await withParent(async (parent, state, args, env, logs) => {
+		const host = await statusUI();
+		const status = new AgentStatus();
+		status.bind({ mode: "tui", ui: host.ui });
+		const requests = [
+			{ model: exactModel, thinkingLevel: "low" as const },
+			{
+				model: { provider: "delegate-fixture", id: "deterministic" },
+				thinkingLevel: "max" as const,
+			},
+		];
+		const controllers = requests.map(() => new AbortController());
+		const pending = requests.map((requestedConfiguration, index) =>
+			runDelegation({
+				...inherited(state, args),
+				requestedConfiguration,
+				cwd: state.cwd,
+				env: { ...env, FIXTURE_HOLD_INIT: "1" },
+				task: `hang configuration ${index}`,
+				status: status.add(`task ${index}`),
+				signal: required(controllers[index]).signal,
+			}),
+		);
+		try {
+			await until(
+				() =>
+					readdirSync(logs).filter((name) => name.endsWith(".pending"))
+						.length === 2,
+			);
+			expect(host.frame()).toContain("model: unconfirmed");
+			expect(host.frame()).not.toContain(exactModel.id);
+			expect(host.frame()).toContain("0s · 0 turns");
+			await parent.request("set_model", {
+				provider: "delegate-fixture-other",
+				modelId: exactModel.id,
+			});
+			await parent.request("set_thinking_level", { level: "high" });
+			await writeFile(join(logs, "release-init"), "release");
+			await until(
+				() =>
+					readdirSync(logs).filter((name) => name.endsWith(".onset")).length ===
+					2,
+			);
+			expect(host.frame()).toContain(
+				`│  model: ${exactModel.provider}/${exactModel.id} · thinking: low`,
+			);
+			expect(host.frame()).toContain(
+				"│  model: delegate-fixture/deterministic · thinking: off",
+			);
+			expect(host.frame()).not.toContain("delegate-fixture-other");
+			expect(host.frame()).not.toContain("thinking…");
+			for (const controller of controllers) controller.abort();
+			const results = await Promise.all(pending);
+			for (const [index, result] of results.entries()) {
+				expect(result.details).toMatchObject({
+					status: "cancelled",
+					configuration: {
+						requested: requests[index],
+						effective: {
+							model: required(requests[index]).model,
+							thinkingLevel: index === 0 ? "low" : "off",
+						},
+					},
+				});
+			}
+			expect(host.frame()).toContain("thinking: low");
+			const parentAfter = await parent.request<{
+				model: { provider: string };
+				thinkingLevel: string;
+			}>("get_state");
+			expect(parentAfter.model.provider).toBe("delegate-fixture-other");
+			expect(parentAfter.thinkingLevel).toBe("high");
+			verifyCleanup(logs);
+		} finally {
+			for (const controller of controllers) controller.abort();
+			await Promise.all(pending);
+			status.close();
+			host.tui.stop();
+		}
+	});
+}, 30000);

@@ -8,6 +8,7 @@ import type {
 	ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
 import { registerDelegate, runDelegation } from "../src/delegate.ts";
+import { configurationContext } from "./fixtures/configuration-context.ts";
 import { statusUI } from "./fixtures/status-ui.ts";
 
 async function waitFor(predicate: () => boolean) {
@@ -17,6 +18,7 @@ async function waitFor(predicate: () => boolean) {
 		await Bun.sleep(10);
 	}
 }
+
 for (const background of [false, true]) {
 	for (const reject of [false, true]) {
 		test(`real runner + Pi widget/TUI: ${background ? "background" : "sync"} held acknowledgements, urgent ${reject ? "rejected" : "accepted"}`, async () => {
@@ -59,6 +61,7 @@ for (const background of [false, true]) {
 					}),
 			);
 			const ctx = {
+				...configurationContext,
 				cwd: process.cwd(),
 				mode: "tui",
 				ui: host.ui,

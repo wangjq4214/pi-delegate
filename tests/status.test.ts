@@ -63,7 +63,7 @@ test("actual onset excludes initialization; waits progress, turns and activity a
 		assistantMessageEvent: { type: "thinking_delta", delta: "SECRET THOUGHT" },
 	});
 	expect(text()).toContain("0s · 0 turns · pressure: none");
-	expect(text()).not.toContain("thinking");
+	expect(text()).not.toContain("thinking…");
 	one.observe({ type: "agent_start" });
 	time.advance(2);
 	expect(text()).toContain("2s · 0 turns");
@@ -116,7 +116,7 @@ test("acknowledged pressure is monotone, independent and invalidated with old ca
 	one.accepted("urgent");
 	one.accepted("warning");
 	expect(status.render(200)[1]).toContain("pressure: urgent");
-	expect(status.render(200)[3]).toContain("pressure: none");
+	expect(status.render(200)[4]).toContain("pressure: none");
 	const oldTimer = required([...time.jobs][0]).callback;
 	status.clear();
 	const three = required(status.add("third"));
@@ -188,4 +188,33 @@ test("narrow/wide Unicode and control/ANSI metadata cannot expose hidden lines o
 	expect(status.render(80)[1]).toContain("pressure: none");
 	expect(status.render(50)[1]).toContain("0 turns · pressure: none");
 	status.clear();
+});
+
+test("confirmed configuration expires with terminal rows and old callbacks cannot restore it", () => {
+	const { status, time, text } = setup();
+	const row = required(status.add("configured"));
+	const configuration = {
+		model: { provider: "provider", id: "exact/id:variant" },
+		thinkingLevel: "low" as const,
+	};
+	row.configured?.(configuration);
+	configuration.model.id = "caller mutated";
+	expect(text()).toContain("provider/exact/id:variant");
+	row.finish("completed");
+	time.advance(4.999);
+	expect(text()).toContain("thinking: low");
+	time.advance(0.001);
+	expect(text()).toBe("");
+	row.configured?.(configuration);
+	expect(text()).toBe("");
+	const old = required(status.add("old scope"));
+	status.clear(true);
+	old.configured?.(configuration);
+	expect(text()).toBe("");
+	const failed = required(status.add("failed before confirmation"));
+	failed.finish("failed");
+	failed.configured?.(configuration);
+	expect(text()).toContain("model: unconfirmed");
+	expect(text()).not.toContain("thinking: low");
+	status.close();
 });

@@ -39,16 +39,19 @@ test.serial(
 				.frame(80)
 				.split("\n")
 				.map((line) => line.trimEnd());
-			expect(lines).toHaveLength(7);
+			expect(lines).toHaveLength(8);
 			expect(lines[0]).toBe("CONTENT SENTINEL");
 			expect(lines[1]).toBe("");
 			expect(lines[2]).toBe("  Agents");
 			expect(lines[3]?.startsWith("  1  ")).toBe(true);
 			expect(lines[3]).toContain("0 turns · pressure: none");
-			expect(lines[4]).toBe("    └─ initializing…");
-			expect(lines[5]).toBe("");
-			expect(lines[6]).toBe("INPUT SENTINEL");
-			for (const index of [2, 3, 4])
+			expect(lines[4]).toBe(
+				"    │  model: unconfirmed · thinking: unconfirmed",
+			);
+			expect(lines[5]).toBe("    └─ initializing…");
+			expect(lines[6]).toBe("");
+			expect(lines[7]).toBe("INPUT SENTINEL");
+			for (const index of [2, 3, 4, 5])
 				expect(visibleWidth(required(lines[index]))).toBeLessThanOrEqual(78);
 			for (const width of [1, 2, 8, 20, 40, 42, 44, 50, 80, 160, 50, 80]) {
 				for (const line of host.styledFrame(width).split("\n"))
@@ -143,12 +146,20 @@ test.serial(
 		try {
 			host.tui.start();
 			const running = required(status.add("running row"));
+			running.configured?.({
+				model: { provider: "provider", id: "theme/id" },
+				thinkingLevel: "low",
+			});
 			running.observe({ type: "agent_start" });
 			running.observe({
 				type: "message_update",
 				assistantMessageEvent: { type: "thinking_start" },
 			});
 			const finished = required(status.add("retained row"));
+			finished.configured?.({
+				model: { provider: "other", id: "retained" },
+				thinkingLevel: "off",
+			});
 			finished.accepted("urgent");
 			finished.finish("completed");
 			const plain = host.frame();
@@ -234,6 +245,66 @@ test.serial(
 			status.close();
 			host.tui.stop();
 			await rm(agentDir, { recursive: true, force: true });
+		}
+	},
+);
+
+test.serial(
+	"composed configuration rows align connector and activity text, sanitize IDs, and fit resized widths",
+	async () => {
+		const host = await statusUI();
+		const status = statusFor(host);
+		try {
+			for (let i = 1; i <= 10; i++) {
+				const row = required(status.add(`task ${i}`));
+				row.configured?.({
+					model: {
+						provider: "宽é",
+						id: "\x1b[31mexact/id:variant\x1b[0m\nsecond\u2028third\x1b]8;;HIDDEN LINK\x07\x1b]8;;\x07",
+					},
+					thinkingLevel: "low",
+				});
+				row.observe({ type: "agent_start" });
+				if (i === 1)
+					row.observe({
+						type: "message_update",
+						assistantMessageEvent: { type: "thinking_start" },
+					});
+				if (i === 2)
+					row.observe({
+						type: "tool_execution_start",
+						toolCallId: "call",
+						toolName: "read",
+					});
+				if (i === 10) row.finish("completed");
+			}
+			for (const width of [1, 2, 8, 20, 40, 50, 80, 160, 80]) {
+				const lines = host.frame(width).split("\n");
+				for (const line of host.styledFrame(width).split("\n"))
+					expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+				for (let i = 0; i < lines.length; i++) {
+					const metadata = required(lines[i]);
+					if (!metadata.includes("│") || !metadata.includes("model:")) continue;
+					const activity = required(lines[i + 1]);
+					expect(visibleWidth(metadata.slice(0, metadata.indexOf("│")))).toBe(
+						visibleWidth(activity.slice(0, activity.indexOf("└"))),
+					);
+					expect(
+						visibleWidth(metadata.slice(0, metadata.indexOf("model:"))),
+					).toBe(visibleWidth(activity.slice(0, activity.indexOf("└") + 3)));
+				}
+			}
+			const plain = host.frame(160);
+			expect(plain).toContain("10  task 10");
+			expect(plain).toContain("thinking: low");
+			expect(plain).toContain("└─ thinking…");
+			expect(plain).toContain("└─ toolcall · read");
+			expect(plain).toContain("└─ completed");
+			expect(plain).not.toContain("HIDDEN");
+			expect(plain).not.toContain("\u2028");
+		} finally {
+			status.close();
+			host.tui.stop();
 		}
 	},
 );

@@ -12,7 +12,7 @@
 - **H-pressure — Final clarification:** `pressure: none / warning / urgent` reflects the highest stage whose child RPC steering request has been accepted. Eligibility, pending submission, acceptance, model consumption, and compliance are not interchangeable.
 - **H-presentation — Settled follow-up (2026-10-04):** The user requested more distance from the screen edges, clearer color distinction for execution status, and integration with Pi's theme configuration. The user then explicitly invoked `grimoire-spec` and accepted the proposed scope and defaults: adjust only the above-input Agents area; leave 2 terminal columns on each side and 1 blank line between it and adjacent content/input, counting host-provided spacing rather than duplicating it; allow reduced horizontal spacing on narrow terminals; retain English status text with the semantic color mapping in R8; keep titles in normal text color and time/turns/separators secondary; follow the active Pi theme, including switching and custom-theme hot reload, without hard-coded RGB or separate extension theme configuration. Preserve execution, pressure acknowledgement, and 5-second retention. Selected endpoint: revise this spec only, with no slice, implementation plan, production/test changes, or QA execution.
 - **B — Existing lifecycle contracts:** [ADR 0001](../adr/0001-rpc-subagents-and-parent-only-delegation.md), Superseded in its exclusively synchronous lifecycle by [ADR 0002](../adr/0002-session-owned-background-delegation.md), Completed; [spec 0002](./0002-session-owned-background-delegation.md), Implemented. Fresh RPC children, parent-only delegation, inheritance, synchronous cancellation, background ownership, result delivery/query, and cleanup remain unchanged.
-- **P — Existing pressure contract:** [ADR 0003](../adr/0003-per-delegation-soft-pressure.md), Implementing; [spec 0003](./0003-subagent-soft-pressure.md), Draft, establishes task-running time, completed assistant-plus-tools turns, two advisory pressure stages, and the distinction between RPC acceptance and model consumption/compliance.
+- **P — Existing pressure contract:** [ADR 0003](../adr/0003-per-delegation-soft-pressure.md), Completed; [spec 0003](./0003-subagent-soft-pressure.md), Implemented, establishes task-running time, completed assistant-plus-tools turns, two advisory pressure stages, and the distinction between RPC acceptance and model consumption/compliance.
 - **L — Inspected implementation:** [src/delegate.ts](../../src/delegate.ts) supplies both invocation paths, the shared `runDelegation` runner, and terminal outcomes; [src/rpc.ts](../../src/rpc.ts) supplies task event subscriptions and success/error responses to steering; [src/pressure.ts](../../src/pressure.ts) observes actual task onset and `turn_end` and reserves stages before asynchronous steering; [src/background.ts](../../src/background.ts) supplies background task/result ownership; [README.md](../../README.md) documents these contracts.
 - **V — Baseline presentation inspection (before the follow-up implementation):** [src/status.ts](../../src/status.ts) renders the existing aboveEditor widget without horizontal spacing or theme styling; [tests/status.test.ts](../../tests/status.test.ts) covers state, lifecycle, metadata sanitization, and width bounds; [tests/fixtures/status-ui.ts](../../tests/fixtures/status-ui.ts) uses the installed host's widget adapter and terminal renderer. Installed Pi 1.0.0 reference sources: `node_modules/@earendil-works/pi-coding-agent/docs/tui.md` (Apply themes correctly), `docs/themes.md`, `dist/core/extensions/types.d.ts` (`setWidget` theme callback and `ui.theme`), and `dist/modes/interactive/interactive-mode.js` (host-provided leading widget spacing). These establish available host integration, not acceptance of the new presentation behavior.
 
@@ -24,6 +24,8 @@ The 2026-10-04 permission is to revise and verify this same spec at the spec-onl
 
 Spec 0003 excludes new parent pressure telemetry from that feature's scope. This separately authorized UI feature adds pressure visibility without changing the pressure policy or invalidating that earlier scope boundary. No ADR conflict was identified.
 
+**Model/thinking extension (2026-10-04):** In a later refinement, the user accepted per-task model selection, requested model/thinking visibility in this same Agents area, refined the metadata row to `│  model: ... · thinking: ...` aligned with the activity text after `└─ `, and explicitly invoked `grimoire-spec`. [Spec 0006 — Per-task model selection and Agents UI configuration visibility](./0006-per-task-model-selection.md) is the authoritative contract for that separately authorized startup-configuration feature. It extends the original allowed-field restriction only with a dedicated configuration row; the first summary and current activity/outcome remain. R1–R8, counting, acknowledged pressure, theme, spacing and 5-second retention otherwise remain unchanged. **Implementation update (2026-10-04):** implementation, tests and verification of that startup-selection/metadata follow-up were subsequently authorized and completed. [Spec 0006 § Implementation Verification](./0006-per-task-model-selection.md#implementation-verification-2026-10-04) is the evidence and limitation record; the historical R1–R6 and R7–R8 verification below remains scoped to those features.
+
 ## Requirements
 
 ### R1 — Compact terminal placement and coverage
@@ -31,7 +33,7 @@ Spec 0003 excludes new parent pressure telemetry from that feature's scope. This
 - Display one compact status list in a fixed area above the Pi terminal input.
 - Include child agents launched by this extension in both synchronous and background mode. Do not include the parent agent.
 - Do not use or introduce preset roles such as `Explore`, `Plan`, or role-based identities.
-- The first row for each child contains only its numeric label, task title, elapsed running time, completed-turn count, and pressure state. A subordinate row shows current activity or the terminal outcome.
+- The first row for each child contains only its numeric label, task title, elapsed running time, completed-turn count, and pressure state. A subordinate row shows current activity or the terminal outcome. The separately authorized [spec 0006](./0006-per-task-model-selection.md#r6--modelthinking-visibility-in-the-existing-agents-ui) adds a dedicated model/thinking configuration row between them, with its effective-value and alignment semantics defined there.
 - This is terminal UI scope; existing non-TUI delegation remains operational without requiring this display.
 
 **Trace:** H; B for existing execution modes.
@@ -57,7 +59,7 @@ Spec 0003 excludes new parent pressure telemetry from that feature's scope. This
 
 ### R4 — Current activity, not a log
 
-- Show only the current activity below the child's summary, for example `thinking…` or `toolcall · read` / `toolcall · bash`.
+- Show only the current activity on the child's activity row, for example `thinking…` or `toolcall · read` / `toolcall · bash`.
 - For observed tool execution, display the tool name without arguments. Do not display thinking content, result bodies, or accumulated activity history.
 - Do not infer `thinking` from elapsed time, silence, or a generic running state when no thinking event is observed.
 - Activity observations must belong to the same child and must not leak into another child's row. Later execution or termination updates must not leave an obsolete activity represented as current.
@@ -124,7 +126,7 @@ Use the same time/turn meanings as the pressure contract, but distinguish a pres
 
 For the presentation follow-up, keep the existing status state and ownership contract while adding width-aware spacing within the Agents area and deriving activity/outcome and pressure styles from the current Pi theme. Integrate with host-provided widget spacing and theme redraws so neither blank-line gaps nor old colors accumulate. The same rows and existing execution events drive both textual status and its color; pressure color is based on acknowledgement, not eligibility.
 
-Representative layout (surrounding Pi content, titles, and durations are illustrative; R7 defines spacing, and R8 defines colors not representable in this plain-text diagram):
+Representative baseline layout (surrounding Pi content, titles, and durations are illustrative; R7 defines spacing, and R8 defines colors not representable in this plain-text diagram). The additional configuration row and final connector/text alignment are shown in [spec 0006 R7](./0006-per-task-model-selection.md#r7--vertical-connector-and-activity-text-alignment):
 
 ```text
 [Existing Pi content]
@@ -148,7 +150,7 @@ Representative layout (surrounding Pi content, titles, and durations are illustr
 | Task execution observations | Shared runner / child RPC events → status state | Actual task onset, completed-turn boundary, current observable thinking/tool activity for that child | Initialization-excluding elapsed time, correct completed counts, and current activity without content/argument exposure (R3–R4) |
 | Pressure acknowledgement | Existing task-local pressure submission / RPC response → status state | Stage and successful child steering acknowledgement, distinguished from reservation/failure | Highest accepted stage for that task, without claiming model consumption or changing pressure behavior (R5) |
 | Outcome/ownership | Existing runner and synchronous/background owners → display lifecycle | Four terminal outcomes and scope invalidation/teardown | Final row for 5 seconds, visual-only removal, and no stale cross-scope updates (R6) |
-| Terminal presentation | Correlated status state → Pi terminal UI | Current rows, available terminal width, and existing host widget spacing within the owning TUI session | Compact fixed display above input with non-duplicated vertical gaps, horizontal insets, width bounds, and no role labels or extra information (R1–R7) |
+| Terminal presentation | Correlated status state → Pi terminal UI | Current rows, available terminal width, and existing host widget spacing within the owning TUI session | Compact fixed display above input with non-duplicated vertical gaps, horizontal insets, width bounds, and no role labels or uncontracted information (R1–R7; the separately authorized configuration row follows spec 0006) |
 | Active theme | Pi theme configuration / host redraw → Agents presentation | Current semantic foreground roles and host theme switch/hot-reload redraws | Activity/outcome and acknowledged-pressure styling, normal titles, secondary metadata, and no stale colors on already-visible rows (R8) |
 
 ## End-to-End Tests

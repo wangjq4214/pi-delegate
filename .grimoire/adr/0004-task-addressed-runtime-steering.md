@@ -1,6 +1,6 @@
 # Task-addressed runtime steering within background ownership
 
-**Status:** Proposed
+**Status:** Completed
 **Date:** 2026-10-04
 
 ## Context
@@ -39,4 +39,16 @@ This is an additive decision, not a supersession of ADRs 0001–0003. The initia
 - Task lookup and publicly reported `running` state are insufficient to establish readiness: the current background view also uses `running` during child initialization. The implementation needs an execution-scoped control-readiness boundary.
 - For acknowledged submissions, shared task-local sequencing avoids async host preprocessing reordering manual instructions and pressure merely because both were written to stdin in order. An uncertain timeout does not establish that earlier host preprocessing has finished, so it cannot establish host enqueue order. Host steering mode still determines one-at-a-time versus batched consumption.
 - Terminal, cancelling, not-ready or invalidated work is not silently converted into a new prompt. A caller cannot infer execution or compliance from a successful receipt, including a late receipt racing settlement.
-- The chosen endpoint is requirements drafting only. Runtime steering is not yet implemented or newly runtime-tested; installed-host source evidence is limited to Pi 1.0.0.
+- **Correction (2026-10-04):** the original bullet here read "The chosen endpoint is requirements drafting only. Runtime steering is not yet implemented or newly runtime-tested; installed-host source evidence is limited to Pi 1.0.0." That described the drafting endpoint; implementation and real-host verification were subsequently authorized and are now realized. See [Realization and verification](#realization-and-verification-2026-10-04). Installed-host source evidence remains limited to Pi 1.0.0.
+
+## Realization and verification (2026-10-04)
+
+The corrected bullet above described the drafting endpoint. Implementation and real-host verification were subsequently authorized and completed; the requirements contract and its evidence table are in [spec 0005 — Background runtime steering](../spec/0005-background-runtime-steering.md#implementation-verification-2026-10-04).
+
+Implementation: `src/steering.ts` owns the `SteeringReceipt` union (`accepted` with `queued`/`handled`, plus `not_ready`/`closed`/`failed`/`uncertain`), the narrow `SteeringControl` interface granted to the task owner, and the runner-owned `TaskSteering` boundary with its task-local serialized `tail`, `[pi-delegate instruction]` prefix, readiness (`agent_start` plus confirmed original-task start), and closure on `agent_settled`/`rpc_failure`. `src/background.ts` resolves the task in the owning scope and rejects `unknown_task`, `terminal`, `cancelling` and `closing` work without exposing RPC commands. `src/delegate.ts` registers the parent-only `delegate_steer({ taskId, message })` and wires the control; `src/inheritance.ts` lists it in `DELEGATION_TOOLS` so children cannot discover or call it.
+
+Real Pi 1.0.0 RPC tests verify: readiness requiring original-task start with no rejected-text buffering; rejection of unknown, foreign, terminal, cancelling and settled tasks; a real trusted input handler consuming and transforming input yielding `handled`/`queued` with no bypass or duplicate insertion; slash-leading caller text staying instruction text rather than a command/skill/template invocation; `agent_end` not closing control while `agent_settled` does, including the settlement race; a rejected manual steer not failing a healthy task or suppressing its result/usage; a real 40-second timeout reported as uncertain with no automatic retry; task-local isolation between concurrent steering and pressure; and parent-only exclusion during child startup.
+
+Final post-format checks on Bun 1.4.1 / Pi 1.0.0: `bun test` (371 passed, 0 failed, 3712 assertions, 19 files), `bun run typecheck`, `bun run check` (Biome, 46 files) and `git diff --check` all passed.
+
+Completion is scoped to this extension's steering contract. Tests use deterministic local fixture providers without external model credentials; receipt/transport disposition is verified separately from model consumption, so no interruption, delivery-latency, compliance or host-enqueue-order guarantee is added. Verification remains scoped to Pi 1.0.0, and the exclusions above (no TUI panel, no synchronous handles, no task listing) are unchanged.

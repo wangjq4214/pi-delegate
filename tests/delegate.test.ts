@@ -20,6 +20,7 @@ import {
 	resolvePressure,
 } from "../src/pressure.ts";
 import { RpcProcess } from "../src/rpc.ts";
+import { configurationContext } from "./fixtures/configuration-context.ts";
 
 function registeredTool() {
 	let tool: Parameters<ExtensionAPI["registerTool"]>[0] | undefined;
@@ -43,13 +44,9 @@ for (const [task, signal, status, error] of [
 ] as const) {
 	test(`registered delegate returns ${status} for ${error}`, async () => {
 		const tool = registeredTool();
-		const result = await tool.execute(
-			"test",
-			{ task },
-			signal,
-			undefined,
-			{} as ExtensionToolContext,
-		);
+		const result = await tool.execute("test", { task }, signal, undefined, {
+			...configurationContext,
+		} as ExtensionToolContext);
 		expect(result.details).toMatchObject({ status, error });
 		expect(result.isError).toBe(true);
 		expect(result.content[0]).toMatchObject({
@@ -108,6 +105,7 @@ function pressureRegistration(
 	const tool = tools.get("delegate");
 	if (!tool) throw new Error("Delegate not registered");
 	const ctx = {
+		...configurationContext,
 		cwd: process.cwd(),
 		mode: "rpc",
 		isProjectTrusted: () => false,

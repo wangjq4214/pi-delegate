@@ -32,6 +32,8 @@ MCP reconnects using the same configuration. Parent connections, caches, arbitra
 
 After initialization, the extension checks inherited tool availability, schema, exposure, namespace, and activation state. Tools that cannot be reconstructed fail explicitly: they are not silently omitted, and execution does not fall back to parent proxies.
 
+Model/thinking inheritance is a plain invocation snapshot with independent optional overrides. The runner uses exact RPC `set_model` (not fuzzy CLI model patterns), then `set_thinking_level` and `get_state` after tool initialization and before original-task submission. Pi adjusts thinking capabilities and checks child-local auth configuration. Results distinguish requested and confirmed effective startup values; the visual-only Agents list consumes confirmed data. Model selection/readback failures never execute the task on a fallback model. No resolved credentials are copied, and no task overrides are persisted to user/project defaults.
+
 Keep configuration files stable during child startup. Unobservable host-private flags and arbitrary runtime state are outside the inheritance contract.
 
 ## Parent-only delegation

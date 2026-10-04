@@ -1,14 +1,34 @@
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	type AssistantMessage,
 	createAssistantMessageEventStream,
+	type JsonObject,
 	Type,
 } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function fixture(pi: ExtensionAPI): void {
 	let calls = 0;
+	let startupConfiguration:
+		| {
+				model: { provider: string; id: string };
+				thinkingLevel: string | undefined;
+		  }
+		| undefined;
+	pi.on("before_agent_start", (_event, ctx) => {
+		if (ctx.model)
+			startupConfiguration = {
+				model: { provider: ctx.model.provider, id: ctx.model.id },
+				thinkingLevel: ctx.thinkingLevel,
+			};
+		const directory = process.env.FIXTURE_LOG_DIR;
+		if (directory)
+			writeFileSync(
+				join(directory, `${process.pid}.onset`),
+				JSON.stringify(startupConfiguration),
+			);
+	});
 	pi.registerFlag("fixture-prefix", { type: "string", default: "default" });
 	pi.registerTool(
 		defineTool({
@@ -31,7 +51,7 @@ export default function fixture(pi: ExtensionAPI): void {
 			},
 		}),
 	);
-	pi.on("session_start", () => {
+	pi.on("session_start", async () => {
 		const directory = process.env.FIXTURE_LOG_DIR;
 		if (directory)
 			writeFileSync(
@@ -42,6 +62,15 @@ export default function fixture(pi: ExtensionAPI): void {
 					snapshot: process.env.PI_DELEGATE_SNAPSHOT,
 				}),
 			);
+		if (
+			directory &&
+			process.env.PI_DELEGATE_CHILD === "1" &&
+			process.env.FIXTURE_HOLD_INIT === "1"
+		) {
+			writeFileSync(join(directory, `${process.pid}.pending`), "pending");
+			while (!existsSync(join(directory, "release-init")))
+				await new Promise((resolve) => setTimeout(resolve, 5));
+		}
 	});
 	pi.on("session_shutdown", () => {
 		const directory = process.env.FIXTURE_LOG_DIR;
@@ -65,7 +94,7 @@ export default function fixture(pi: ExtensionAPI): void {
 			});
 		},
 	});
-	pi.registerProvider("delegate-fixture", {
+	const providerConfig: Parameters<ExtensionAPI["registerProvider"]>[1] = {
 		api: "delegate-fixture-api",
 		apiKey: "fixture-only",
 		baseUrl: "https://invalid.example",
@@ -79,6 +108,20 @@ export default function fixture(pi: ExtensionAPI): void {
 				contextWindow: 128000,
 				maxTokens: 8192,
 			},
+			...(process.env.PI_DELEGATE_CHILD === "1" &&
+			process.env.FIXTURE_HIDE_MODEL === "1"
+				? []
+				: [
+						{
+							id: "reasoning/path:variant",
+							name: "Reasoning exact fixture",
+							reasoning: true,
+							input: ["text" as const],
+							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+							contextWindow: 128000,
+							maxTokens: 8192,
+						},
+					]),
 		],
 		streamSimple(model, context, options) {
 			const stream = createAssistantMessageEventStream();
@@ -141,7 +184,7 @@ export default function fixture(pi: ExtensionAPI): void {
 					return;
 				}
 				stream.push({ type: "start", partial: message });
-				const toolCall = (name: string, args: Record<string, string>) => {
+				const toolCall = (name: string, args: JsonObject) => {
 					message.content = [
 						{
 							type: "toolCall",
@@ -168,6 +211,10 @@ export default function fixture(pi: ExtensionAPI): void {
 					stream.push({ type: "done", reason: "toolUse", message });
 					stream.end();
 				};
+				if (prompt.startsWith("CONFIG ") && !last) {
+					toolCall("delegate", JSON.parse(prompt.slice(7)));
+					return;
+				}
 				if (prompt.startsWith("DELEGATE ") && !last) {
 					toolCall("delegate", {
 						task: prompt.slice(9),
@@ -220,6 +267,7 @@ export default function fixture(pi: ExtensionAPI): void {
 							? process.env.FIXTURE_FINAL_TEXT
 							: JSON.stringify({
 									pid: process.pid,
+									startupConfiguration,
 									calls,
 									prefix: pi.getFlag("fixture-prefix"),
 									active: pi.getActiveTools(),
@@ -250,5 +298,11 @@ export default function fixture(pi: ExtensionAPI): void {
 			});
 			return stream;
 		},
+	};
+	pi.registerProvider("delegate-fixture", providerConfig);
+	pi.registerProvider("delegate-fixture-other", providerConfig);
+	pi.registerProvider("delegate-fixture-no-auth", {
+		...providerConfig,
+		apiKey: undefined,
 	});
 }

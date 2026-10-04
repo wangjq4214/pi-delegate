@@ -7,6 +7,7 @@ import {
 	type ToolInfo,
 } from "@earendil-works/pi-coding-agent";
 
+import type { TaskConfiguration } from "./configuration.ts";
 export const DELEGATE_TOOL = "delegate";
 export const DELEGATION_TOOLS = [
 	DELEGATE_TOOL,
@@ -92,7 +93,11 @@ export function captureInheritance(
 	>,
 	entryPath: string,
 	argv: string[] = process.argv.slice(2),
-): { args: string[]; snapshot: InheritanceSnapshot } {
+): {
+	args: string[];
+	snapshot: InheritanceSnapshot;
+	requestedConfiguration?: TaskConfiguration;
+} {
 	const parsed = parseArgs(argv);
 	const tools = pi
 		.getAllTools()
@@ -148,9 +153,7 @@ export function captureInheritance(
 		args.push("--tools", tools.map((tool) => tool.name).join(","));
 	else args.push("--no-tools");
 	args.push("--exclude-tools", DELEGATION_TOOLS.join(","));
-	if (ctx.model)
-		args.push("--provider", ctx.model.provider, "--model", ctx.model.id);
-	if (ctx.thinkingLevel) args.push("--thinking", ctx.thinkingLevel);
+	// Model IDs are not CLI patterns: the shared runner selects and verifies via exact RPC.
 	if (parsed.offline) args.push("--offline");
 	if (parsed.noContextFiles) args.push("--no-context-files");
 	if (parsed.noSkills) args.push("--no-skills");
@@ -164,6 +167,14 @@ export function captureInheritance(
 	}
 	return {
 		args,
+		...(ctx.model && ctx.thinkingLevel !== undefined
+			? {
+					requestedConfiguration: {
+						model: { provider: ctx.model.provider, id: ctx.model.id },
+						thinkingLevel: ctx.thinkingLevel,
+					},
+				}
+			: {}),
 		snapshot: {
 			version: 1,
 			tools: tools.map(snapshotTool),

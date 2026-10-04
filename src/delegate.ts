@@ -21,6 +21,15 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { BACKGROUND_MESSAGE, BackgroundTasks } from "./background.ts";
 import {
+	type ConfigurationDetails,
+	captureConfiguration,
+	isThinkingLevel,
+	modelParameter,
+	type TaskConfiguration,
+	thinkingParameter,
+	validateSelection,
+} from "./configuration.ts";
+import {
 	CHILD_ENV,
 	captureInheritance,
 	DELEGATE_TOOL,
@@ -93,6 +102,7 @@ export interface DelegationOptions {
 	cwd: string;
 	args: string[];
 	snapshot: InheritanceSnapshot;
+	requestedConfiguration?: TaskConfiguration;
 	task: string;
 	context?: string;
 	pressure?: PressureOverrides;
@@ -118,6 +128,7 @@ export interface DelegationDetails
 	stopReason?: AssistantMessage["stopReason"];
 	sessionId?: string;
 	error?: string;
+	configuration?: ConfigurationDetails;
 }
 
 export interface DelegationResult {
@@ -162,7 +173,14 @@ export async function runDelegation(
 	let unsubscribePressure: (() => void) | undefined;
 	let steering: TaskSteering | undefined;
 	let usage = sumUsage([]);
-	const details: Omit<DelegationDetails, "status" | "error"> = {};
+	const details: Omit<DelegationDetails, "status" | "error"> =
+		options.requestedConfiguration
+			? {
+					configuration: {
+						requested: structuredClone(options.requestedConfiguration),
+					},
+				}
+			: {};
 	try {
 		let result: DelegationResult;
 		try {
@@ -207,6 +225,33 @@ export async function runDelegation(
 					initialization?.error ?? "Child initialization handshake failed",
 				);
 
+			if (details.configuration) {
+				const requested = details.configuration.requested;
+				await rpc.request("set_model", {
+					provider: requested.model.provider,
+					modelId: requested.model.id,
+				});
+				await rpc.request("set_thinking_level", {
+					level: requested.thinkingLevel,
+				});
+				const state = await rpc.request<{
+					model?: { provider?: string; id?: string };
+					thinkingLevel?: unknown;
+				}>("get_state");
+				if (
+					state.model?.provider !== requested.model.provider ||
+					state.model?.id !== requested.model.id ||
+					!isThinkingLevel(state.thinkingLevel)
+				)
+					throw new Error("Child startup configuration verification failed");
+				options.signal?.throwIfAborted();
+				const effective: TaskConfiguration = {
+					model: { ...requested.model },
+					thinkingLevel: state.thinkingLevel,
+				};
+				details.configuration.effective = effective;
+				options.status?.configured?.(effective);
+			}
 			settlement = rpc.waitForSettled();
 			const child = rpc;
 			const taskSteering = new TaskSteering((message) =>
@@ -432,6 +477,8 @@ export function registerDelegate(
 					"Return a taskId without waiting. Default false; requires a long-lived TUI/RPC session. Tasks do not survive exit, reload, session replacement, or branch navigation. Usage is separate from parent-session totals.",
 			}),
 		),
+		model: Type.Optional(modelParameter),
+		thinkingLevel: Type.Optional(thinkingParameter),
 		pressure: Type.Optional(pressureParameters),
 	});
 	pi.registerTool(
@@ -448,6 +495,15 @@ export function registerDelegate(
 				// Private, clone-safe diagnostic: Pi clones prepared args before execute.
 				// Never trust an internal diagnostic supplied by a caller.
 				delete prepared.__piDelegatePressureError;
+				delete prepared.__piDelegateSelectionError;
+				try {
+					validateSelection(prepared.model, prepared.thinkingLevel);
+				} catch (error) {
+					delete prepared.model;
+					delete prepared.thinkingLevel;
+					prepared.__piDelegateSelectionError =
+						error instanceof Error ? error.message : String(error);
+				}
 				try {
 					validatePressureInput(prepared.pressure);
 				} catch (error) {
@@ -465,6 +521,12 @@ export function registerDelegate(
 					: controller.signal;
 				try {
 					combined.throwIfAborted();
+					const selectionError = (
+						params as Static<typeof parameters> & {
+							__piDelegateSelectionError?: string;
+						}
+					).__piDelegateSelectionError;
+					if (selectionError !== undefined) throw new Error(selectionError);
 					const preparationError = (
 						params as Static<typeof parameters> & {
 							__piDelegatePressureError?: string;
@@ -478,9 +540,15 @@ export function registerDelegate(
 							"Background delegation requires a long-lived TUI or RPC parent session",
 						);
 					const policy = resolvePressure(params.pressure);
+					const requestedConfiguration = captureConfiguration(
+						ctx,
+						params.model,
+						params.thinkingLevel,
+					);
 					const inherited = captureInheritance(pi, ctx, entryPath);
 					const options: DelegationOptions = {
 						...inherited,
+						requestedConfiguration,
 						cwd: ctx.cwd,
 						task: params.task,
 						context: params.context,
