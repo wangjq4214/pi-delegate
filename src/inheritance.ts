@@ -1,5 +1,7 @@
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	type ExtensionAPI,
 	type ExtensionContext,
@@ -85,6 +87,32 @@ export function validateChild(
 	}
 }
 
+// Pi resolves CLI resources before selecting the session/runtime cwd. Capture this
+// at module load so later session changes cannot rebase the original argv.
+const startupCwd = process.cwd();
+
+function isCliPackageSource(path: string): boolean {
+	// Matches the non-local prefixes in the host's utils/paths.isLocalPath.
+	return /^(npm:|git:|github:|http:|https:|ssh:|builtin:)/.test(path.trim());
+}
+
+function resolveCliResource(path: string): string {
+	if (isCliPackageSource(path)) return path;
+	if (path.startsWith("file://")) return fileURLToPath(path);
+	if (path === "~") return homedir();
+	if (
+		path.startsWith("~/") ||
+		(process.platform === "win32" && path.startsWith("~\\"))
+	)
+		return resolve(homedir(), path.slice(2));
+	// Pi also accepts Git Bash/MSYS, WSL and Cygwin drive paths on Windows.
+	if (process.platform === "win32" && !path.includes("\\")) {
+		const drive = path.match(/^\/(?:mnt\/|cygdrive\/)?([a-z])(?:\/(.*))?$/i);
+		if (drive) return resolve(`${drive[1].toUpperCase()}:\\${drive[2] ?? ""}`);
+	}
+	return resolve(startupCwd, path);
+}
+
 export function captureInheritance(
 	pi: Pick<ExtensionAPI, "getAllTools" | "getActiveTools" | "getCommands">,
 	ctx: Pick<
@@ -132,7 +160,16 @@ export function captureInheritance(
 			throw new Error(`Cannot reload ${owner}: ${absolute}`);
 		paths.add(absolute);
 	};
-	for (const path of parsed.extensions ?? []) addSource(path, "extension");
+	for (const path of parsed.extensions ?? []) {
+		// CLI package sources are host-managed, unlike observed runtime sources:
+		// keep their source/ref intact and let Pi resolve/install them again.
+		if (isCliPackageSource(path)) paths.add(path);
+		else
+			addSource(
+				path.startsWith("<") ? path : resolveCliResource(path),
+				"extension",
+			);
+	}
 	for (const tool of tools)
 		addSource(tool.sourceInfo.path, `tool ${tool.name}`);
 	for (const command of pi.getCommands()) {
@@ -158,12 +195,13 @@ export function captureInheritance(
 	if (parsed.noContextFiles) args.push("--no-context-files");
 	if (parsed.noSkills) args.push("--no-skills");
 	if (parsed.noPromptTemplates) args.push("--no-prompt-templates");
-	for (const path of parsed.skills ?? []) args.push("--skill", path);
+	for (const path of parsed.skills ?? [])
+		args.push("--skill", resolveCliResource(path));
 	for (const path of parsed.promptTemplates ?? [])
-		args.push("--prompt-template", path);
+		args.push("--prompt-template", resolveCliResource(path));
 	for (const [name, value] of parsed.unknownFlags) {
-		args.push(`--${name}`);
-		if (typeof value === "string") args.push(value);
+		// A separate token starting with - or @ would become an option/file input.
+		args.push(typeof value === "string" ? `--${name}=${value}` : `--${name}`);
 	}
 	return {
 		args,

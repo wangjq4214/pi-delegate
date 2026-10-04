@@ -62,6 +62,8 @@ Background execution is asynchronous work inside the current Pi session, not a p
 
 Normal completion and failure also release the child process and temporary initialization snapshot.
 
+Usage is collected from final child entries when available. If cancellation or a transport failure prevents collection, results retain usage already observed in message events and the latest cumulative streaming update. Unreported provider usage cannot be recovered; these failure-path totals can be partial. Streaming updates, final messages, and final entries are not added together twice.
+
 Full-output files are separate result artifacts and intentionally survive this cleanup so callers can retrieve truncated text. See [large output](usage.md#large-output).
 
 ## Runtime steering control
@@ -84,6 +86,7 @@ For synchronous tasks:
 
 - Supported RPC `select`, `confirm`, and `input` requests are forwarded to the parent's UI.
 - Requests are cancelled when no UI is available.
+- Pending forwarded dialogs are cancelled when their delegation returns, including child failure and normal completion; this does not change the task's outcome.
 - Multiline `editor` requests are cancelled because the parent extension API cannot abort an open editor safely.
 - Child notifications are forwarded with a subagent label.
 

@@ -51,6 +51,7 @@ interface Task {
 /** Owns work and queued completion independently of the initiating agent turn. */
 export class BackgroundTasks {
 	private tasks = new Map<string, Task>();
+	private cleanups = new Set<Promise<void>>();
 	private closed = false;
 	private timer?: ReturnType<typeof setTimeout>;
 
@@ -231,9 +232,20 @@ export class BackgroundTasks {
 		this.tasks = new Map();
 		clearTimeout(this.timer);
 		this.timer = undefined;
+		// Retain detached work so overlapping invalidations cannot lose its cleanup.
+		// Register before abort, whose listeners can synchronously reenter this owner.
+		const cleanup = Promise.allSettled(
+			[...tasks.values()].map((task) => task.operation),
+		).then(() => {
+			this.cleanups.delete(cleanup);
+		});
+		this.cleanups.add(cleanup);
+		// Ordinary navigation waits only for work invalidated by this boundary,
+		// not new work accepted while cleanup is pending. Closing rejects new work.
+		const pending = [...this.cleanups];
 		for (const task of tasks.values()) {
 			if (!task.result) task.controller.abort();
 		}
-		await Promise.allSettled([...tasks.values()].map((task) => task.operation));
+		await Promise.allSettled(pending);
 	}
 }

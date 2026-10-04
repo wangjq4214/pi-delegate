@@ -10,11 +10,11 @@ import {
 	type Usage,
 } from "@earendil-works/pi-ai";
 import {
-	type AgentSession,
 	defineTool,
 	type ExtensionAPI,
 	type ExtensionToolContext,
 	getPackageDir,
+	type JsonAgentSessionEvent,
 	type RpcExtensionUIRequest,
 	type RpcExtensionUIResponse,
 	type SessionEntry,
@@ -61,7 +61,7 @@ export function resolveCli(): string {
 	throw new Error("Cannot locate the Pi CLI in the installed host package");
 }
 
-function sumUsage(messages: AgentSession["messages"]): Usage {
+function sumUsage(usages: Iterable<Usage>): Usage {
 	const sum: Usage = {
 		input: 0,
 		output: 0,
@@ -70,10 +70,7 @@ function sumUsage(messages: AgentSession["messages"]): Usage {
 		totalTokens: 0,
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 	};
-	for (const message of messages) {
-		if (message.role !== "assistant" && message.role !== "toolResult") continue;
-		const usage = message.usage;
-		if (!usage) continue;
+	for (const usage of usages) {
 		for (const key of [
 			"input",
 			"output",
@@ -170,9 +167,13 @@ export async function runDelegation(
 	let rpc: RpcProcess | undefined;
 	let settlement: ReturnType<RpcProcess["waitForSettled"]> | undefined;
 	let pressure: TaskPressure | undefined;
-	let unsubscribePressure: (() => void) | undefined;
+	let unsubscribeEvents: (() => void) | undefined;
 	let steering: TaskSteering | undefined;
-	let usage = sumUsage([]);
+	let usage: Usage | undefined;
+	let observedUsage = sumUsage([]);
+	let completedUsage = sumUsage([]);
+	let streamingUsage: Usage | undefined;
+	const pendingToolUsage = new Map<string, Usage>();
 	const details: Omit<DelegationDetails, "status" | "error"> =
 		options.requestedConfiguration
 			? {
@@ -268,7 +269,32 @@ export async function runDelegation(
 				);
 				return response;
 			});
-			unsubscribePressure = rpc.subscribe((record) => {
+			unsubscribeEvents = rpc.subscribe((record) => {
+				// Keep usage even if cancellation/transport failure prevents get_entries.
+				// Streaming updates are cumulative; only message_end commits a message.
+				const event = record as JsonAgentSessionEvent;
+				if (event.type === "message_start") {
+					const message = event.message;
+					if (message.role === "assistant") streamingUsage = message.usage;
+					// Tool results already carry usage at start, before async end hooks finish.
+					if (message.role === "toolResult" && message.usage)
+						pendingToolUsage.set(message.toolCallId, message.usage);
+				}
+				if (event.type === "message_update") streamingUsage = event.usage;
+				if (event.type === "message_end") {
+					const message = event.message;
+					if (message.role === "assistant" || message.role === "toolResult") {
+						if (message.usage)
+							completedUsage = sumUsage([completedUsage, message.usage]);
+						if (message.role === "assistant") streamingUsage = undefined;
+						else pendingToolUsage.delete(message.toolCallId);
+					}
+				}
+				observedUsage = sumUsage([
+					completedUsage,
+					...pendingToolUsage.values(),
+					...(streamingUsage ? [streamingUsage] : []),
+				]);
 				steering?.observe(record);
 				pressure?.observe(record);
 				options.status?.observe(record);
@@ -296,7 +322,14 @@ export async function runDelegation(
 			const messages = resultEntries.flatMap((entry) =>
 				entry.type === "message" ? [entry.message] : [],
 			);
-			usage = sumUsage(messages);
+			usage = sumUsage(
+				messages.flatMap((message) =>
+					(message.role === "assistant" || message.role === "toolResult") &&
+					message.usage
+						? [message.usage]
+						: [],
+				),
+			);
 			const final = [...messages]
 				.reverse()
 				.find((item) => item.role === "assistant");
@@ -361,7 +394,7 @@ export async function runDelegation(
 			if (steering)
 				options.signal?.removeEventListener("abort", steering.close);
 			pressure?.dispose();
-			unsubscribePressure?.();
+			unsubscribeEvents?.();
 			if (pressure)
 				options.signal?.removeEventListener("abort", pressure.dispose);
 			settlement?.dispose();
@@ -374,7 +407,12 @@ export async function runDelegation(
 		options.signal?.throwIfAborted();
 		return result;
 	} catch (error) {
-		return failedResult(error, options.signal?.aborted, details, usage);
+		return failedResult(
+			error,
+			options.signal?.aborted,
+			details,
+			usage ?? observedUsage,
+		);
 	}
 }
 
@@ -516,6 +554,7 @@ export function registerDelegate(
 			},
 			async execute(_id, params, signal, _onUpdate, ctx) {
 				const controller = new AbortController();
+				const uiController = new AbortController();
 				const combined = signal
 					? AbortSignal.any([signal, controller.signal])
 					: controller.signal;
@@ -559,13 +598,21 @@ export function registerDelegate(
 					if (params.background) return background.start(options, ctx);
 					const operation = observedRun({
 						...options,
-						ui: (request) => forwardUi(ctx, combined, request),
+						ui: (request) =>
+							forwardUi(
+								ctx,
+								AbortSignal.any([combined, uiController.signal]),
+								request,
+							),
 					});
 					active.set(controller, operation);
 					return await operation;
 				} catch (error) {
 					return failedResult(error, combined.aborted);
 				} finally {
+					// Dialogs belong to this invocation, including when the child fails.
+					// Do not abort the execution signal and turn a completed result into cancellation.
+					uiController.abort();
 					active.delete(controller);
 				}
 			},

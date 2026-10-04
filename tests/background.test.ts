@@ -177,6 +177,93 @@ for (const closing of [false, true]) {
 	});
 }
 
+for (const closing of [false, true]) {
+	for (const withCurrent of [false, true]) {
+		for (const oldFirst of [false, true]) {
+			test(`overlapping invalidation awaits detached cleanup (closing=${closing}, current=${withCurrent}, oldFirst=${oldFirst})`, async () => {
+				const messages: BackgroundTaskResult[] = [];
+				const runs = new Map<
+					string,
+					{ signal: AbortSignal; finish: () => void }
+				>();
+				let controls = 0;
+				const tasks = new BackgroundTasks(
+					async ({ task, signal, onSteeringControl }) => {
+						if (!signal) throw new Error("Missing task signal");
+						onSteeringControl?.({
+							steer: async () => {
+								controls++;
+								return { status: "accepted", disposition: "queued" };
+							},
+						});
+						await new Promise<void>((finish) =>
+							runs.set(task, { signal, finish }),
+						);
+						return result(signal.aborted ? "cancelled" : "completed");
+					},
+					failure,
+					(message) => messages.push(message),
+				);
+				const start = (task: string) =>
+					tasks.start({ ...options, task }, idle).details.taskId;
+				const tick = () =>
+					new Promise<void>((resolve) => setImmediate(resolve));
+				const old = start("old");
+				await waitFor(() => runs.has("old"));
+				let firstDone = false;
+				const first = tasks.invalidate().then(() => {
+					firstDone = true;
+				});
+				expect(runs.get("old")?.signal.aborted).toBe(true);
+				expect(tasks.query(old).isError).toBe(true);
+				expect((await tasks.steer(old, "stale")).details.status).toBe(
+					"unknown_task",
+				);
+				let current: string | undefined;
+				if (withCurrent) {
+					current = start("current");
+					await waitFor(() => runs.has("current"));
+				}
+				let secondDone = false;
+				const second = tasks.invalidate(closing).then(() => {
+					secondDone = true;
+				});
+				if (current) {
+					expect(runs.get("current")?.signal.aborted).toBe(true);
+					expect(tasks.query(current).isError).toBe(true);
+				}
+				expect((await tasks.steer(old, "stale")).details.status).toBe(
+					closing ? "closing" : "unknown_task",
+				);
+				expect(controls).toBe(0);
+				let fresh: string | undefined;
+				if (closing) expect(() => start("fresh")).toThrow("closing");
+				else {
+					fresh = start("fresh");
+					await waitFor(() => runs.has("fresh"));
+				}
+				await tick();
+				expect(firstDone).toBe(false);
+				expect(secondDone).toBe(false);
+				runs.get(oldFirst ? "old" : "current")?.finish();
+				await tick();
+				expect(firstDone).toBe(oldFirst);
+				if (!oldFirst || withCurrent) expect(secondDone).toBe(false);
+				runs.get(oldFirst ? "current" : "old")?.finish();
+				await Promise.all([first, second]);
+				expect(messages).toHaveLength(0);
+				if (fresh) {
+					expect(runs.get("fresh")?.signal.aborted).toBe(false);
+					expect(tasks.query(fresh).details.status).toBe("running");
+					runs.get("fresh")?.finish();
+					await waitFor(() => messages.length === 1);
+					expect(messages[0].details.taskId).toBe(fresh);
+				}
+				await tasks.invalidate(true);
+			});
+		}
+	}
+}
 test("invalidating already completed queued results prevents cross-scope delivery", async () => {
 	const messages: BackgroundTaskResult[] = [];
 	let busy = true;
@@ -293,6 +380,43 @@ test("registered TUI tools acknowledge, query and trigger model-visible completi
 	await hooks.get("session_shutdown")?.({ reason: "reload" });
 });
 
+test("shutdown hooks await cleanup already detached by navigation", async () => {
+	let finish: (() => void) | undefined;
+	const { tools, hooks, messages, ctx } = registration(async () => {
+		await new Promise<void>((resolve) => {
+			finish = resolve;
+		});
+		return result("cancelled");
+	});
+	await tools
+		.get("delegate")
+		?.execute(
+			"call",
+			{ task: "task", background: true },
+			undefined,
+			undefined,
+			ctx,
+		);
+	await waitFor(() => finish !== undefined);
+	const navigation = hooks.get("session_before_tree")?.({
+		preparation: { targetId: "new", oldLeafId: "old" },
+	});
+	let shutdownsDone = 0;
+	const shutdown = () =>
+		Promise.resolve(hooks.get("session_shutdown")?.({ reason: "reload" })).then(
+			() => {
+				shutdownsDone++;
+			},
+		);
+	const first = shutdown();
+	const second = shutdown();
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	expect(shutdownsDone).toBe(0);
+	finish?.();
+	await Promise.all([navigation, first, second]);
+	expect(shutdownsDone).toBe(2);
+	expect(messages).toHaveLength(0);
+});
 for (const mode of ["print", "json"] as const) {
 	test(`one-shot ${mode} mode rejects background but retains synchronous operation`, async () => {
 		let runs = 0;

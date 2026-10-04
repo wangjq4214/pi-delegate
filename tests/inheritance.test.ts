@@ -1,10 +1,13 @@
 import { expect, test } from "bun:test";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { Type } from "@earendil-works/pi-ai";
 import {
 	createSyntheticSourceInfo,
 	type ExtensionAPI,
 	type ExtensionContext,
+	parseArgs,
 	type ToolInfo,
 } from "@earendil-works/pi-coding-agent";
 import extension from "../src/index.ts";
@@ -91,8 +94,7 @@ test("reloads tool and command extensions, retains deferred registry and strips 
 	expect(result.args).toContain("--no-extensions");
 	expect(result.args).toContain("--no-approve");
 	expect(result.args.filter((item) => item === source)).toHaveLength(1);
-	expect(result.args).toContain("--fixture-prefix");
-	expect(result.args).toContain("configured");
+	expect(result.args).toContain("--fixture-prefix=configured");
 	expect(result.args).not.toContain("private-session");
 	expect(result.args).not.toContain("parent secret");
 });
@@ -103,6 +105,169 @@ test("explicit hook-only extensions are replayed even without tool metadata", ()
 		source,
 	]);
 	expect(result.args).toContain(source);
+});
+
+for (const value of [
+	"-negative",
+	"--no-extensions",
+	"@attachment",
+	"",
+	"a=b",
+	"two words",
+]) {
+	test(`extension string flag round-trips without option/file interpretation: ${JSON.stringify(value)}`, () => {
+		const result = captureInheritance(api([], []), ctx, entry, [
+			`--fixture-value=${value}`,
+			"--fixture-enabled",
+		]);
+		const replayed = parseArgs(result.args);
+		expect(replayed.unknownFlags).toEqual(
+			new Map<string, string | boolean>([
+				["fixture-value", value],
+				["fixture-enabled", true],
+			]),
+		);
+		expect(replayed.fileArgs).toEqual([]);
+		expect(replayed.messages).toEqual([]);
+		expect(replayed.diagnostics).toEqual([]);
+		expect(replayed.noExtensions).toBeUndefined();
+	});
+}
+
+test("CLI file URLs and home paths reload hook-only extensions and deduplicate observed sources", () => {
+	for (const [path, target] of [
+		[pathToFileURL(source).href, source],
+		["~/", homedir()],
+	]) {
+		const hookOnly = captureInheritance(api([], []), ctx, entry, ["-e", path]);
+		expect(parseArgs(hookOnly.args).extensions).toEqual([target, entry]);
+		const observed = captureInheritance(
+			api([tool("optional", target)], []),
+			ctx,
+			entry,
+			["-e", path],
+		);
+		expect(parseArgs(observed.args).extensions).toEqual([target, entry]);
+	}
+});
+
+for (const source of [
+	"npm:@example/hooks@1.2.3",
+	"git:github.com/example/hooks@v1",
+	"github:example/hooks",
+	"https://github.com/example/hooks.git",
+	"ssh://git@example.com/example/hooks.git",
+]) {
+	test(`CLI hook-only package source remains host-resolvable: ${source}`, () => {
+		const result = captureInheritance(api([], []), ctx, entry, [
+			"--no-extensions",
+			"-e",
+			source,
+		]);
+		const replayed = parseArgs(result.args);
+		expect(replayed.extensions).toEqual([source, entry]);
+		expect(replayed.noExtensions).toBe(true);
+	});
+}
+
+test("original relative CLI resources use startup cwd, not the session cwd", () => {
+	const sessionCtx = { ...ctx, cwd: resolve("tests") };
+	const result = captureInheritance(
+		api([tool("optional", "fixtures/provider.ts")], []),
+		sessionCtx,
+		entry,
+		[
+			"-e",
+			"./tests/fixtures/provider.ts",
+			"--skill",
+			"./tests/fixtures/skill",
+			"--prompt-template",
+			"./tests/fixtures/prompt.md",
+			"--no-skills",
+			"--no-prompt-templates",
+		],
+	);
+	const replayed = parseArgs(result.args);
+	// The CLI and runtime-relative source refer to the same extension.
+	expect(replayed.extensions).toEqual([source, entry]);
+	expect(replayed.skills).toEqual([resolve("tests/fixtures/skill")]);
+	expect(replayed.promptTemplates).toEqual([
+		resolve("tests/fixtures/prompt.md"),
+	]);
+	expect(replayed.noSkills).toBe(true);
+	expect(replayed.noPromptTemplates).toBe(true);
+});
+
+test.skipIf(process.platform !== "win32")(
+	"Windows shell drive paths keep their CLI targets across session cwd changes",
+	() => {
+		const drivePath = source.replaceAll("\\", "/");
+		const drive = drivePath[0].toLowerCase();
+		for (const prefix of ["/", "/mnt/", "/cygdrive/"]) {
+			const path = `${prefix}${drive}${drivePath.slice(2)}`;
+			const replayed = parseArgs(
+				captureInheritance(
+					api([], []),
+					{ ...ctx, cwd: resolve("tests") },
+					entry,
+					["-e", path, "--skill", path, "--prompt-template", path],
+				).args,
+			);
+			expect(replayed.extensions).toEqual([source, entry]);
+			expect(replayed.skills).toEqual([source]);
+			expect(replayed.promptTemplates).toEqual([source]);
+		}
+	},
+);
+
+test("skill and prompt home/file URL inputs retain their local targets", () => {
+	const replayed = parseArgs(
+		captureInheritance(api([], []), ctx, entry, [
+			"--skill",
+			"~/skills/example",
+			"--prompt-template",
+			pathToFileURL(resolve("prompt with spaces.md")).href,
+		]).args,
+	);
+	expect(replayed.skills).toEqual([resolve(homedir(), "skills/example")]);
+	expect(replayed.promptTemplates).toEqual([resolve("prompt with spaces.md")]);
+});
+
+test("CLI package replay does not weaken runtime tool or command source validation", () => {
+	for (const path of [
+		"<sdk:remote>",
+		"npm:@example/hooks@1.2.3",
+		"git:github.com/example/hooks@v1",
+		"./missing-inheritance-source.ts",
+	]) {
+		for (const owner of ["tool", "command"]) {
+			const parent = {
+				...api(owner === "tool" ? [tool("remote", path)] : [], []),
+				getCommands: () =>
+					owner === "command"
+						? [
+								{
+									name: "remote",
+									source: "extension" as const,
+									sourceInfo: createSyntheticSourceInfo(path, {
+										source: "test",
+									}),
+								},
+							]
+						: [],
+			};
+			expect(() =>
+				captureInheritance(parent, ctx, entry, [
+					"-e",
+					"npm:@example/hooks@1.2.3",
+				]),
+			).toThrow(
+				path.startsWith("<")
+					? "runtime-only source"
+					: `Cannot reload ${owner} remote`,
+			);
+		}
+	}
 });
 
 test("rejects runtime-only tools rather than silently dropping them", () => {
