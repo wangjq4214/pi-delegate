@@ -41,6 +41,7 @@ import {
 	validatePressureInput,
 } from "./pressure.ts";
 import { RpcProcess } from "./rpc.ts";
+import { AgentStatus, type StatusObserver } from "./status.ts";
 
 export function resolveCli(): string {
 	const root = getPackageDir();
@@ -97,6 +98,7 @@ export interface DelegationOptions {
 	task: string;
 	context?: string;
 	pressure?: PressureOverrides;
+	status?: StatusObserver;
 	signal?: AbortSignal;
 	ui?: (
 		request: RpcExtensionUIRequest,
@@ -207,10 +209,19 @@ export async function runDelegation(
 
 			settlement = rpc.waitForSettled();
 			const child = rpc;
-			pressure = new TaskPressure(policy, (message) =>
-				child.request("steer", { message }),
-			);
-			unsubscribePressure = rpc.subscribe(pressure.observe);
+			pressure = new TaskPressure(policy, async (message) => {
+				const response = await child.request("steer", { message });
+				options.status?.accepted(
+					message.startsWith("[pi-delegate pressure: urgent]")
+						? "urgent"
+						: "warning",
+				);
+				return response;
+			});
+			unsubscribePressure = rpc.subscribe((record) => {
+				pressure?.observe(record);
+				options.status?.observe(record);
+			});
 			options.signal?.addEventListener("abort", pressure.dispose, {
 				once: true,
 			});
@@ -359,23 +370,43 @@ export function registerDelegate(
 	run: typeof runDelegation = runDelegation,
 ): void {
 	const active = new Map<AbortController, Promise<unknown>>();
-	const background = new BackgroundTasks(run, failedResult, (result) => {
-		pi.sendMessage(
-			{
-				customType: BACKGROUND_MESSAGE,
-				content: result.content,
-				display: true,
-				details: result.details,
-			},
-			{ triggerTurn: true, deliverAs: "followUp" },
-		);
-	});
+	const status = new AgentStatus();
+	const observedRun: typeof runDelegation = async (options) => {
+		try {
+			const result = await run(options);
+			options.status?.finish(result.details.status);
+			return result;
+		} catch (error) {
+			options.status?.finish(options.signal?.aborted ? "cancelled" : "failed");
+			throw error;
+		}
+	};
+	const background = new BackgroundTasks(
+		observedRun,
+		failedResult,
+		(result) => {
+			pi.sendMessage(
+				{
+					customType: BACKGROUND_MESSAGE,
+					content: result.content,
+					display: true,
+					details: result.details,
+				},
+				{ triggerTurn: true, deliverAs: "followUp" },
+			);
+		},
+	);
 	const entryPath = fileURLToPath(new URL("./index.ts", import.meta.url));
 	const parameters = Type.Object({
 		task: Type.String({
 			minLength: 1,
 			description: "Task for the subagent",
 		}),
+		title: Type.Optional(
+			Type.String({
+				description: "Short display title; defaults to the first task line",
+			}),
+		),
 		context: Type.Optional(
 			Type.String({
 				description:
@@ -440,9 +471,10 @@ export function registerDelegate(
 						context: params.context,
 						pressure: policy,
 						signal: combined,
+						status: status.add(params.task, params.title),
 					};
 					if (params.background) return background.start(options, ctx);
-					const operation = run({
+					const operation = observedRun({
 						...options,
 						ui: (request) => forwardUi(ctx, combined, request),
 					});
@@ -473,19 +505,26 @@ export function registerDelegate(
 			}),
 		);
 	}
+	pi.on("session_start", (_event, ctx) => status.bind(ctx));
 	pi.on("agent_settled", () => background.scheduleDelivery());
 	pi.on("session_compact", () => background.scheduleDelivery());
 	pi.on("session_compact_failed", () => background.scheduleDelivery());
 	pi.on("session_before_tree", async (event) => {
-		if (event.preparation.targetId !== event.preparation.oldLeafId)
+		if (event.preparation.targetId !== event.preparation.oldLeafId) {
+			status.clear();
 			await background.invalidate();
+		}
 	});
 	pi.on("session_tree", async (event) => {
 		// A prompt may accept new work while before-tree handlers/summarization await.
 		// Commit invalidation prevents that source-branch work reaching the new leaf.
-		if (event.newLeafId !== event.oldLeafId) await background.invalidate();
+		if (event.newLeafId !== event.oldLeafId) {
+			status.clear();
+			await background.invalidate();
+		}
 	});
 	pi.on("session_shutdown", async () => {
+		status.close();
 		for (const controller of active.keys()) controller.abort();
 		await Promise.allSettled([...active.values(), background.invalidate(true)]);
 	});

@@ -8,6 +8,7 @@
         "@biomejs/biome": "2.5.15",
         "@earendil-works/pi-ai": "1.0.0",
         "@earendil-works/pi-coding-agent": "1.0.0",
+        "@earendil-works/pi-tui": "1.0.0",
         "@types/bun": "1.4.2",
         "lefthook": "2.1.16",
         "typescript": "7.0.2",
@@ -15,6 +16,7 @@
       "peerDependencies": {
         "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
       },
     },
   },

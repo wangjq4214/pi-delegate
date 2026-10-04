@@ -17,6 +17,8 @@ import {
 	type BackgroundTaskDetails,
 } from "../src/background.ts";
 
+import { statusUI } from "./fixtures/status-ui.ts";
+
 type Message = AgentSession["messages"][number];
 type Child = { pid: number; child: boolean; mode: string; snapshot: string };
 
@@ -55,9 +57,9 @@ function completions(session: AgentSession) {
 	);
 }
 
-// R9/T11 runtime evidence: actual AgentSession + ExtensionRunner TUI binding.
-// No InteractiveMode, terminal driver/rendering, or UI adapter is exercised.
-// Environment/argv are process-wide: these scenarios must run serially.
+// Real AgentSession + ExtensionRunner TUI binding, RPC child events, and installed
+// InteractiveMode widget adapter/TUI component rendering. No full interactive input
+// startup or manual visual E2E is claimed.
 for (const busy of [false, true]) {
 	test.serial(
 		`real Pi TUI-mode runtime: gated child completion ${busy ? "waits for busy parent" : "wakes idle parent"}`,
@@ -68,6 +70,7 @@ for (const busy of [false, true]) {
 			const savedEnv = { ...process.env };
 			const savedArgv = process.argv;
 			let session: AgentSession | undefined;
+			const statusHost = await statusUI();
 			let unsubscribe: (() => void) | undefined;
 			try {
 				await mkdir(agentDir);
@@ -84,6 +87,7 @@ for (const busy of [false, true]) {
 					PI_CODING_AGENT_DIR: agentDir,
 					PI_OFFLINE: "1",
 					BACKGROUND_FIXTURE_DIR: logs,
+					STATUS_FIXTURE_THINKING: busy ? "1" : "0",
 				});
 				// captureInheritance reads argv; suppress child discovery just as the SDK loader does.
 				process.argv = savedArgv
@@ -165,6 +169,7 @@ for (const busy of [false, true]) {
 				});
 				await parent.bindExtensions({
 					mode: "tui",
+					uiContext: statusHost.ui,
 					onError: (e) => errors.push(e.error),
 				});
 				expect(VERSION).toBe("1.0.0");
@@ -199,6 +204,15 @@ for (const busy of [false, true]) {
 					Boolean,
 					"child gate",
 				);
+				expect(statusHost.frame()).toContain("1  gated TUI proof");
+				expect(statusHost.frame()).toContain("pressure: none");
+				expect(statusHost.frame()).toContain("0 turns");
+				await eventually(
+					() => statusHost.frame().includes("thinking…"),
+					(thinking) => thinking === busy,
+					"observed thinking status",
+				);
+				expect(statusHost.frame()).not.toContain("PRIVATE THINKING CONTENT");
 				await parent.prompt("UNRELATED");
 				await parent.waitForIdle();
 				expect(
@@ -269,6 +283,9 @@ for (const busy of [false, true]) {
 					expect(delivered).toBeGreaterThan(finished);
 				}
 				expect(() => process.kill(child.pid, 0)).toThrow();
+				expect(statusHost.frame()).toContain("└─ completed");
+				expect(statusHost.frame()).toContain("1 turn · pressure: none");
+				expect(statusHost.frame()).not.toContain("CHILD_RESULT");
 				expect(errors).toEqual([]);
 			} finally {
 				try {

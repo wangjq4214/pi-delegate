@@ -108,6 +108,12 @@ export default function backgroundProvider(pi: ExtensionAPI): void {
 				.slice(lastUser + 1)
 				.reverse()
 				.find((m) => m.role === "toolResult");
+			let started = false;
+			const start = () => {
+				if (started) return;
+				started = true;
+				stream.push({ type: "start", partial: message });
+			};
 			let done = false;
 			let timer: ReturnType<typeof setTimeout> | undefined;
 			const finish = () => {
@@ -125,7 +131,7 @@ export default function backgroundProvider(pi: ExtensionAPI): void {
 				finish();
 			};
 			const respond = (text: string) => {
-				stream.push({ type: "start", partial: message });
+				start();
 				message.content = [{ type: "text", text }];
 				stream.push({ type: "text_start", contentIndex: 0, partial: message });
 				stream.push({
@@ -151,7 +157,7 @@ export default function backgroundProvider(pi: ExtensionAPI): void {
 					name,
 					arguments: args,
 				};
-				stream.push({ type: "start", partial: message });
+				start();
 				message.content = [toolCall];
 				stream.push({
 					type: "toolcall_start",
@@ -184,6 +190,23 @@ export default function backgroundProvider(pi: ExtensionAPI): void {
 					return;
 				}
 				if (child) {
+					if (process.env.STATUS_FIXTURE_THINKING === "1") {
+						start();
+						message.content = [
+							{ type: "thinking", thinking: "PRIVATE THINKING CONTENT" },
+						];
+						stream.push({
+							type: "thinking_start",
+							contentIndex: 0,
+							partial: message,
+						});
+						stream.push({
+							type: "thinking_delta",
+							contentIndex: 0,
+							delta: "PRIVATE THINKING CONTENT",
+							partial: message,
+						});
+					}
 					if (!result)
 						gate("child", () => {
 							if (prompt.includes("dialogs")) call("background_dialogs", {});
