@@ -170,6 +170,14 @@ Pressure advances only after the child's RPC accepts that stage's steering reque
 
 Terminal outcomes remain visible for 5 seconds and are then removed from the UI only. Background results stay queryable while their scope remains valid. Scope changes, reload, and shutdown clear old displays and callbacks.
 
+The Agents area has 2-column horizontal insets when space permits and a 1-line gap above and below, counting Pi's existing widget spacing rather than doubling it. Insets shrink on narrow terminals before consuming space needed for identity and summary metadata.
+
+Colors follow Pi's active theme, including theme switches and host-supported custom-theme hot reload, without separate extension color settings. English status text remains visible alongside color:
+
+- Running/thinking/tool activity uses `accent`; completed uses `success`, incomplete uses `warning`, and failed uses `error`.
+- Initializing, finishing, and cancelled states use `muted`. Titles use normal text color; time, turns, and separators use secondary styling.
+- Pressure independently uses `dim` for none, `warning` for warning, and `error` for urgent. Urgent pressure does not mean the task failed.
+
 Narrow terminals preserve space for the numeric label, time, turns, and pressure where possible, shortening the title first. Extremely narrow output is truncated to terminal width. RPC, print, and JSON execution do not depend on this component.
 
 The numeric UI label does not replace the background `taskId` used for queries and cancellation.

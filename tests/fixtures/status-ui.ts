@@ -3,10 +3,12 @@ import { pathToFileURL } from "node:url";
 import {
 	type ExtensionUIContext,
 	getPackageDir,
+	initTheme,
 } from "@earendil-works/pi-coding-agent";
 import {
 	type Component,
 	Container,
+	stripTerminalSequences,
 	type Terminal,
 	Text,
 	TuiMainScreen,
@@ -21,6 +23,12 @@ export async function statusUI() {
 			join(getPackageDir(), "dist/modes/interactive/interactive-mode.js"),
 		).href
 	);
+	const themes = await import(
+		pathToFileURL(
+			join(getPackageDir(), "dist/modes/interactive/theme/theme.js"),
+		).href
+	);
+	initTheme("dark");
 	let output = "";
 	const terminal: Terminal = {
 		columns: 160,
@@ -42,6 +50,13 @@ export async function statusUI() {
 		setProgress() {},
 	};
 	const tui = new TuiMainScreen(terminal);
+	let themeChanges = 0;
+	// Same redraw binding as InteractiveMode.start, using the real theme engine.
+	themes.onThemeChange(() => {
+		themeChanges++;
+		tui.invalidate();
+		tui.requestRender();
+	});
 	const above = new Container();
 	const below = new Container();
 	const methods = InteractiveMode.prototype;
@@ -54,14 +69,24 @@ export async function statusUI() {
 		renderWidgets: methods.renderWidgets,
 		renderWidgetContainer: methods.renderWidgetContainer,
 	};
+	tui.addChild(new Text("CONTENT SENTINEL", 0, 0));
 	tui.addChild(above);
 	tui.addChild(new Text("INPUT SENTINEL", 0, 0));
 	tui.addChild(below);
 	const setWidget: ExtensionUIContext["setWidget"] = (key, content, options) =>
 		methods.setExtensionWidget.call(receiver, key, content, options);
+	const styledFrame = (width = 160) => tui.render(width).join("\n");
 	return {
-		ui: { setWidget } as ExtensionUIContext,
-		frame: (width = 160) => tui.render(width).join("\n"),
+		ui: {
+			setWidget,
+			get theme() {
+				return themes.theme;
+			},
+		} as ExtensionUIContext,
+		frame: (width = 160) => stripTerminalSequences(styledFrame(width)),
+		styledFrame,
+		themes,
+		themeChanges: () => themeChanges,
 		tui,
 		output: () => output,
 		above: receiver.extensionWidgetsAbove,

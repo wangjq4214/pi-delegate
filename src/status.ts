@@ -1,9 +1,24 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionContext,
+	Theme,
+	ThemeColor,
+} from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { DelegationStatus } from "./delegate.ts";
 import type { PressureClock } from "./pressure.ts";
 
 export type AcceptedPressure = "none" | "warning" | "urgent";
+const pressureColors: Record<AcceptedPressure, ThemeColor> = {
+	none: "dim",
+	warning: "warning",
+	urgent: "error",
+};
+const outcomeColors: Record<DelegationStatus, ThemeColor> = {
+	completed: "success",
+	incomplete: "warning",
+	failed: "error",
+	cancelled: "muted",
+};
 export interface StatusObserver {
 	observe(record: Record<string, unknown>): void;
 	accepted(stage: Exclude<AcceptedPressure, "none">): void;
@@ -89,12 +104,12 @@ export class AgentStatus {
 		if (this.rows.size === 1) {
 			this.ui.setWidget(
 				"pi-delegate:agents",
-				(tui) => {
+				(tui, theme) => {
 					if (generation === this.generation)
 						this.requestRender = () => tui.requestRender();
 					return {
 						render: (width) =>
-							generation === this.generation ? this.render(width) : [],
+							generation === this.generation ? this.render(width, theme) : [],
 						invalidate() {},
 					};
 				},
@@ -175,10 +190,11 @@ export class AgentStatus {
 		};
 	}
 
-	render(width: number): string[] {
-		if (!this.rows.size) return [];
-		const lines = [truncateToWidth("Agents", width)];
-		for (const row of this.rows.values()) {
+	render(width: number, theme?: Pick<Theme, "fg">): string[] {
+		if (!this.rows.size || width <= 0) return [];
+		const fg = (color: ThemeColor, text: string) =>
+			theme ? theme.fg(color, text) : text;
+		const summaries = [...this.rows.values()].map((row) => {
 			const seconds =
 				row.startedAt === undefined
 					? 0
@@ -186,21 +202,53 @@ export class AgentStatus {
 							0,
 							Math.floor((row.stoppedAt ?? this.time.now()) - row.startedAt),
 						);
-			const prefix = `${row.id}  `;
-			const suffix = ` · ${seconds}s · ${row.turns} ${row.turns === 1 ? "turn" : "turns"} · pressure: ${row.pressure}`;
+			return {
+				row,
+				prefix: `${row.id}  `,
+				metadata: ` · ${seconds}s · ${row.turns} ${row.turns === 1 ? "turn" : "turns"} · `,
+				pressure: `pressure: ${row.pressure}`,
+			};
+		});
+		// Shrink insets before sacrificing identity/summary metadata to spacing.
+		const minimumWidth = Math.max(
+			visibleWidth("Agents"),
+			...summaries.map(({ prefix, metadata, pressure }) =>
+				visibleWidth(prefix + metadata + pressure),
+			),
+		);
+		const padding = Math.min(
+			2,
+			Math.max(0, Math.floor((width - minimumWidth) / 2)),
+		);
+		const contentWidth = width - padding * 2;
+		const line = (text: string, ellipsis = "") =>
+			" ".repeat(padding) + truncateToWidth(text, contentWidth, ellipsis);
+		const lines = [line("Agents", "…")];
+		for (const { row, prefix, metadata, pressure } of summaries) {
 			const title = truncateToWidth(
 				row.title,
-				Math.max(0, width - visibleWidth(prefix + suffix)),
+				Math.max(0, contentWidth - visibleWidth(prefix + metadata + pressure)),
 			);
-			lines.push(truncateToWidth(`${prefix}${title}${suffix}`, width, ""));
-			const tool = [...row.tools.values()].at(-1);
 			lines.push(
-				truncateToWidth(
-					`  └─ ${row.status ?? (tool ? `toolcall · ${tool}` : row.activity)}`,
-					width,
+				line(
+					fg("text", prefix + title) +
+						fg("muted", metadata) +
+						fg(pressureColors[row.pressure], pressure),
 				),
 			);
+			const tool = [...row.tools.values()].at(-1);
+			const activity =
+				row.status ?? (tool ? `toolcall · ${tool}` : row.activity);
+			const color = row.status
+				? outcomeColors[row.status]
+				: !tool &&
+						(row.activity === "initializing…" || row.activity === "finishing…")
+					? "muted"
+					: "accent";
+			lines.push(line(fg("muted", "  └─ ") + fg(color, activity), "…"));
 		}
+		// Pi's aboveEditor container supplies the top gap; add only the bottom gap.
+		lines.push("");
 		return lines;
 	}
 

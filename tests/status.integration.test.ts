@@ -88,6 +88,9 @@ for (const background of [false, true]) {
 				await waitFor(() => existsSync(join(dir, "warning-pending")));
 				expect(host.frame()).toContain("1  UI proof");
 				expect(host.frame()).toContain("2 turns · pressure: none");
+				expect(host.styledFrame()).toContain(
+					host.ui.theme.fg("dim", "pressure: none"),
+				);
 				expect(host.frame()).not.toContain("PRIVATE");
 				expect(host.frame().indexOf("Agents")).toBeLessThan(
 					host.frame().indexOf("INPUT SENTINEL"),
@@ -103,6 +106,9 @@ for (const background of [false, true]) {
 				await writeFile(join(dir, "warning-release"), "release");
 				await waitFor(() => existsSync(join(dir, "urgent-pending")));
 				expect(host.frame()).toContain("pressure: warning");
+				expect(host.styledFrame()).toContain(
+					host.ui.theme.fg("warning", "pressure: warning"),
+				);
 				expect(host.frame()).not.toContain("pressure: urgent");
 				await Bun.sleep(30);
 				expect(host.output()).toContain("Agents");
@@ -114,6 +120,18 @@ for (const background of [false, true]) {
 				);
 				expect(host.frame()).toContain(
 					`pressure: ${reject ? "warning" : "urgent"}`,
+				);
+				expect(host.styledFrame()).toContain(
+					host.ui.theme.fg(
+						reject ? "error" : "success",
+						reject ? "failed" : "completed",
+					),
+				);
+				expect(host.styledFrame()).toContain(
+					host.ui.theme.fg(
+						reject ? "warning" : "error",
+						`pressure: ${reject ? "warning" : "urgent"}`,
+					),
 				);
 				if (background) {
 					const taskId = (result.details as { taskId: string }).taskId;
