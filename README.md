@@ -1,162 +1,104 @@
 # pi-delegate
 
-Pi TypeScript extension，提供 `delegate` 工具，通过 RPC 启动一次性子 agent。使用 Bun 管理依赖、Biome 检查和格式化，以及 Lefthook 管理 Git hooks。提供 `delegate`、`delegate_status` 和 `delegate_cancel` 三个工具；除子进程内部初始化命令外，不注册用户命令。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-## 开始使用
+Delegate focused tasks to fresh Pi subagents without leaving your current session.
 
-需要 Git、Bun 1.4.1 或更高版本，以及兼容的 Pi 宿主。开发依赖锁定并验证了 `@earendil-works/pi-coding-agent@1.0.0`；Pi CLI 在 Node.js 下运行时需要 Node.js 22.19 或更高版本。
+pi-delegate is a TypeScript extension for Pi. It launches one-off subagents over RPC, with synchronous results or opt-in background execution.
+
+## Features
+
+- **Fresh subagents:** each task runs in a new session; delegation tools are available only to the parent agent.
+- **Tool inheritance:** reconstruct the parent's tools and extensions, preserving activation and discoverability.
+- **Synchronous and background execution:** wait for a result or continue working while a session-owned task runs.
+- **Task management:** receive model-visible completion messages, query background results, and cancel tasks explicitly.
+- **Soft pressure and status UI:** configure task-local finish reminders and monitor subagents above the TUI input.
+
+## Requirements
+
+- Git and Bun 1.4.1 or later for local setup.
+- Node.js 22.19 or later. When Pi runs under Bun, `node` must be available on `PATH` for child processes.
+- A compatible Pi host. This extension is validated with `@earendil-works/pi-coding-agent@1.0.0`; other host versions are not currently verified.
+
+## Installation
+
+Run the following from the root of a local Git checkout:
 
 ```sh
 bun install --frozen-lockfile
 ```
 
-安装后项目的 `postinstall` 会调用 **Lefthook** 安装 `pre-commit`。如安装时禁用了生命周期脚本，可手动执行：
+Dependency installation also installs the development Git hook. See the [development guide](docs/development.md) for setup details.
 
-```sh
-bun run hooks:install
-```
-
-请在 Git 仓库内安装依赖，否则无法安装 Git hook。Bun 若提示阻止了传递依赖的生命周期脚本，无需为本项目的检查和测试自动信任这些脚本。
-
-## 加载扩展
-
-在项目根目录执行以下命令，直接加载 TypeScript 源码，无需构建：
+### Load the extension directly
 
 ```sh
 bun run pi --extension ./src/index.ts
 ```
 
-也可以使用已安装的 Pi CLI：
+Pi loads the TypeScript source directly; no build step is required.
 
-```sh
-pi --extension ./src/index.ts
-```
+### Install as a local Pi package
 
-修改入口后可使用 Pi 的 `/reload`。
-
-`package.json` 的 `pi.extensions` 声明了入口，也可以将本目录作为本地 Pi package 使用：
+With Pi CLI installed:
 
 ```sh
 pi install /absolute/path/to/pi-delegate
 ```
 
-本地 package 的依赖需由开发者通过 Bun 安装。Pi 宿主依赖声明在 `peerDependencies`，并作为开发依赖提供本地类型；不将宿主模块打包进扩展。当前项目为 `private`，不会意外发布到 npm。
+The package declares its extension entry point in `package.json`. Install its dependencies with Bun first. It is currently marked `private` and is not published to npm.
 
-## RPC 委派
+## Usage
 
-加载扩展后，主 agent 可以调用 `delegate`：
-
-```json
-{
-  "task": "检查 src/ 中的错误处理，返回发现和文件路径",
-  "context": "只分析，不修改文件"
-}
-```
-
-- `task` 必填且不能是空白文本；`context` 可选。不自动复制主 agent 的完整对话，需要的背景应明确提供。
-- 每次调用启动新的 Pi RPC 子进程、创建新的内存会话，默认等待最终答案返回；显式设置 `background: true` 时返回后台任务 ID，不等待最终答案。不复用子会话。
-- 沿用主 agent 的工作目录、环境、项目信任状态和当前模型/思考级别；通过常规配置发现、显式扩展参数和工具/命令来源重新加载扩展，并重放可获取的扩展 CLI flags。
-- 加载完整的继承工具集合，再恢复主 agent 的当前启用状态；保留 `tool_search` / `codemode` 可发现的工具。MCP 使用同一配置重新连接，不共享主进程连接或缓存。
-- **子 agent 不注册 `delegate`、`delegate_status` 或 `delegate_cancel`**，不能通过模型声明、工具搜索或 `codemode` 调用这些工具；扩展本身仍会加载。
-- 子进程就绪后检查工具是否缺失、schema/exposure/namespace 是否不同，以及启用状态是否一致。无法重新加载的运行时工具明确报错，不静默省略、不退回代理。
-- 同步调用取消或父会话关闭时会终止子 agent；后台任务不绑定发起它的主 agent 回合，可显式取消；正常完成和失败也会清理子进程与临时初始化快照。控制命令有 40 秒响应超时，工具初始化最多等待 30 秒；模型任务本身没有固定时限，同步任务可由主调用取消，后台任务可用 `delegate_cancel` 取消。
-- 最终文本采用 Pi 默认输出上限（50 KB / 2000 行，任一超限即截断），返回开头的完整行预览、截断信息及完整 UTF-8 原文文件路径。超长首行可能没有预览；可通过 `read` 读取完整文件。输出文件独立于初始化快照，调用结束后仍保留，使用完毕后可删除，或交由系统临时文件维护清理。
-- 委派结果统一在 `details.status` 中返回四种状态：`stop → completed`、`length → incomplete`、`error → failed`、`aborted → cancelled`。未完成结果保留部分文本并提示生成长度限制；失败和取消保留可获取的诊断、会话及 usage，并设置 `isError: true`，不再只抛异常。启动、继承和 RPC 失败也返回 `failed`；父调用取消返回 `cancelled`。尚未获取的会话/停止原因字段省略，未获取的 usage 为零。
-- `incomplete` 不自动续写，也不代表运行错误（`isError: false`）。展示截断独立使用 `details.truncation` 表示；正常生成但超出展示上限时仍是 `completed`。
-
-### Subagent 收尾催促
-
-主 agent 可以在每次 `delegate` 调用中通过 `pressure` 配置两档催促阈值；配置与提醒状态只属于本次任务，同步和后台模式都生效。**这是软约束，不是超时强制取消。**
+The parent agent can call `delegate` with a task and the context it needs:
 
 ```json
 {
-  "task": "检查 src/ 的错误处理，汇报发现和未完成项",
-  "pressure": {
-    "warning": { "afterSeconds": 180, "afterTurns": 15 },
-    "urgent": { "afterSeconds": 360, "afterTurns": 30 }
-  }
+  "task": "Review error handling in src/ and report findings with file paths",
+  "context": "Analyze only; do not modify files"
 }
 ```
 
-| 档位 | 未配置时的默认值 | 催促意图 |
-| --- | --- | --- |
-| `warning` | 300 秒 **或** 20 个完成轮次 | 聚焦核心目标，停止扩展范围，准备最终汇报 |
-| `urgent` | 600 秒 **或** 40 个完成轮次 | 尽快结束探索，汇总已有结果，明确未完成项与阻碍 |
-
-- 时间或轮次达到（`>=`）阈值，任一条件即可触发；每档最多提醒一次，不会因两个条件都达到而重复发送。
-- `pressure`、某一档或某个字段省略时，**逐项**使用对应默认值。例如只设置 `warning.afterSeconds: 180`，提醒档仍保留默认的 20 轮阈值。
-- `afterSeconds` 单位为秒，允许正的小数；`afterTurns` 必须为正整数。所有数值必须有限，`0` / `null` 不能用来关闭催促。
-- 补齐默认值后，`urgent.afterSeconds` 必须大于 `warning.afterSeconds`，`urgent.afterTurns` 也必须大于 `warning.afterTurns`。错误配置会在启动子进程前明确失败，不自动排序、改写或退回默认值；后台调用也不会接受这种任务。
-- 计时从实际子任务开始，不含进程／继承工具初始化；包含模型、工具执行及等待时间。一轮是一次 assistant 响应及其关联工具全部结束，多个、并行或嵌套工具不额外计轮。
-- 通过 RPC `steer` 向子 agent 发送模型可见的催促。消息在当前轮工具执行完毕、后续模型请求前有机会被消费，**不会打断**正在执行的模型请求或工具。RPC 接受／排队不等于模型已消费或遵从；继承扩展的输入处理也可能处理或改写消息。
-- 超过两档仍不会自动杀进程、禁用工具或改变任务结果状态。子 agent 可能继续工作，不能保证最大运行时间／轮数；显式取消和原有会话清理机制保持不变。
-
-### Agent status UI
-
-TUI 模式在输入框上方显示同步／后台子 agent（不显示主 agent）。可用 `title` 提供简短标题；未提供时取 `task` 第一行并缩短，不额外调用模型。数字编号在当前会话递增且不复用，后台 `taskId` 仍用于查询／取消。
-
-每个子 agent 显示标题、实际任务运行秒数、英文 `turn` / `turns` 和 `pressure: none / warning / urgent`，下方仅显示当前观察到的活动（例如 `thinking…` 或 `toolcall · read`），不展示思考内容、工具参数、结果、角色或 token／费用。初始化不计时间／轮次；工具等待期间计时继续。压力只在子 RPC 成功接受对应 `steer` 后更新，不表示模型已消费或遵从。
-
-终态 `completed / incomplete / failed / cancelled` 保留 5 秒后仅从界面移除，后台结果仍可查询。范围切换／重载／退出清除旧显示与回调；RPC、print、JSON 执行不依赖此终端组件。窄窗口优先为编号、时间、轮次和压力预留空间并缩短标题；极窄窗口按终端列宽截断。
-
-### 后台委派
-
-仅长期运行的 TUI / RPC 主会话支持后台模式；在一次性 print / JSON 模式中请求后台执行会明确报错。
+By default, the call waits for the child's final outcome. To continue working while the child runs, opt into background mode:
 
 ```json
-{"task": "分析测试覆盖，返回缺口", "context": "只分析，不修改文件", "background": true}
+{
+  "task": "Analyze test coverage and report gaps",
+  "context": "Analyze only; do not modify files",
+  "background": true
+}
 ```
 
-调用立即返回 `details.taskId` 和 `details.status: "running"`，表示已接受后台执行，不代表子进程已就绪或任务成功。主 agent 可以继续其他工作；启动、继承、RPC 或模型失败仍会返回明确的终态。
-
-- 子 agent 完成后，以模型可见的 `pi-delegate:completed` 消息发送任务 ID、状态和可获取结果。主 agent 忙时在扩展内排队，等它完成当前及已排队工作后投递；空闲时自动唤醒它处理结果，不只是给用户弹通知。
-- `delegate_status({"taskId": "返回的任务 ID"})` 查询状态和结果。完成通知被清空或未被处理时，仍可在原任务所属范围内查询；终态结果保留到范围失效。失败/取消查询设置 `isError: true`，未知或已失效的 ID 明确报错。
-- `delegate_cancel({"taskId": "返回的任务 ID"})` 显式取消运行中的任务，并等待子进程和初始化资源清理；已完成的任务保持原结果。
-- 主 agent 普通回合结束或被取消不会自动终止已接受的后台任务。退出、切换/分叉会话、重载扩展或 `/tree` 导航会取消任务并使 ID 失效，不会将结果投递到替代运行时或目标分支。为避免导航期间的竞态，在导航前先取消任务；之后即使导航被取消，也不会恢复这些任务。
-- 后台子 agent 的 select / confirm / input / editor 请求直接收到取消或拒绝，不打开阻塞式父界面对话框；只拒绝该请求，不自动把整个任务标记为取消。子 agent 能否继续由其自身执行决定。
-- 完成结果使用原有四种终态及输出格式。查询的 `details.result` 提供子结果元数据（包括可获取的会话/停止原因、截断信息及完整输出路径），`details.usage` 保留可获取的 token / 费用数据。
-- **后台 usage 单独报告，不自动计入 Pi 主会话总 token / 费用统计**；查询/取消工具没有顶层 usage，避免重复计费。同步模式原有统计不变。
-
-后台是当前 Pi 会话内的异步运行，不是退出 Pi 后继续工作的服务。调用接受之后的文件访问与同步子 agent 一样，不提供工作区隔离；主/子 agent 同时修改同一文件时需由调用者安排范围。扩展消息 API 不提供模型已消费结果的持久确认，查询是结果恢复途径，不承诺恰好一次模型处理。
-
-子进程使用已安装 Pi 宿主包中的 CLI。Node.js 宿主沿用当前 Node 可执行文件；Bun 宿主需要能从 PATH 找到 `node`。本扩展在 Pi 1.0.0 上验证。
-
-**边界：**“继承”是正常重新初始化，不是任意内存配置、闭包或宿主私有 flags 的序列化。配置文件在启动期间应保持稳定。注册限制不是沙箱，具有 shell 工具的子 agent 仍有进程级操作权限。支持的 RPC `select` / `confirm` / `input` 会转交父会话 UI；没有 UI 时取消请求，多行 editor 请求也会取消，避免取消任务后留下不可中断的编辑器。
-
-## 开发命令
-
-| 命令 | 作用 |
+| Tool | Purpose |
 | --- | --- |
-| `bun run check` | 非写入的 Biome 格式、lint 和 import 检查，warning 也使检查失败 |
-| `bun run check:fix .` | 全项目格式化、安全 lint 修复和 import 整理 |
-| `bun run format` | 仅执行格式化 |
-| `bun run typecheck` | 检查 `src/` 与 `tests/` 的 TypeScript 类型 |
-| `bun test` | 注册矩阵、RPC 生命周期、真实 Pi/确定性模型/MCP 集成测试及隔离 Git 仓库的 hook 测试 |
-| `bun run hooks:install` | 安装或更新 Lefthook 管理的 hook |
+| `delegate` | Start a fresh synchronous or background subagent. |
+| `delegate_status` | Query a background task by its returned `taskId`. |
+| `delegate_cancel` | Cancel a background task and wait for resource cleanup. |
 
-`check:fix` 也接受文件路径。自动修复不使用 `--unsafe`，无法安全修复的问题需手动处理。
+See the [usage guide](docs/usage.md) for parameters, result states, pressure settings, and the status UI.
 
-## Git hook
+## Limitations
 
-配置位于 `lefthook.yml`，**只配置 `pre-commit`，没有 `pre-push`**。提交前按顺序执行：
+- Background execution requires a long-lived TUI or RPC session. Tasks do not survive exit, reload, session replacement, or branch navigation.
+- Parent and child agents share the working directory; the extension does not provide workspace isolation or an operating-system sandbox.
+- The parent's full conversation is not copied automatically. Supply relevant context explicitly.
+- Soft pressure is advisory, not a hard timeout. Background usage is reported separately from Pi's parent-session totals.
 
-1. 对暂存的 Biome 支持文件自动格式化、应用安全 lint 修复并整理 imports。
-2. 使用 Lefthook 的 `stage_fixed: true` 将修复后的文件重新暂存。
-3. 对全项目执行 TypeScript 类型检查，包括未暂存的源文件和测试文件。
+See [runtime and safety](docs/runtime.md) for inheritance, lifecycle, interaction, and cleanup boundaries.
 
-仍有 lint error/warning 或类型错误时提交失败。自动修复可能在失败前已经修改工作区，请检查 diff 后再提交。仅提交 Markdown/YAML 等 Biome 不支持的文件时会跳过 Biome，但仍执行类型检查。测试通过 `bun test` 手动运行，不配置到其他 hook。
+## Documentation
 
-**部分暂存注意事项：** 此配置处理工作区中的整个文件并重新暂存，因此同一文件里的未暂存修改可能一起进入提交。使用 `git add -p` 时，请先保存这些修改，提交前检查 `git diff --cached`；此配置不承诺保留部分暂存边界。
+- [Usage guide](docs/usage.md) — tools, parameters, results, pressure, and TUI behavior.
+- [Runtime and safety](docs/runtime.md) — tool inheritance, process ownership, cancellation, and security boundaries.
+- [Development guide](docs/development.md) — setup, checks, tests, Git hooks, and repository layout.
+- [Roadmap](docs/roadmap.md) — prioritized capability candidates and TODOs.
 
-hook 集成测试仅在临时 Git 仓库中创建测试提交，不修改本项目的 Git index 或历史。当前验证不包含需要模型凭证的模型调用端到端测试。
+The detailed documentation is maintained in English.
 
-## 目录
+## Contributing
 
-```text
-src/index.ts             # Pi extension 入口
-tests/                   # Bun 测试
-biome.json               # Biome 配置
-lefthook.yml             # Lefthook pre-commit 配置
-tsconfig.json            # TypeScript 配置
-bun.lock                 # Bun 依赖锁
-```
+See the [development guide](docs/development.md) before making changes. Run the documented checks and tests, and keep the English and Chinese READMEs aligned when updating project-level documentation.
+
+## License
+
+This repository does not currently include a license file. Licensing terms have not been specified.
