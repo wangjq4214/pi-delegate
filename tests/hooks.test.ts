@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
 	copyFileSync,
 	cpSync,
+	existsSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
@@ -19,18 +20,29 @@ function withRepository(check: (cwd: string) => void) {
 		for (const file of [
 			"package.json",
 			"tsconfig.json",
+			"tsconfig.base.json",
 			"biome.json",
 			"lefthook.yml",
 			".gitignore",
 		]) {
 			copyFileSync(join(root, file), join(cwd, file));
 		}
-		cpSync(join(root, "src"), join(cwd, "src"), { recursive: true });
+		cpSync(join(root, "tests"), join(cwd, "tests"), { recursive: true });
+		cpSync(join(root, "packages"), join(cwd, "packages"), {
+			recursive: true,
+			filter: (path) =>
+				!["node_modules", "dist"].includes(path.split(/[\\/]/).at(-1) ?? ""),
+		});
 		symlinkSync(
 			join(root, "node_modules"),
 			join(cwd, "node_modules"),
 			"junction",
 		);
+		for (const name of ["pi-delegate", "pi-open-tui"]) {
+			const modules = join("packages", name, "node_modules");
+			if (existsSync(join(root, modules)))
+				symlinkSync(join(root, modules), join(cwd, modules), "junction");
+		}
 		run(cwd, ["git", "init", "--quiet"]);
 		run(cwd, ["git", "config", "user.name", "Hook test"]);
 		run(cwd, ["git", "config", "user.email", "hook-test@example.invalid"]);
@@ -40,6 +52,11 @@ function withRepository(check: (cwd: string) => void) {
 	} finally {
 		// Remove the junction before recursive cleanup; never traverse project dependencies.
 		rmSync(join(cwd, "node_modules"), { force: true, recursive: true });
+		for (const name of ["pi-delegate", "pi-open-tui"])
+			rmSync(join(cwd, "packages", name, "node_modules"), {
+				force: true,
+				recursive: true,
+			});
 		rmSync(cwd, { force: true, recursive: true });
 	}
 }
@@ -71,7 +88,7 @@ function commit(cwd: string, file: string, source: string) {
 
 test("pre-commit formats and safely fixes nested paths with spaces, then stages the result", () => {
 	withRepository((cwd) => {
-		const file = "src/a fixture.ts";
+		const file = "packages/pi-open-tui/src/a fixture.ts";
 		const result = commit(
 			cwd,
 			file,
@@ -88,7 +105,7 @@ test("pre-commit formats and safely fixes nested paths with spaces, then stages 
 
 test("pre-commit blocks unfixable lint errors without applying unsafe fixes", () => {
 	withRepository((cwd) => {
-		const file = "src/lint.ts";
+		const file = "packages/pi-delegate/src/lint.ts";
 		const result = commit(cwd, file, "export const value: any = 1;\n");
 		expect(result.code).not.toBe(0);
 		expect(result.output).toContain("noExplicitAny");
@@ -98,7 +115,7 @@ test("pre-commit blocks unfixable lint errors without applying unsafe fixes", ()
 
 test("pre-commit blocks type errors after applying formatting", () => {
 	withRepository((cwd) => {
-		const file = "src/type.ts";
+		const file = "packages/pi-open-tui/src/type.ts";
 		const result = commit(cwd, file, "export const value:string=42\n");
 		expect(result.code).not.toBe(0);
 		expect(result.output).toContain("TS2322");
@@ -113,7 +130,7 @@ test("pre-commit typechecks even when no Biome-supported file is staged; no pre-
 		const config = run(cwd, [process.execPath, "run", "lefthook", "dump"]);
 		expect(config).not.toContain("pre-push");
 		writeFileSync(
-			join(cwd, "src/type.ts"),
+			join(cwd, "packages/pi-delegate/src/type.ts"),
 			"export const value: string = 42;\n",
 		);
 		const result = commit(cwd, "note.md", "# Only Markdown is staged\n");

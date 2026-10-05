@@ -22,14 +22,14 @@ Synchronous and background tasks share a runtime-local FIFO pool, excluding the 
 POSIX shell example:
 
 ```sh
-PI_DELEGATE_CONCURRENCY=1 pi --extension ./src/index.ts
+PI_DELEGATE_CONCURRENCY=1 pi --extension ./packages/pi-delegate/src/index.ts
 ```
 
 PowerShell example:
 
 ```powershell
 $env:PI_DELEGATE_CONCURRENCY = "1"
-pi --extension ./src/index.ts
+pi --extension ./packages/pi-delegate/src/index.ts
 ```
 
 Excess tasks remain `queued` with captured invocation/model/thinking inputs and no child process. Admitted tasks are `initializing` until observed original-task execution makes them `running`. Initialization and owned cleanup both occupy capacity; settlement alone does not release it. Queued cancellation settles without launching a child. Background acceptance remains immediate and independent of ordinary parent-turn cancellation; synchronous calls wait through admission, execution and cleanup.

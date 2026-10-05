@@ -8,6 +8,8 @@ Use Git, Bun 1.4.1 or later, and a compatible Pi host. The development dependenc
 
 From the repository root:
 
+The workspace root is two levels above this package. Shared tooling, Git hooks and the lockfile live there; this package retains its own Pi manifest. See the [workspace overview](../../../README.md).
+
 ```sh
 bun install --frozen-lockfile
 ```
@@ -19,31 +21,33 @@ If Bun reports blocked lifecycle scripts in transitive dependencies, these check
 ## Running the extension locally
 
 ```sh
-bun run pi --extension ./src/index.ts
+bun run --cwd packages/pi-delegate pi --extension ./src/index.ts
 ```
 
 With Pi CLI already installed, you can also run:
 
 ```sh
-pi --extension ./src/index.ts
+pi --extension ./packages/pi-delegate/src/index.ts
 ```
 
 Pi loads TypeScript directly, without a build step. Use Pi's `/reload` after modifying the extension.
 
-The `pi.extensions` field in `package.json` declares `dist/index.js`. Run `bun run build` before installing the repository as a local Pi package; see [installation](../README.md#installation).
+The `pi.extensions` field in `packages/pi-delegate/package.json` declares `dist/index.js`. Run `bun run build` from the workspace root before installing `packages/pi-delegate` as a local Pi package; the private root itself is not installable as a Pi package. See [installation](../README.md#installation).
 
 Rolldown builds a single Node.js ESM entry with a source map. Node built-ins and Pi host modules remain external. The source entry remains available for direct development loading; delegation resolves the matching source or built entry for child processes. Pi host modules are peer dependencies and pinned as development dependencies for local types; they are not bundled.
 
 ## Development commands
 
+Run the following from the workspace root. For delegate-only checks, use `bun run --filter @wangjq4214/pi-delegate build`, `typecheck`, or `test`. Bare `bun test` is supported inside `packages/pi-delegate`, not at the workspace root, because fixtures use package-relative paths.
+
 | Command | Purpose |
 | --- | --- |
-| `bun run build` | Bundle the extension to `dist/index.js` with Rolldown. |
+| `bun run build` | Build all workspace packages; delegate emits `packages/pi-delegate/dist/index.js`. |
 | `bun run check` | Non-writing Biome formatting, lint, and import checks; warnings fail the check. |
 | `bun run check:fix .` | Format the project, apply safe lint fixes, and organize imports. |
 | `bun run format` | Apply formatting only. |
-| `bun run typecheck` | Type-check `src/` and `tests/`. |
-| `bun test` | Run unit, integration, lifecycle, and isolated Git-hook tests. |
+| `bun run typecheck` | Type-check repository tests and all workspace packages. |
+| `bun run test` | Run repository tests and each package’s tests in its own directory. |
 | `bun run hooks:install` | Install or update Lefthook-managed hooks. |
 
 `check:fix` also accepts individual file paths. Fixes do not use `--unsafe`; issues without safe fixes need manual changes.
@@ -56,7 +60,7 @@ Before submitting code changes, run:
 bun run build
 bun run check
 bun run typecheck
-bun test
+bun run test
 git diff --check
 ```
 
@@ -88,7 +92,7 @@ Before a commit, the hook runs sequentially:
 
 Remaining lint errors, warnings, or type errors fail the commit. Automatic fixes may already have changed the working tree before failure; inspect the diff before retrying.
 
-Markdown/YAML-only commits skip Biome, but still run type checking. Tests are run manually with `bun test` and are not attached to another hook.
+Markdown/YAML-only commits skip Biome, but still run type checking. Tests are run manually with `bun run test` and are not attached to another hook.
 
 ### Partially staged files
 
@@ -99,25 +103,27 @@ When using `git add -p`, save those edits separately first and inspect `git diff
 ## Repository layout
 
 ```text
-README.md                English project overview
-README.zh-CN.md          Matching Chinese project overview
-docs/                    English usage, runtime, development, and roadmap docs
-src/index.ts             Pi extension entry point
-src/delegate.ts          Tool registration and delegation runner
-src/inheritance.ts       Tool reconstruction and parent-only boundaries
-src/child.ts             Internal child initialization
-src/rpc.ts               Child-process RPC transport and cleanup
-src/background.ts        Session-owned background tasks and completion delivery
-src/pressure.ts          Per-task finish-reminder policy
-src/steering.ts          Runner-owned task steering control and RPC submission boundary
-src/status.ts            TUI child-status component
-src/output.ts            Output truncation and retained result files
-tests/                   Bun tests and local fixtures
-.grimoire/               Requirements and architectural decision records
-biome.json               Biome configuration
-lefthook.yml             Pre-commit configuration
-tsconfig.json            TypeScript configuration
-bun.lock                 Dependency lockfile
+README.md                         Workspace overview (English)
+README.zh-CN.md                   Workspace overview (Chinese)
+packages/pi-delegate/
+  README.md, README.zh-CN.md      Published extension overviews
+  docs/                          Usage, runtime, development, roadmap
+  src/                           Unchanged extension runtime and status UI
+  tests/                         Delegate tests and local fixtures
+  skills/                        Bundled delegate-worktree skill
+  package.json                   Published Pi package manifest
+  rolldown.config.mjs            Extension build configuration
+  tsconfig.json                  Extends shared compiler options
+packages/pi-open-tui/             Independent application scaffold
+  src/cli.ts                     Placeholder application entry
+  tests/                         Application tests
+tests/                           Repository-level tests, including Git hooks
+.grimoire/                       Requirements and architecture records
+biome.json                       Shared Biome configuration
+lefthook.yml                     Shared pre-commit configuration
+tsconfig.base.json               Shared TypeScript compiler options
+tsconfig.json                    Repository-level test type checking
+bun.lock                         Workspace dependency lockfile
 ```
 
 ## Documentation changes

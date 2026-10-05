@@ -1,0 +1,17 @@
+{
+	"name": "@wangjq4214/pi-open-tui",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Independent application scaffold for a new Pi terminal UI.",
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"scripts": {
+		"build": "rolldown -c",
+		"dev": "bun run src/cli.ts",
+		"start": "node dist/cli.js",
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
+	}
+}

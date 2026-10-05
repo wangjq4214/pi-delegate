@@ -7,7 +7,7 @@
 
 The user wants to pursue safe parallel modification but explicitly does not want pi-delegate to provide worktree-specific support. The proposed alternative is a worktree skill, passing a workspace path to delegated work, reporting the resulting modifications, and leaving integration to the parent agent.
 
-[The roadmap](../../docs/roadmap.md) lists optional Git worktree isolation and returning a diff for parent review and merge as capability candidates, not an agreed interface or release commitment. The current implementation exposes no per-task working-directory parameter: `src/delegate.ts` supplies `ctx.cwd` to the runner, which starts the child process with that directory.
+[The roadmap](../../packages/pi-delegate/docs/roadmap.md) lists optional Git worktree isolation and returning a diff for parent review and merge as capability candidates, not an agreed interface or release commitment. The current implementation exposes no per-task working-directory parameter: `src/delegate.ts` supplies `ctx.cwd` to the runner, which starts the child process with that directory.
 
 Sources:
 

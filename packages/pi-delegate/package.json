@@ -1,0 +1,56 @@
+{
+	"name": "@wangjq4214/pi-delegate",
+	"version": "0.1.0",
+	"files": [
+		"dist",
+		"skills",
+		"docs",
+		"README.md",
+		"README.zh-CN.md"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/wangjq4214/pi-delegate.git",
+		"directory": "packages/pi-delegate"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"type": "module",
+	"description": "A Pi extension for parent-only RPC subagent delegation.",
+	"keywords": [
+		"pi-package"
+	],
+	"packageManager": "bun@1.4.1",
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"pi": {
+		"extensions": [
+			"./dist/index.js"
+		],
+		"skills": [
+			"./skills"
+		]
+	},
+	"scripts": {
+		"build": "rolldown -c",
+		"prepack": "bun run build",
+		"check": "biome check --error-on-warnings .",
+		"check:fix": "biome check --write --error-on-warnings",
+		"format": "biome format --write .",
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-ai": "1.0.0",
+		"@earendil-works/pi-coding-agent": "1.0.0",
+		"@earendil-works/pi-tui": "1.0.0",
+		"typebox": "1.3.27"
+	}
+}

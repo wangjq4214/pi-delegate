@@ -5,7 +5,7 @@
 
 ## Context
 
-The user asked how to realize Runtime steering from [the roadmap](../../docs/roadmap.md), then invoked `grimoire-spec` and replied “可以继续吧” to the recommendation for background-task-only steering, initialization rejection with `not_ready`, RPC acceptance rather than consumption guarantees, and the spec-only endpoint.
+The user asked how to realize Runtime steering from [the roadmap](../../packages/pi-delegate/docs/roadmap.md), then invoked `grimoire-spec` and replied “可以继续吧” to the recommendation for background-task-only steering, initialization rejection with `not_ready`, RPC acceptance rather than consumption guarantees, and the spec-only endpoint.
 
 [ADR 0002](./0002-session-owned-background-delegation.md) establishes session/branch-owned background task identifiers and cleanup. The fresh-child RPC and parent-only capability boundaries retained from [ADR 0001](./0001-rpc-subagents-and-parent-only-delegation.md) remain applicable. [ADR 0003](./0003-per-delegation-soft-pressure.md) already establishes advisory child-conversation steering for automatic pressure; this decision extends access to parent-supplied runtime instructions, not pressure policy or task lifetime.
 

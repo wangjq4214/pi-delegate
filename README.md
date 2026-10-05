@@ -1,118 +1,73 @@
-# pi-delegate
+# Pi workspace
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Delegate focused tasks to fresh Pi subagents without leaving your current session.
+A Bun + TypeScript monorepo with two independent packages:
 
-pi-delegate is a TypeScript extension for Pi. It launches one-off subagents over RPC, with synchronous results or opt-in background execution.
+| Package | Purpose | Status |
+| --- | --- | --- |
+| [`@wangjq4214/pi-delegate`](packages/pi-delegate/README.md) | Pi extension for RPC subagent delegation | Existing extension; npm name and behavior preserved |
+| [`@wangjq4214/pi-open-tui`](packages/pi-open-tui/README.md) | Standalone application to rewrite Pi’s terminal UI | Application scaffold only; private and not published |
 
-## Features
+`pi-open-tui` is not a delegate UI extraction. Neither package depends on the other. No shared runtime package or Turbo/Nx layer is introduced.
 
-- **Fresh subagents:** each task runs in a new session; delegation tools are available only to the parent agent.
-- **Tool inheritance:** reconstruct the parent's tools and extensions, preserving activation and discoverability.
-- **Synchronous and background execution:** wait for a result or continue working while a session-owned task runs.
-- **Task management:** receive model-visible completion messages, query background results, and cancel tasks explicitly.
-- **Runtime steering:** add context, narrow scope, or request a report from an active background child without restarting it.
-- **Soft pressure and status UI:** configure task-local finish reminders and monitor subagents above the TUI input.
+## Development
 
-## Requirements
+Use Git, Bun 1.4.1 or later, and Node.js 22.19 or later for delegate’s Pi host/children and the built application.
 
-- Git and Bun 1.4.1 or later for local setup.
-- Node.js 22.19 or later. When Pi runs under Bun, `node` must be available on `PATH` for child processes.
-- A compatible Pi host. This extension is validated with `@earendil-works/pi-coding-agent@1.0.0`; other host versions are not currently verified.
-
-## Installation
-
-### Install from npm
-
-```sh
-pi install npm:@wangjq4214/pi-delegate
-```
-
-The npm package includes the built extension and worktree skill; no local build is required.
-
-### Local development setup
-
-Run the following from the root of a local Git checkout:
+From the repository root:
 
 ```sh
 bun install --frozen-lockfile
 bun run hooks:install
 bun run build
+bun run typecheck
+bun run check
+bun run test
 ```
 
-Development Git hooks are installed explicitly with `bun run hooks:install`; npm consumers do not run development hooks. See the [development guide](docs/development.md).
+`build`, `typecheck`, and `test` run workspace scripts sequentially. `test` also runs repository-level tests. Use **`bun run test`**, not a bare root `bun test`: delegate fixtures resolve paths relative to their package directory. Biome and Git hooks are configured at the repository root.
 
-### Load the extension directly
+### Run a single package
 
 ```sh
-bun run pi --extension ./src/index.ts
+bun run --filter @wangjq4214/pi-delegate test
+bun run --filter @wangjq4214/pi-open-tui dev
+bun run --filter @wangjq4214/pi-open-tui build
+bun run --filter @wangjq4214/pi-open-tui start
 ```
 
-Pi loads the TypeScript source directly; no build step is required.
+The UI commands currently print a scaffold message and exit; they do not start an interactive Pi session.
 
-### Install as a local Pi package
-
-With Pi CLI installed:
+### Load or install delegate
 
 ```sh
-pi install /absolute/path/to/pi-delegate
+bun run --cwd packages/pi-delegate pi --extension ./src/index.ts
+# With Pi CLI installed, after building:
+pi install /absolute/path/to/checkout/packages/pi-delegate
+# Existing npm installation is unchanged:
+pi install npm:@wangjq4214/pi-delegate
 ```
 
-The package declares the built `dist/index.js` extension and bundled `delegate-worktree` skill in `package.json`. Install dependencies and run `bun run build` before installing a local checkout.
+The root is private and is not a Pi package. Build/pack/publish delegate from `packages/pi-delegate`; its manifest retains the extension entry and bundled worktree skill.
 
-## Usage
+## Layout
 
-The parent agent can call `delegate` with a task and the context it needs:
-
-```json
-{
-  "task": "Review error handling in src/ and report findings with file paths",
-  "context": "Analyze only; do not modify files"
-}
+```text
+packages/
+  pi-delegate/       Extension source, tests, skills, docs and build config
+  pi-open-tui/       Independent application entry, tests and build config
+tests/               Repository-level Git-hook and workspace tests
+.grimoire/           Project requirements and architectural records
+package.json         Private workspace root and shared development tools
+tsconfig.base.json   Shared TypeScript compiler options
+tsconfig.json        Repository-level test type checking
+biome.json           Repository-wide formatting/lint configuration
+lefthook.yml         Repository-wide pre-commit hook
+bun.lock             One workspace lockfile
 ```
 
-By default, the call waits for the child's final outcome. To continue working while the child runs, opt into background mode:
-
-```json
-{
-  "task": "Analyze test coverage and report gaps",
-  "context": "Analyze only; do not modify files",
-  "background": true
-}
-```
-
-| Tool | Purpose |
-| --- | --- |
-| `delegate` | Start a fresh synchronous or background subagent. |
-| `delegate_status` | Query a background task by its returned `taskId`. |
-| `delegate_cancel` | Cancel a background task and wait for resource cleanup. |
-| `delegate_steer` | Submit plain-text instructions to an active background task by `taskId`. |
-
-See the [usage guide](docs/usage.md) for parameters, result states, pressure settings, and the status UI.
-
-## Limitations
-
-- Background execution requires a long-lived TUI or RPC session. Tasks do not survive exit, reload, session replacement, or branch navigation.
-- Parent and child agents share the working directory by default; optional `cwd` selects another existing directory. The bundled `delegate-worktree` skill guides parent-managed Git workspaces; the extension does not manage worktrees, enforce filesystem isolation, or provide an operating-system sandbox.
-- The parent's full conversation is not copied automatically. Supply relevant context explicitly.
-- Soft pressure is advisory, not a hard timeout. Background usage is reported separately from Pi's parent-session totals.
-- Steering returns RPC handling receipts, not model-consumption or completion confirmation; initialization returns `not_ready`, and a timeout is uncertain, not a reason to retry automatically.
-
-See [runtime and safety](docs/runtime.md) for inheritance, lifecycle, interaction, and cleanup boundaries.
-
-## Documentation
-
-- [Usage guide](docs/usage.md) — tools, parameters, results, pressure, and TUI behavior.
-- [Runtime and safety](docs/runtime.md) — tool inheritance, process ownership, cancellation, and security boundaries.
-- [Development guide](docs/development.md) — setup, checks, tests, Git hooks, and repository layout.
-- [Roadmap](docs/roadmap.md) — prioritized capability candidates and TODOs.
-
-The detailed documentation is maintained in English.
-
-## Contributing
-
-See the [development guide](docs/development.md) before making changes. Run the documented checks and tests, and keep the English and Chinese READMEs aligned when updating project-level documentation.
+See the [delegate development guide](packages/pi-delegate/docs/development.md) for runtime verification and Git-hook limitations. Consult relevant `.grimoire/` records before changing contracts.
 
 ## License
 

@@ -5,7 +5,7 @@
 
 ## Context
 
-The user asked how to realize Per-task model selection from [the roadmap](../../docs/roadmap.md). The refinement discussion proposed independent optional `model: { provider, id }` and `thinkingLevel` inputs, parent inheritance by default, exact model selection without silent fallback, and Pi-native thinking-level adjustment with disclosure of the effective value. The user replied “接受，然后那个UI也要显示一下模型和thinking级别”, accepting those choices and requesting model/thinking visibility in the existing Agents UI.
+The user asked how to realize Per-task model selection from [the roadmap](../../packages/pi-delegate/docs/roadmap.md). The refinement discussion proposed independent optional `model: { provider, id }` and `thinkingLevel` inputs, parent inheritance by default, exact model selection without silent fallback, and Pi-native thinking-level adjustment with disclosure of the effective value. The user replied “接受，然后那个UI也要显示一下模型和thinking级别”, accepting those choices and requesting model/thinking visibility in the existing Agents UI.
 
 The existing execution boundary is a fresh RPC child with conventional tool/configuration reinitialization. [ADR 0002](./0002-session-owned-background-delegation.md) retains that boundary from [ADR 0001](./0001-rpc-subagents-and-parent-only-delegation.md) and supplies session-owned background execution. [ADR 0004](./0004-task-addressed-runtime-steering.md) keeps transport ownership in the runner rather than the background task registry. This decision extends task startup configuration without changing those ownership boundaries.
 

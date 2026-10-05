@@ -5,7 +5,7 @@
 
 ## Context
 
-The user asked how to realize "Concurrency scheduling and cost visibility" from [the roadmap](../../docs/roadmap.md), suggesting a simple concurrency limit with waiting tasks and UI token/cost visibility. Refinement recommended a runtime-local FIFO admission boundary shared by synchronous and background delegations, initialization counted against the limit, no child process while queued, cancellation-aware waiting, and slot release only after execution-resource cleanup. It also recommended task usage snapshots and a separate cumulative delegated total that retains consumed usage after terminal rows disappear or branch navigation cancels work.
+The user asked how to realize "Concurrency scheduling and cost visibility" from [the roadmap](../../packages/pi-delegate/docs/roadmap.md), suggesting a simple concurrency limit with waiting tasks and UI token/cost visibility. Refinement recommended a runtime-local FIFO admission boundary shared by synchronous and background delegations, initialization counted against the limit, no child process while queued, cancellation-aware waiting, and slot release only after execution-resource cleanup. It also recommended task usage snapshots and a separate cumulative delegated total that retains consumed usage after terminal rows disappear or branch navigation cancels work.
 
 The user accepted the recommendations with "其他的按照你推荐进行" and specified the usage presentation as `↑8.2k ↓1.1k R20k W0 · $0.04`, without an inline `est.` prefix. The selected endpoint is one requirements spec, not implementation or QA. Numeric defaults and UI formatting are ordinary requirements for that spec rather than separate architecture decisions.
 
