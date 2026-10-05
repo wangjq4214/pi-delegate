@@ -4,11 +4,11 @@
 
 一个为 [Pi](https://pi.dev) 编程代理打造的可配置终端界面扩展，与 pi-delegate 互不依赖。
 
-此 private workspace 包导入自 [OldSuns/pi-open-tui](https://github.com/OldSuns/pi-open-tui) v0.3.11，提交为 `766ccab7b40df6fb9682a105a05d3838803c3d4b`。扩展源码和测试保持原样；上游 MIT 版权和许可声明保留在仓库根目录的 LICENSE 中；包配置和文档遵循当前仓库。它替换原有应用骨架，不是独立的 Pi 应用。
+此 private workspace 包导入自 [OldSuns/pi-open-tui](https://github.com/OldSuns/pi-open-tui) v0.3.11，提交为 `766ccab7b40df6fb9682a105a05d3838803c3d4b`。扩展源码和测试以该快照为基础，包含本地行为调整（包括移除自定义 Header，保留 Pi 原生顶栏）；上游 MIT 版权和许可声明保留在仓库根目录的 LICENSE 中；包配置和文档遵循当前仓库。它替换原有应用骨架，不是独立的 Pi 应用。
 
 ## 功能
 
-- **Pi 顶栏**：显示模型、思考等级、当前目录和常用斜杠命令提示
+- **保留 Pi 原生顶栏**：不再覆盖自定义 Logo 或命令提示面板
 - **自适应底栏**：集中展示 Git 状态、运行环境、上下文用量、Token、费用和扩展状态
 - **带边框的编辑器**：支持块状、竖线和下划线三种光标样式
 - **项目环境感知**：识别 50 多种运行环境，并展示 ahead/behind、已暂存、已修改、未跟踪、stash 和 detached HEAD 等 Git 状态
@@ -128,7 +128,7 @@ pi install /absolute/path/to/checkout/packages/pi-open-tui
 
 `sessionName` 仅在会话有名称时显示；`hostname` 会显示主机名的短名称（主机名的第一个标签，例如从 `mba.example.com` 显示为 `mba`），并使用服务器图标；`gitCommit` 会在 detached HEAD 状态下显示短哈希和标签；关闭 `extensionStatuses` 会隐藏整行扩展状态，其中也包括 MCP 状态。每条状态会保留其扩展通过 `ctx.ui.theme.fg()` 设置的颜色；未设置颜色的状态使用 muted 主题色显示。
 
-开启 `inlineFooter` 后，两条常规 Footer 信息行会移入编辑器边框，从而节省垂直空间。顶部边框左侧显示 Git 分支，右侧信息组以当前目录开头；开启 `sessionName` 时，会话标题也会显示在左侧。Header 和扩展状态行保持独立显示；终端较窄时优先截断低优先级 Footer 数据，保留右侧统计信息和边框角。
+开启 `inlineFooter` 后，两条常规 Footer 信息行会移入编辑器边框，从而节省垂直空间。顶部边框左侧显示 Git 分支，右侧信息组以当前目录开头；开启 `sessionName` 时，会话标题也会显示在左侧。Pi 原生 Header 和扩展状态行保持独立显示；终端较窄时优先截断低优先级 Footer 数据，保留右侧统计信息和边框角。
 
 ## 单轮遥测
 
@@ -175,11 +175,11 @@ bun run check
 本项目基于多个 Pi 社区包的工作：
 
 - **[pi-haiku](https://github.com/nnocte/pi-haiku)** — 双行底栏结构和工作计时器
-- **[pi-claude-code-tui](https://github.com/Phoobobo/pi-claude-code-tui)** — Pi Logo 帧与圆角编辑器边框技术
+- **[pi-claude-code-tui](https://github.com/Phoobobo/pi-claude-code-tui)** — 圆角编辑器边框技术
 - **[pi-zentui](https://github.com/lmilojevicc/pi-zentui)** — Starship 风格底栏、运行环境检测、会话生命周期和设置界面模式
 - **[pi-tps](https://github.com/monotykamary/pi-tps)** — 单轮计时、停顿检测和保守的 TPS 计算方式
 
-Logo 帧源自 Pi 官方安装脚本（`pi.dev/install.sh`）。运行环境检测和 Git porcelain 解析借鉴了 `pi-zentui` 的结构。
+运行环境检测和 Git porcelain 解析借鉴了 `pi-zentui` 的结构。
 
 特别感谢 **[LINUX DO](https://linux.do)** 社区的支持。
 

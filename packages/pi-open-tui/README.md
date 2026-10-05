@@ -6,7 +6,7 @@ A polished terminal interface for the [Pi](https://pi.dev) coding agent. It brin
 
 ## Highlights
 
-- **Pi header** with model, thinking level, working directory, and useful slash-command hints
+- **Native Pi header** retained without a custom Logo or command-tip panel
 - **Responsive footer** with Git state, detected runtime, context usage, token counts, cost, and extension status
 - **Framed editor** with block, bar, and underline cursor styles
 - **Project awareness** for 50+ runtimes and detailed Git states, including ahead/behind, staged, modified, untracked, stashed, and detached HEAD
@@ -126,7 +126,7 @@ Key options:
 
 `sessionName` appears only when the session has a name. `hostname` shows the short host name (first label of the machine's host name, e.g. `mba` from `mba.example.com`) with a server icon. `gitCommit` shows the short hash and tag in detached HEAD state. Disabling `extensionStatuses` hides the entire extension status line, including MCP status. Each status keeps the colours its extension applied with `ctx.ui.theme.fg()`. A status without colours renders in the muted theme colour.
 
-With `inlineFooter` enabled, the two normal Footer rows are rendered inside the editor frame to save vertical space. The top border places the Git branch on the left and CWD first in the right-hand group; the session title appears on the left too when `sessionName` is enabled. The Header and extension status rows remain separate; narrow terminals truncate lower-priority Footer data first, keeping the right-hand statistics and the border corner.
+With `inlineFooter` enabled, the two normal Footer rows are rendered inside the editor frame to save vertical space. The top border places the Git branch on the left and CWD first in the right-hand group; the session title appears on the left too when `sessionName` is enabled. The native Pi header and extension status rows remain separate; narrow terminals truncate lower-priority Footer data first, keeping the right-hand statistics and the border corner.
 
 ## Turn telemetry
 
@@ -173,11 +173,11 @@ See the [development guide](docs/development.md) for source/bundle debugging, No
 This project builds on several Pi community packages:
 
 - **[pi-haiku](https://github.com/nnocte/pi-haiku)** — two-line footer structure and working timer
-- **[pi-claude-code-tui](https://github.com/Phoobobo/pi-claude-code-tui)** — Pi logo frames and rounded editor border technique
+- **[pi-claude-code-tui](https://github.com/Phoobobo/pi-claude-code-tui)** — rounded editor border technique
 - **[pi-zentui](https://github.com/lmilojevicc/pi-zentui)** — Starship-style footer segments, runtime detection, session lifecycle, and settings UI pattern
 - **[pi-tps](https://github.com/monotykamary/pi-tps)** — turn timing, stall detection, and conservative TPS measurement
 
-The logo frames are derived from Pi's official install script (`pi.dev/install.sh`). Runtime detection and Git porcelain parsing borrow structure from `pi-zentui`.
+Runtime detection and Git porcelain parsing borrow structure from `pi-zentui`.
 
 Special thanks to the **[LINUX DO](https://linux.do)** community for its support.
 

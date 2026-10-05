@@ -6,7 +6,7 @@
 		"node": ">=22.19.0"
 	},
 	"version": "0.3.11",
-	"description": "A polished TUI for Pi coding agent: animated logo header, Starship-style footer, rounded editor with model metadata, and prompt-box user messages.",
+	"description": "A polished TUI for Pi coding agent: Starship-style footer, rounded editor with model metadata, and prompt-box user messages.",
 	"type": "module",
 	"repository": {
 		"type": "git",

@@ -4,12 +4,13 @@
 
 This package imports [OldSuns/pi-open-tui](https://github.com/OldSuns/pi-open-tui/tree/766ccab7b40df6fb9682a105a05d3838803c3d4b), version 0.3.11, commit `766ccab7b40df6fb9682a105a05d3838803c3d4b`.
 
-- `src/` contains the unchanged upstream source modules, relocated into the standard package layout. The five upstream test files retain their behavior, with imports updated to `../src/`. The upstream MIT copyright and permission notices are retained in the [root license](../../../LICENSE), alongside this project's copyright notice; there is no package-level license file.
+- `src/` contains the imported upstream source modules with intentional local behavior changes, relocated into the standard package layout. The five test files use imports updated to `../src/` and cover local behavior changes. The upstream MIT copyright and permission notices are retained in the [root license](../../../LICENSE), alongside this project's copyright notice; there is no package-level license file.
 - The upstream `.gitignore` is retained within the package. GitHub issue and pull-request templates live in the workspace root `.github/` and are adapted for both packages and shared tooling; no package-level `.github/` is kept.
 - Package metadata retains the existing `@wangjq4214/pi-open-tui` scope and private status. Pi SDK development dependencies are pinned to 1.0.0, matching delegate. TypeScript comes from the workspace root. Node types are pinned to the existing workspace resolution (26.6.4) to avoid mixing incompatible Node declarations with Bun's types.
 - The workspace uses one `bun.lock`; the upstream npm lockfile is not imported. npm-specific `allowScripts` metadata is omitted; no new dependency lifecycle-script permissions are granted.
 - Documentation and `AGENTS.md` use workspace commands. The standalone application scaffold is removed; Rolldown now bundles the imported extension.
 - The packages remain independent. This is a Pi extension, not a standalone application or an extraction of delegate's UI.
+- The custom Logo/model/CWD/command-tip header and its dedicated helpers are removed locally. Open TUI never overrides the host header, leaving Pi's native header in place; footer, editor, settings, thinking peek and telemetry remain available. This is not a measured performance claim.
 
 The imported extension and tests are excluded from Biome formatting, lint, and import organization through a narrowly scoped root override. This intentionally preserves the upstream snapshot rather than introducing a mass rewrite. Package metadata and workspace integration tests remain checked by Biome; imported code is verified by TypeScript and its upstream tests.
 
@@ -48,7 +49,7 @@ bun run --cwd packages/pi-open-tui pi --extension ./src/index.ts
 
 Source changes take effect after Pi's `/reload`. The `dev` script runs Pi in this package directory, which is also its working directory. To work on another project, start your installed Pi CLI in that directory with `pi -e /absolute/path/to/checkout/packages/pi-open-tui/src/index.ts`. Do not load both upstream `pi-open-tui` and this local copy, or both source and installed bundles, in the same session. Disable duplicate resources with `pi config` before testing.
 
-In a UTF-8 terminal, verify the header, footer, framed editor, `/open-tui` settings tabs and language switch, icon modes, inline footer, turn telemetry, and thinking peek. Settings are written to `~/.pi/agent/open-tui.json`, the same location used upstream; existing settings are reused. Thinking peek needs a reasoning model and Pi's Hide thinking option. Automated tests do not establish end-to-end terminal or provider compatibility.
+In a UTF-8 terminal, verify the native Pi header (no custom Logo or command-tip panel), footer, framed editor, `/open-tui` settings tabs and language switch, icon modes, inline footer, turn telemetry, and thinking peek. Settings are written to `~/.pi/agent/open-tui.json`, the same location used upstream; existing settings are reused. Thinking peek needs a reasoning model and Pi's Hide thinking option. Automated tests do not establish end-to-end terminal or provider compatibility.
 
 ## Bundle debugging and packaging
 

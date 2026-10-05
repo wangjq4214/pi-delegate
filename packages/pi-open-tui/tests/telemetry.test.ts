@@ -535,7 +535,9 @@ test("open-tui keeps a bounded peek scoped to the current assistant", async () =
 		ui: {
 			theme,
 			notify() {},
-			setHeader() {},
+			setHeader() {
+				assert.fail("Open TUI must leave Pi's native header untouched during startup and shutdown");
+			},
 			setFooter() {},
 			setEditorComponent(factory?: unknown) {
 				if (typeof factory === "function") {

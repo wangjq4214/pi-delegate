@@ -2,7 +2,6 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { type OpenTuiConfig, DEFAULT_CONFIG, ensureConfigExists, loadConfig, saveConfig } from "./config.ts";
 import { installEditor } from "./editor.ts";
 import { installFooter } from "./footer.ts";
-import { installHeader } from "./header.ts";
 import { emptyGitStatus, readGitStatus } from "./git.ts";
 import { readRuntimeInfo } from "./runtime.ts";
 import { SessionLifecycle } from "./session-lifecycle.ts";
@@ -52,7 +51,6 @@ export default function (pi: ExtensionAPI) {
 	let lastCtx: ExtensionContext | undefined;
 	let requestFooterRender: (() => void) | undefined;
 	let workingTimer: ReturnType<typeof setInterval> | undefined;
-	let cleanupHeader: (() => void) | undefined;
 	let cleanupFooter: (() => void) | undefined;
 	let editor: ReturnType<typeof installEditor> | undefined;
 	let pendingUiChange: PendingUiChange | undefined;
@@ -130,7 +128,6 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 		if (!active) {
-			cleanupHeader = installHeader(pi, ctx);
 			const footer = installFooter(
 				ctx,
 				() => state,
@@ -162,10 +159,8 @@ export default function (pi: ExtensionAPI) {
 	const uninstallUi = (ctx: ExtensionContext) => {
 		if (!isTuiContext(ctx)) return;
 		if (active) {
-			cleanupHeader?.();
 			cleanupFooter?.();
 			editor?.cleanup();
-			cleanupHeader = undefined;
 			cleanupFooter = undefined;
 			editor = undefined;
 			requestFooterRender = undefined;
