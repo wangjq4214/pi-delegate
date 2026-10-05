@@ -54,7 +54,7 @@ bun run --filter @wangjq4214/pi-open-tui start
 pi install /absolute/path/to/checkout/packages/pi-open-tui
 ```
 
-`start` requires a build. `build:watch` rebuilds the bundle; use `/reload` in Pi afterward. This scoped workspace package is private, not published. `npm:pi-open-tui` refers to the upstream package, not this copy. Do not load both copies in one session.
+`start` requires a build. `build:watch` rebuilds the bundle; use `/reload` in Pi afterward. Install this scoped package with `pi install npm:@wangjq4214/pi-open-tui`. `npm:pi-open-tui` refers to the upstream package, not this copy. Do not load both copies in one session.
 
 ## Font and icons
 
@@ -187,7 +187,7 @@ bun run --filter @wangjq4214/pi-open-tui test
 bun run check
 ```
 
-See the [development guide](docs/development.md) for source/bundle debugging, Node inspector setup, and publication previews. Both packages build automatically through `prepack` before packing/publishing; the UI package remains private. Detailed docs are maintained in English.
+See the [development guide](docs/development.md) for source/bundle debugging, Node inspector setup, and publication previews. Both packages build automatically through `prepack` before packing/publishing. Detailed docs are maintained in English.
 
 ## Documentation
 

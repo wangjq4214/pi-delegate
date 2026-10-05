@@ -5,7 +5,7 @@
 - `src/` is the imported Pi extension; `tests/` contains the upstream `node:test` suite.
 - The root `../../LICENSE` retains MIT attribution.
 - See [docs/development.md](docs/development.md) for the exact upstream revision and integration differences.
-- This package is independent of pi-delegate and is private. Do not add dependencies between them.
+- This package is independent of pi-delegate. Do not add dependencies between them.
 
 ## Development
 
@@ -18,7 +18,7 @@ bun run --filter @wangjq4214/pi-open-tui test
 bun run check
 ```
 
-Use `bun run --filter @wangjq4214/pi-open-tui dev` to load source for interactive verification. `build` uses Rolldown to emit `dist/index.js`, a source map, and `dist/LICENSE`; Pi host SDKs remain external. `start` loads the built extension. `prepack` builds before packing/publishing; private status is unchanged.
+Use `bun run --filter @wangjq4214/pi-open-tui dev` to load source for interactive verification. `build` uses Rolldown to emit `dist/index.js`, a source map, and `dist/LICENSE`; Pi host SDKs remain external. `start` loads the built extension. `prepack` builds before packing/publishing; both workspace packages are published publicly.
 
 ## Changes
 

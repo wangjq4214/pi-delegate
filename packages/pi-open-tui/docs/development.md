@@ -6,7 +6,7 @@ This package imports [OldSuns/pi-open-tui](https://github.com/OldSuns/pi-open-tu
 
 - `src/` contains the imported upstream source modules with intentional local behavior changes, relocated into the standard package layout. The Node test suite uses imports updated to `../src/` and covers local behavior changes, including deterministic host-lifecycle regressions. The upstream MIT copyright and permission notices are retained in the [root license](../../../LICENSE), alongside this project's copyright notice; there is no package-level license file.
 - The upstream `.gitignore` is retained within the package. GitHub issue and pull-request templates live in the workspace root `.github/` and are adapted for both packages and shared tooling; no package-level `.github/` is kept.
-- Package metadata retains the existing `@wangjq4214/pi-open-tui` scope and private status. Pi SDK development dependencies are pinned to 1.0.0, matching delegate. TypeScript comes from the workspace root. Node types are pinned to the existing workspace resolution (26.6.4) to avoid mixing incompatible Node declarations with Bun's types.
+- Package metadata retains the existing `@wangjq4214/pi-open-tui` scope and publishes publicly. Pi SDK development dependencies are pinned to 1.0.0, matching delegate. TypeScript comes from the workspace root. Node types are pinned to the existing workspace resolution (26.6.4) to avoid mixing incompatible Node declarations with Bun's types.
 - The workspace uses one `bun.lock`; the upstream npm lockfile is not imported. npm-specific `allowScripts` metadata is omitted; no new dependency lifecycle-script permissions are granted.
 - Documentation and `AGENTS.md` use workspace commands. The standalone application scaffold is removed; Rolldown now bundles the imported extension.
 - The packages remain independent. This is a Pi extension, not a standalone application or an extraction of delegate's UI.
@@ -87,7 +87,7 @@ npm pack --dry-run --workspace @wangjq4214/pi-delegate
 npm pack --dry-run --workspace @wangjq4214/pi-open-tui
 ```
 
-Verify `dist/index.js`, `dist/index.js.map`, `dist/LICENSE`, and each package’s additional resources. The UI source directory is not a publication entry. `pi-open-tui` remains private: do not remove that flag or publish until explicitly authorized. Rolldown does not replace `typecheck` or tests; run all workspace checks before releasing.
+Verify `dist/index.js`, `dist/index.js.map`, `dist/LICENSE`, and each package’s additional resources. The UI source directory is not a publication entry. Both scoped packages publish publicly; the repository root remains private. Rolldown does not replace `typecheck` or tests; run all workspace checks before releasing.
 
 ## Maintenance
 

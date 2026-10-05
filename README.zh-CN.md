@@ -7,7 +7,7 @@
 | 包 | 用途 | 状态 |
 | --- | --- | --- |
 | [`@wangjq4214/pi-delegate`](packages/pi-delegate/README.zh-CN.md) | 通过 RPC 委派子代理的 Pi 扩展 | 保留现有扩展、npm 包名和行为 |
-| [`@wangjq4214/pi-open-tui`](packages/pi-open-tui/README.zh-CN.md) | 从 OldSuns/pi-open-tui 导入的可配置 Pi 终端 UI 扩展 | 上游 v0.3.11，private，尚不发布 |
+| [`@wangjq4214/pi-open-tui`](packages/pi-open-tui/README.zh-CN.md) | 从 OldSuns/pi-open-tui 导入的可配置 Pi 终端 UI 扩展 | 公开 npm 包，基于上游 v0.3.11 |
 
 `pi-open-tui` 不是 delegate UI 的抽取。两个包互不依赖，本次不引入共享运行时包或 Turbo/Nx。
 
@@ -49,7 +49,7 @@ pi install /absolute/path/to/checkout/packages/pi-delegate
 pi install npm:@wangjq4214/pi-delegate
 ```
 
-根目录是 private workspace，不是 Pi package。delegate 的构建、打包和发布在 `packages/pi-delegate` 中进行；manifest 保留扩展入口和随包提供的 worktree skill。
+根目录是 private workspace，不是 Pi package。两个包的构建、打包和发布分别在 `packages/` 下各自目录中进行；delegate 的 manifest 保留扩展入口和随包提供的 worktree skill。
 
 ## 目录结构
 

@@ -4,7 +4,7 @@
 
 一个为 [Pi](https://pi.dev) 编程代理打造的可配置终端界面扩展，与 pi-delegate 互不依赖。
 
-此 private workspace 包导入自 [OldSuns/pi-open-tui](https://github.com/OldSuns/pi-open-tui) v0.3.11，提交为 `766ccab7b40df6fb9682a105a05d3838803c3d4b`。扩展源码和测试以该快照为基础，包含本地行为调整（包括移除自定义 Header，保留 Pi 原生顶栏）；上游 MIT 版权和许可声明保留在仓库根目录的 LICENSE 中；包配置和文档遵循当前仓库。它替换原有应用骨架，不是独立的 Pi 应用。
+此 workspace 包导入自 [OldSuns/pi-open-tui](https://github.com/OldSuns/pi-open-tui) v0.3.11，提交为 `766ccab7b40df6fb9682a105a05d3838803c3d4b`。扩展源码和测试以该快照为基础，包含本地行为调整（包括移除自定义 Header，保留 Pi 原生顶栏）；上游 MIT 版权和许可声明保留在仓库根目录的 LICENSE 中；包配置和文档遵循当前仓库。它替换原有应用骨架，不是独立的 Pi 应用。
 
 ## 功能
 
@@ -56,7 +56,7 @@ bun run --cwd packages/pi-open-tui pi --extension ./src/index.ts
 pi install /absolute/path/to/checkout/packages/pi-open-tui
 ```
 
-此包保留 `@wangjq4214/pi-open-tui` 名称和 private 状态，不发布到 npm。`pi install npm:pi-open-tui` 安装的是上游包，而非此 workspace 包。不要在同一个 Pi 会话中同时加载两份扩展。
+使用 `pi install npm:@wangjq4214/pi-open-tui` 安装此包。`pi install npm:pi-open-tui` 安装的是上游包，而非此 workspace 包。不要在同一个 Pi 会话中同时加载两份扩展。
 
 ## 字体与图标
 

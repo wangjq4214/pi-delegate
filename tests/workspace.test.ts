@@ -15,8 +15,9 @@ test("the private Bun workspace contains independent delegate and UI extension p
 	expect(workspace.pi).toBeUndefined();
 	expect(delegate.name).toBe("@wangjq4214/pi-delegate");
 	expect(ui.name).toBe("@wangjq4214/pi-open-tui");
-	expect(ui.private).toBe(true);
-	expect(ui.version).toBe("0.3.11");
+	expect(ui.private).toBeUndefined();
+	expect(ui.publishConfig.access).toBe("public");
+	expect(ui.version).toBe("0.2.0");
 	expect(ui.license).toBe("MIT");
 	expect(ui.pi.extensions).toEqual(["./dist/index.js"]);
 	expect(ui.scripts.build).toBe("rolldown -c");
@@ -63,7 +64,7 @@ test("the private Bun workspace contains independent delegate and UI extension p
 
 test("delegate retains its public Pi manifest and publication boundary", () => {
 	const delegate = manifest("packages/pi-delegate");
-	expect(delegate.version).toBe("0.1.0");
+	expect(delegate.version).toBe("0.2.0");
 	expect(delegate.pi).toEqual({
 		extensions: ["./dist/index.js"],
 		skills: ["./skills"],

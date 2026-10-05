@@ -7,7 +7,7 @@ A Bun + TypeScript monorepo with two independent packages:
 | Package | Purpose | Status |
 | --- | --- | --- |
 | [`@wangjq4214/pi-delegate`](packages/pi-delegate/README.md) | Pi extension for RPC subagent delegation | Existing extension; npm name and behavior preserved |
-| [`@wangjq4214/pi-open-tui`](packages/pi-open-tui/README.md) | Configurable Pi terminal UI extension imported from OldSuns/pi-open-tui | Upstream v0.3.11; private and not published |
+| [`@wangjq4214/pi-open-tui`](packages/pi-open-tui/README.md) | Configurable Pi terminal UI extension imported from OldSuns/pi-open-tui | Public npm package; based on upstream v0.3.11 |
 
 `pi-open-tui` is not a delegate UI extraction. Neither package depends on the other. No shared runtime package or Turbo/Nx layer is introduced.
 
@@ -49,7 +49,7 @@ pi install /absolute/path/to/checkout/packages/pi-delegate
 pi install npm:@wangjq4214/pi-delegate
 ```
 
-The root is private and is not a Pi package. Build/pack/publish delegate from `packages/pi-delegate`; its manifest retains the extension entry and bundled worktree skill.
+The root is private and is not a Pi package. Build/pack/publish each package from its directory under `packages/`; delegate retains its extension entry and bundled worktree skill.
 
 ## Layout
 
