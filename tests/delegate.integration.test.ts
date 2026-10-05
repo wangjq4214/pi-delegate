@@ -26,7 +26,7 @@ function required<T>(value: T | undefined): T {
 	return value;
 }
 
-const entry = resolve("src/index.ts");
+const entry = resolve(process.env.PI_DELEGATE_TEST_ENTRY ?? "src/index.ts");
 const provider = resolve("tests/fixtures/provider.ts");
 interface ParentState {
 	tools: ToolInfo[];

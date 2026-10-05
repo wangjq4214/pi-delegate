@@ -1,7 +1,20 @@
 {
-	"name": "pi-delegate",
+	"name": "@wangjq4214/pi-delegate",
 	"version": "0.1.0",
-	"private": true,
+	"files": [
+		"dist",
+		"skills",
+		"docs",
+		"README.md",
+		"README.zh-CN.md"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/wangjq4214/pi-delegate.git"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
 	"type": "module",
 	"description": "A Pi extension for parent-only RPC subagent delegation.",
 	"keywords": [
@@ -9,24 +22,25 @@
 	],
 	"packageManager": "bun@1.4.1",
 	"engines": {
-		"bun": ">=1.4.1"
+		"node": ">=22.19.0"
 	},
 	"pi": {
 		"extensions": [
-			"./src/index.ts"
+			"./dist/index.js"
 		],
 		"skills": [
 			"./skills"
 		]
 	},
 	"scripts": {
+		"build": "rolldown -c",
+		"prepack": "bun run build",
 		"check": "biome check --error-on-warnings .",
 		"check:fix": "biome check --write --error-on-warnings",
 		"format": "biome format --write .",
 		"typecheck": "tsc --noEmit",
 		"test": "bun test",
-		"hooks:install": "lefthook install",
-		"postinstall": "lefthook install"
+		"hooks:install": "lefthook install"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-ai": "*",
@@ -40,6 +54,7 @@
 		"@earendil-works/pi-tui": "1.0.0",
 		"@types/bun": "1.4.2",
 		"lefthook": "2.1.16",
+		"rolldown": "1.2.12",
 		"typescript": "7.0.2"
 	}
 }

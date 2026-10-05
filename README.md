@@ -23,13 +23,25 @@ pi-delegate is a TypeScript extension for Pi. It launches one-off subagents over
 
 ## Installation
 
+### Install from npm
+
+```sh
+pi install npm:@wangjq4214/pi-delegate
+```
+
+The npm package includes the built extension and worktree skill; no local build is required.
+
+### Local development setup
+
 Run the following from the root of a local Git checkout:
 
 ```sh
 bun install --frozen-lockfile
+bun run hooks:install
+bun run build
 ```
 
-Dependency installation also installs the development Git hook. See the [development guide](docs/development.md) for setup details.
+Development Git hooks are installed explicitly with `bun run hooks:install`; npm consumers do not run development hooks. See the [development guide](docs/development.md).
 
 ### Load the extension directly
 
@@ -47,7 +59,7 @@ With Pi CLI installed:
 pi install /absolute/path/to/pi-delegate
 ```
 
-The package declares its extension entry point and bundled `delegate-worktree` skill in `package.json`. Install its dependencies with Bun first. It is currently marked `private` and is not published to npm.
+The package declares the built `dist/index.js` extension and bundled `delegate-worktree` skill in `package.json`. Install dependencies and run `bun run build` before installing a local checkout.
 
 ## Usage
 

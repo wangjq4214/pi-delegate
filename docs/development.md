@@ -12,11 +12,7 @@ From the repository root:
 bun install --frozen-lockfile
 ```
 
-Run dependency installation inside a Git repository so Lefthook can install the hook. The `postinstall` script installs `pre-commit`; if lifecycle scripts were disabled, install it manually:
-
-```sh
-bun run hooks:install
-```
+Run `bun run hooks:install` inside a Git repository to install the development `pre-commit` hook explicitly. There is no `postinstall` hook, so npm consumers do not need Git or Lefthook.
 
 If Bun reports blocked lifecycle scripts in transitive dependencies, these checks and tests do not require automatically trusting those scripts.
 
@@ -34,14 +30,15 @@ pi --extension ./src/index.ts
 
 Pi loads TypeScript directly, without a build step. Use Pi's `/reload` after modifying the extension.
 
-The `pi.extensions` field in `package.json` declares `src/index.ts`. The repository can also be installed as a local Pi package; see [installation](../README.md#installation).
+The `pi.extensions` field in `package.json` declares `dist/index.js`. Run `bun run build` before installing the repository as a local Pi package; see [installation](../README.md#installation).
 
-Local package dependencies must be installed by the developer with Bun. Pi host modules are peer dependencies and are also pinned as development dependencies for local types; they are not bundled into the extension. The package is marked `private` to prevent accidental npm publication.
+Rolldown builds a single Node.js ESM entry with a source map. Node built-ins and Pi host modules remain external. The source entry remains available for direct development loading; delegation resolves the matching source or built entry for child processes. Pi host modules are peer dependencies and pinned as development dependencies for local types; they are not bundled.
 
 ## Development commands
 
 | Command | Purpose |
 | --- | --- |
+| `bun run build` | Bundle the extension to `dist/index.js` with Rolldown. |
 | `bun run check` | Non-writing Biome formatting, lint, and import checks; warnings fail the check. |
 | `bun run check:fix .` | Format the project, apply safe lint fixes, and organize imports. |
 | `bun run format` | Apply formatting only. |
@@ -56,6 +53,7 @@ Local package dependencies must be installed by the developer with Bun. Pi host 
 Before submitting code changes, run:
 
 ```sh
+bun run build
 bun run check
 bun run typecheck
 bun test

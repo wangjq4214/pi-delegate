@@ -23,13 +23,25 @@ pi-delegate 是一个 Pi TypeScript 扩展，通过 RPC 启动一次性子 agent
 
 ## 安装
 
+### 从 npm 安装
+
+```sh
+pi install npm:@wangjq4214/pi-delegate
+```
+
+npm 包包含构建后的扩展和 worktree skill，无需本地构建。
+
+### 本地开发配置
+
 在本地 Git 仓库的根目录执行：
 
 ```sh
 bun install --frozen-lockfile
+bun run hooks:install
+bun run build
 ```
 
-安装依赖时也会安装开发用 Git hook。具体配置请参阅[开发指南](docs/development.md)。
+开发用 Git hook 通过 `bun run hooks:install` 显式安装；npm 用户安装时不会运行开发 hook。具体配置请参阅[开发指南](docs/development.md)。
 
 ### 直接加载扩展
 
@@ -47,7 +59,7 @@ Pi 直接加载 TypeScript 源码，无需构建。
 pi install /absolute/path/to/pi-delegate
 ```
 
-`package.json` 声明了扩展入口和随包提供的 `delegate-worktree` skill。请先使用 Bun 安装本地依赖。该 package 当前标记为 `private`，尚未发布到 npm。
+`package.json` 声明了构建后的 `dist/index.js` 扩展入口和随包提供的 `delegate-worktree` skill。本地仓库安装前请先安装依赖，并执行 `bun run build`。
 
 ## 使用
 

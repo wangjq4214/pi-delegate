@@ -30,7 +30,7 @@ test("Pi package discovery loads the bundled worktree skill without a personal c
 		expect(
 			paths.extensions.some(
 				(resource) =>
-					resource.path === resolve("src/index.ts") && resource.enabled,
+					resource.path === resolve("dist/index.js") && resource.enabled,
 			),
 		).toBe(true);
 		const result = loadSkills({

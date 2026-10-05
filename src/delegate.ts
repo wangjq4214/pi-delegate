@@ -496,7 +496,12 @@ export function registerDelegate(
 			);
 		},
 	);
-	const entryPath = fileURLToPath(new URL("./index.ts", import.meta.url));
+	const entryPath = fileURLToPath(
+		new URL(
+			import.meta.url.endsWith(".ts") ? "./index.ts" : "./index.js",
+			import.meta.url,
+		),
+	);
 	const parameters = Type.Object({
 		task: Type.String({
 			minLength: 1,
