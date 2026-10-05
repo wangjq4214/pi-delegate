@@ -401,3 +401,43 @@ test("cycles the thinking peek line count from General settings", async () => {
 	assert.equal(settings.getConfig().thinkingPeek.lines, 1);
 	settings.component.handleInput("q");
 });
+
+test("Workline settings are independent, localized and persist normalized defaults", async () => {
+	for (const language of ["en", "zh"] as const) {
+		const config = structuredClone(DEFAULT_CONFIG);
+		config.settingsLanguage = language;
+		const settings = await openSettings(config);
+		settings.component.handleInput("\t");
+		for (let i = 0; i < 3; i++) settings.component.handleInput("\x1b[B");
+		assert.match(selectedLine(settings.component), language === "zh" ? /Workline 跑马灯.*开启/ : /Workline marquee.*On/);
+		settings.component.handleInput("\r");
+		assert.deepEqual(settings.getConfig().workline, { marquee: false, attachToBorder: true });
+		settings.component.handleInput("\x1b[B");
+		assert.match(selectedLine(settings.component), language === "zh" ? /Workline 贴合边框.*开启/ : /Workline attached to border.*On/);
+		settings.component.handleInput(" ");
+		assert.deepEqual(settings.getConfig().workline, { marquee: false, attachToBorder: false });
+		settings.component.handleInput("q");
+		await settings.waitForClose();
+	}
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-open-tui-workline-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		for (const workline of [undefined, null, [], false, { marquee: "yes", attachToBorder: 1 }]) {
+			writeFileSync(join(agentDir, "open-tui.json"), JSON.stringify({ workline }));
+			assert.deepEqual(loadConfig().workline, DEFAULT_CONFIG.workline);
+		}
+		writeFileSync(join(agentDir, "open-tui.json"), JSON.stringify({ workline: { marquee: false } }));
+		assert.deepEqual(loadConfig().workline, { marquee: false, attachToBorder: true });
+		for (const marquee of [true, false]) for (const attachToBorder of [true, false]) {
+			const config = structuredClone(DEFAULT_CONFIG);
+			config.workline = { marquee, attachToBorder };
+			saveConfig(config);
+			assert.deepEqual(loadConfig().workline, config.workline);
+		}
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previous;
+		rmSync(agentDir, { recursive: true, force: true });
+	}
+});

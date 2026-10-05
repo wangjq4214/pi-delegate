@@ -600,7 +600,7 @@ test("ASCII footer renders icons as semantic labels", () => {
 		lastDoneIn: undefined,
 	};
 
-	installFooter(
+	const handle = installFooter(
 		ctx,
 		() => state,
 		() => config,
@@ -629,7 +629,6 @@ test("ASCII footer renders icons as semantic labels", () => {
 		"* main",
 		"!2",
 		"node 24.6.0",
-		"o working",
 		"#",
 		"M",
 		"~ high",
@@ -642,12 +641,27 @@ test("ASCII footer renders icons as semantic labels", () => {
 		assert.ok(output.includes(expected), `missing ${expected}\n${output}`);
 	}
 	assert.equal(extensionStatusReads, 1);
+	for (const inlineFooter of [false, true]) {
+		config.inlineFooter = inlineFooter;
+		const assertNoTimer = () => {
+			assert.doesNotMatch(component.render(160).join("\n"), /working|done/);
+			assert.doesNotMatch(JSON.stringify(handle.renderInline(160)), /working|done/);
+		};
+		assertNoTimer();
+		state.workingSince = undefined;
+		state.lastDoneIn = 2_000;
+		assertNoTimer();
+		state.workingSince = Date.now() - 2_000;
+		state.lastDoneIn = undefined;
+	}
+	config.inlineFooter = false;
+	const readsBeforeHidden = extensionStatusReads;
 
 	config.footerSegments.extensionStatuses = false;
 	const hiddenOutput = component.render(160);
 	assert.equal(hiddenOutput.length, 2);
 	assert.doesNotMatch(hiddenOutput.join("\n"), /goal active/);
-	assert.equal(extensionStatusReads, 1);
+	assert.equal(extensionStatusReads, readsBeforeHidden);
 });
 
 function renderFooterWithSession(opts: {

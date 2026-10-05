@@ -23,9 +23,15 @@ const DEFAULT_CURSOR_STYLE_SEQUENCE = "\x1b[0 q";
 const EDITOR_FRAME_LEFT_INSET = 2;
 const EDITOR_FRAME_HORIZONTAL_CHROME = EDITOR_FRAME_LEFT_INSET * 2;
 
-interface WorkingStatusIndicator {
+export interface WorkingStatusIndicator {
+	kind?: string;
 	renderInBorder(width: number): string;
 	renderSpinnerInBorder(width: number): string;
+}
+
+export interface WorklineRenderer {
+	attached(): boolean;
+	render(width: number, native?: WorkingStatusIndicator, compact?: boolean): string;
 }
 
 export interface InlineFooterLine {
@@ -198,6 +204,8 @@ export class OpenTuiEditor extends CustomEditor {
 	private cursorStyle: CursorStyle;
 	private borderStyle: EditorBorderStyle;
 	private previewHardwareCursor = false;
+	private readonly workline: WorklineRenderer | undefined;
+	private detachedWorklineVisible = false;
 
 	constructor(
 		tui: TUI,
@@ -206,11 +214,13 @@ export class OpenTuiEditor extends CustomEditor {
 		cursorStyle: CursorStyle = "block",
 		inlineFooter?: InlineFooterRenderer,
 		borderStyle: EditorBorderStyle = "surround",
+		workline?: WorklineRenderer,
 	) {
 		super(tui, editorTheme, keybindings, { paddingX: 0 });
 		this.cursorStyle = cursorStyle;
 		this.borderStyle = borderStyle;
 		this.inlineFooter = inlineFooter;
+		this.workline = workline;
 		configureCursor(tui, cursorStyle);
 		// ponytail: route the frame through this.borderColor so Pi can recolor it
 		// via updateEditorBorderColor() — bash mode ("! " prefix → green) and
@@ -225,11 +235,14 @@ export class OpenTuiEditor extends CustomEditor {
 	}
 
 	override handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-		if (event.width < EDITOR_FRAME_HORIZONTAL_CHROME) return super.handleMouse(event);
-
+		if (this.detachedWorklineVisible && event.y >= 0 && event.y < 3) return { handled: true };
+		if (event.width < EDITOR_FRAME_HORIZONTAL_CHROME) {
+			return super.handleMouse({ ...event, y: event.y - (this.detachedWorklineVisible ? 3 : 0) });
+		}
 		return super.handleMouse({
 			...event,
 			x: event.x - EDITOR_FRAME_LEFT_INSET,
+			y: event.y - (this.detachedWorklineVisible ? 3 : 0),
 			width: event.width - EDITOR_FRAME_HORIZONTAL_CHROME,
 		});
 	}
@@ -280,7 +293,16 @@ export class OpenTuiEditor extends CustomEditor {
 	}
 
 	render(width: number): string[] {
-		if (width < EDITOR_FRAME_HORIZONTAL_CHROME) return this.renderBase(width);
+		const native = this.embeddedWorkingStatusIndicator;
+		const indicator: WorkingStatusIndicator | undefined = this.workline ? {
+			renderInBorder: (budget) => this.workline!.render(budget, native),
+			renderSpinnerInBorder: (budget) => this.workline!.render(budget, native, true),
+		} : native;
+		const detached = this.workline?.attached() === false ? indicator?.renderInBorder(Math.max(0, width - 2)) ?? "" : "";
+		this.detachedWorklineVisible = visibleWidth(detached) > 0;
+		const prefix = this.detachedWorklineVisible ? ["", truncateToWidth(`  ${detached}`, width, ""), ""] : [];
+		const borderIndicator = this.workline?.attached() === false ? undefined : indicator;
+		if (width < EDITOR_FRAME_HORIZONTAL_CHROME) return [...prefix, ...this.renderBase(width)];
 
 		const rail = this.borderStyle === "minimal" ? " " : this.getRail();
 		const borderPaint = this.getBorder;
@@ -289,13 +311,13 @@ export class OpenTuiEditor extends CustomEditor {
 		const baseLines = this.renderBase(innerWidth);
 		const bottomIdx = findBottomBorderIndex(baseLines);
 
-		const result: string[] = [];
+		const result: string[] = [...prefix];
 		const inlineFooter = this.inlineFooter?.enabled() === true;
 		const renderInlineLine = (kind: "top" | "bottom", budget: number): InlineFooterLine | undefined =>
 			this.inlineFooter?.render(budget)?.[kind];
 		result.push(inlineFooter
-			? inlineBorder(width, "top", borderPaint, (budget) => renderInlineLine("top", budget), baseLines[0], this.embeddedWorkingStatusIndicator, this.borderStyle)
-			: roundedBorder(width, "top", borderPaint, baseLines[0], this.embeddedWorkingStatusIndicator, this.borderStyle));
+			? inlineBorder(width, "top", borderPaint, (budget) => renderInlineLine("top", budget), baseLines[0], borderIndicator, this.borderStyle)
+			: roundedBorder(width, "top", borderPaint, baseLines[0], borderIndicator, this.borderStyle));
 
 		for (let i = 1; i < bottomIdx; i++) {
 			const line = baseLines[i] ?? "";
@@ -324,6 +346,7 @@ export function installEditor(
 	cursorStyle: CursorStyle = "block",
 	inlineFooter?: InlineFooterRenderer,
 	borderStyle: EditorBorderStyle = "surround",
+	workline?: WorklineRenderer,
 ) {
 	let activeTui: TUI | undefined;
 	let activeEditor: OpenTuiEditor | undefined;
@@ -340,10 +363,13 @@ export function installEditor(
 		activeTui = tui;
 		hiddenThinkingTarget = undefined;
 		previousHardwareCursor = tui.getShowHardwareCursor();
-		activeEditor = new OpenTuiEditor(tui, editorTheme, keybindings, currentCursorStyle, inlineFooter, currentBorderStyle);
+		activeEditor = new OpenTuiEditor(tui, editorTheme, keybindings, currentCursorStyle, inlineFooter, currentBorderStyle, workline);
 		return activeEditor;
 	});
 	return {
+		requestRender(): void {
+			activeTui?.requestRender();
+		},
 		getViewportWidth(): number {
 			const columns = getActiveTui().terminal.columns;
 			if (typeof columns !== "number" || !Number.isFinite(columns)) {

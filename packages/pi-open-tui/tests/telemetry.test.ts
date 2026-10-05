@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -13,6 +13,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { ScrollView, Text } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG } from "../src/config.ts";
+import type { OpenTuiEditor } from "../src/editor.ts";
+import { stripAnsi } from "../src/utils.ts";
 import openTui from "../src/index.ts";
 import { formatTurnTelemetry, TurnTelemetryTracker } from "../src/telemetry.ts";
 
@@ -502,6 +504,8 @@ test("open-tui keeps a bounded peek scoped to the current assistant", async () =
 	const effectiveWidth = 85;
 	const handlers = new Map<string, Array<(event: any, ctx: ExtensionContext) => void | Promise<void>>>();
 	const globalLabelUpdates: Array<string | undefined> = [];
+	let mountedEditor: OpenTuiEditor | undefined;
+	let renderRequests = 0;
 	const thought = "x".repeat(200);
 	const assistant = {
 		role: "assistant",
@@ -515,11 +519,11 @@ test("open-tui keeps a bounded peek scoped to the current assistant", async () =
 		(component as unknown as { hiddenThinkingLabel: string }).hiddenThinkingLabel;
 	const tui = {
 		mode: "fullscreen",
-		terminal: { columns: effectiveWidth, write() {} },
+		terminal: { rows: 24, columns: effectiveWidth, write() {} },
 		children: [{ children: thinkingComponents }],
 		getShowHardwareCursor: () => false,
 		setShowHardwareCursor() {},
-		requestRender() {},
+		requestRender() { renderRequests++; },
 	};
 	const pi = {
 		on(event: string, handler: (event: any, ctx: ExtensionContext) => void | Promise<void>) {
@@ -541,7 +545,7 @@ test("open-tui keeps a bounded peek scoped to the current assistant", async () =
 			setFooter() {},
 			setEditorComponent(factory?: unknown) {
 				if (typeof factory === "function") {
-					factory(tui, { borderColor: (text: string) => text }, { matches: () => false });
+					mountedEditor = factory(tui, { borderColor: (text: string) => text }, { matches: () => false }) as OpenTuiEditor;
 				}
 			},
 			setHiddenThinkingLabel(label?: string) {
@@ -563,6 +567,8 @@ test("open-tui keeps a bounded peek scoped to the current assistant", async () =
 		openTui(pi);
 		await emit("session_start", { type: "session_start" });
 		await emit("agent_start", { type: "agent_start" });
+		assert.ok(mountedEditor);
+		assert.match(stripAnsi(mountedEditor.render(85)[0]!), /working \d+s/);
 		await emit("turn_start", { type: "turn_start" });
 		await emit("message_start", { type: "message_start", message: assistant });
 		await emit("message_update", {
@@ -592,8 +598,14 @@ test("open-tui keeps a bounded peek scoped to the current assistant", async () =
 		// message_start. Its start must still invalidate the previous settle timer.
 		await emit("agent_start", { type: "agent_start" });
 		const updatesAfterNewTaskStart = globalLabelUpdates.length;
+		const requestsBeforeTick = renderRequests;
 		await new Promise((resolve) => setTimeout(resolve, 350));
 
+		assert.ok(renderRequests > requestsBeforeTick, "working timer requests a render even without stream deltas");
+		await emit("agent_end", { type: "agent_end" });
+		assert.match(stripAnsi(mountedEditor.render(85)[0]!), /done/);
+		await emit("agent_start", { type: "agent_start" });
+		assert.doesNotMatch(stripAnsi(mountedEditor.render(85)[0]!), /done/);
 		assert.ok(
 			globalLabelUpdates.slice(updatesAfterNewTaskStart).every((label) => label !== undefined),
 			"a stale settle timer must not clear the new task's label",
@@ -606,5 +618,104 @@ test("open-tui keeps a bounded peek scoped to the current assistant", async () =
 		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 		await rm(agentDir, { recursive: true, force: true });
+	}
+});
+
+test("settled telemetry notifies attached, merges detached, and resets with task/session", async () => {
+	for (const { attached, telemetryMode } of [
+		{ attached: true, telemetryMode: "enabled" },
+		{ attached: false, telemetryMode: "enabled" },
+		{ attached: true, telemetryMode: "disabled" },
+		{ attached: false, telemetryMode: "disabled" },
+		{ attached: true, telemetryMode: "empty" },
+		{ attached: false, telemetryMode: "empty" },
+	]) {
+		const hasTelemetry = telemetryMode === "enabled";
+		const handlers = new Map<string, Array<(event: any, ctx: ExtensionContext) => void | Promise<void>>>();
+		const notifications: string[] = [];
+		let mountedEditor: OpenTuiEditor | undefined;
+		const tui = {
+			terminal: { rows: 24, columns: 200, write() {} },
+			getShowHardwareCursor: () => false, setShowHardwareCursor() {}, requestRender() {},
+		};
+		const pi = {
+			on(event: string, handler: (event: any, ctx: ExtensionContext) => void | Promise<void>) {
+				handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+			},
+			registerCommand() {}, getThinkingLevel: () => "off",
+		} as unknown as ExtensionAPI;
+		const ctx = {
+			hasUI: true, mode: "tui", cwd: process.cwd(),
+			ui: {
+				theme, notify: (message: string) => notifications.push(message), setFooter() {},
+				setEditorComponent(factory?: unknown) {
+					if (typeof factory === "function") mountedEditor = factory(tui, { borderColor: (text: string) => text }, { matches: () => false });
+				},
+				setHiddenThinkingLabel() {},
+			},
+		} as unknown as ExtensionContext;
+		const emit = async (event: string, payload: unknown = { type: event }) => {
+			for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
+		};
+		const previous = process.env.PI_CODING_AGENT_DIR;
+		const agentDir = await mkdtemp(join(tmpdir(), "open-tui-workline-"));
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		const config = structuredClone(DEFAULT_CONFIG);
+		config.workline.attachToBorder = attached;
+		config.thinkingPeek.lines = 0;
+		if (telemetryMode === "disabled") config.telemetry.enabled = false;
+		if (telemetryMode === "empty") {
+			config.telemetry = { enabled: true, tps: false, ttft: false, duration: false, tokens: false, stalls: false, cost: false };
+		}
+		try {
+			await writeFile(join(agentDir, "open-tui.json"), JSON.stringify(config));
+			openTui(pi);
+			await emit("session_start");
+			assert.ok(mountedEditor);
+			const idle = mountedEditor.render(200).map(stripAnsi);
+			const run = async () => {
+				const message = makeMessage();
+				await emit("agent_start");
+				await emit("turn_start", { type: "turn_start", turnIndex: 0, timestamp: Date.now() });
+				await emit("message_start", { type: "message_start", message });
+				await emit("message_update", update(message));
+				await emit("message_end", { type: "message_end", message });
+				await emit("turn_end", { type: "turn_end", turnIndex: 0, message, toolResults: [] });
+				await emit("agent_end");
+				assert.doesNotMatch(mountedEditor!.render(200).join("\n"), /TPS/);
+				await emit("agent_settled");
+			};
+			await run();
+			const done = mountedEditor.render(200).map(stripAnsi);
+			assert.equal(done.length, idle.length + (attached ? 0 : 3));
+			assert.match(done[attached ? 0 : 1]!, /done/);
+			if (attached) {
+				assert.equal(notifications.length, hasTelemetry ? 1 : 0);
+				if (hasTelemetry) assert.match(notifications[0]!, /TPS .*TTFT/);
+				assert.doesNotMatch(done.join("\n"), /TPS/);
+				assert.deepEqual(done.slice(1), idle.slice(1));
+			} else {
+				assert.equal(notifications.length, 0);
+				assert.equal(done[0], "");
+				assert.equal(done[2], "");
+				if (hasTelemetry) assert.match(done[1]!, /done .*\| .*TPS .*TTFT/);
+				else assert.doesNotMatch(done[1]!, /TPS|\|/);
+				assert.equal(done.filter((line) => line.includes("TPS")).length, hasTelemetry ? 1 : 0);
+				assert.deepEqual(done.slice(3), idle);
+				await new Promise((resolve) => setTimeout(resolve, 350));
+				assert.deepEqual(mountedEditor.render(200).map(stripAnsi), done);
+			}
+			await emit("agent_start");
+			assert.doesNotMatch(mountedEditor.render(200).join("\n"), /TPS|done/);
+			await emit("agent_end");
+			await run();
+			await emit("session_start");
+			assert.deepEqual(mountedEditor.render(200).map(stripAnsi), idle);
+		} finally {
+			await emit("session_shutdown");
+			if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+			else process.env.PI_CODING_AGENT_DIR = previous;
+			await rm(agentDir, { recursive: true, force: true });
+		}
 	}
 });

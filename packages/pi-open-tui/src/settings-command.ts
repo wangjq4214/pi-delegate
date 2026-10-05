@@ -33,6 +33,8 @@ const COPY = {
 			language: "Language",
 			cursorStyle: "Cursor style",
 			editorBorderStyle: "Editor border",
+			worklineMarquee: "Workline marquee",
+			worklineAttachToBorder: "Workline attached to border",
 			iconMode: "Icon mode",
 			cwd: "CWD",
 			hostname: "Hostname",
@@ -72,6 +74,8 @@ const COPY = {
 			language: "语言",
 			cursorStyle: "光标样式",
 			editorBorderStyle: "编辑器边框",
+			worklineMarquee: "Workline 跑马灯",
+			worklineAttachToBorder: "Workline 贴合边框",
 			iconMode: "图标模式",
 			cwd: "当前目录",
 			hostname: "主机名",
@@ -167,10 +171,13 @@ function buildFeaturesItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 }
 
 function buildIconsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingItem[] {
+	const flag = (value: boolean) => value ? copy.values.on : copy.values.off;
 	return [
 		{ id: "mode", label: copy.labels.iconMode, currentValue: copy.values.icons[config.icons.mode] },
 		{ id: "cursorStyle", label: copy.labels.cursorStyle, currentValue: copy.values.cursorStyles[config.cursorStyle] },
 		{ id: "editorBorderStyle", label: copy.labels.editorBorderStyle, currentValue: copy.values.editorBorderStyles[config.editorBorderStyle] },
+		{ id: "worklineMarquee", label: copy.labels.worklineMarquee, currentValue: flag(config.workline.marquee) },
+		{ id: "worklineAttachToBorder", label: copy.labels.worklineAttachToBorder, currentValue: flag(config.workline.attachToBorder) },
 	];
 }
 
@@ -232,6 +239,8 @@ function handleSettingChange(
 		if (itemId === "mode") return cycleIconMode(config);
 		if (itemId === "cursorStyle") return cycleCursorStyle(config);
 		if (itemId === "editorBorderStyle") return { ...config, editorBorderStyle: config.editorBorderStyle === "surround" ? "minimal" : "surround" };
+		if (itemId === "worklineMarquee") return { ...config, workline: { ...config.workline, marquee: !config.workline.marquee } };
+		if (itemId === "worklineAttachToBorder") return { ...config, workline: { ...config.workline, attachToBorder: !config.workline.attachToBorder } };
 	}
 	if (tab === "segments") {
 		return toggleSetting(config, itemId as keyof OpenTuiConfig["footerSegments"]);

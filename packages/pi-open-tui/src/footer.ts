@@ -14,7 +14,6 @@ import {
 	fitSegmentsByPriority,
 	fmtTokens,
 	formatCwd,
-	formatDuration,
 	formatInputBreakdown,
 	hasAnsiStyles,
 	providerColor,
@@ -118,16 +117,6 @@ function renderRuntimeSegment(
 	const version = runtime.version ? theme.fg("muted", runtime.version) : "";
 	const label = [symbol, version].filter(Boolean).join(" ");
 	return label;
-}
-
-function renderTimerSegment(theme: Theme, state: FooterState, glyphs: IconGlyphs): string {
-	if (state.workingSince !== undefined) {
-		return `${theme.fg("accent", glyphs.working)} ${theme.fg("dim", "working")} ${theme.fg("accent", formatDuration(Date.now() - state.workingSince))}`;
-	}
-	if (state.lastDoneIn !== undefined) {
-		return `${theme.fg("success", glyphs.done)} ${theme.fg("success", "done")} ${theme.fg("text", formatDuration(state.lastDoneIn))}`;
-	}
-	return "";
 }
 
 function renderContextBar(
@@ -346,11 +335,6 @@ function renderFooterContent(
 			inlineTopRightParts.push(leftParts.at(-1)!);
 		}
 	}
-	const timerSeg = renderTimerSegment(theme, state, glyphs);
-	if (timerSeg) {
-		leftParts.push({ text: timerSeg, priority: 1 });
-		inlineTopRightParts.push(leftParts.at(-1)!);
-	}
 
 	// The context bar competes with the left segments for the same row:
 	// full bar first, then the compact icon+pct form, then dropped.
@@ -365,7 +349,7 @@ function renderFooterContent(
 	}
 	const allParts: PrioritizedSegment[] = [...leftParts];
 	if (contextText) {
-		// ponytail: priority 4 = sheds with runtime, before git/timer/cwd.
+		// ponytail: priority 4 = sheds with runtime, before git/cwd.
 		allParts.push({ text: contextText, compactText: contextCompact, priority: 4 });
 		// Context stays at the far right; cwd is the first item in this group.
 		inlineTopRightParts.push({ text: contextText, compactText: contextCompact, priority: 4 });

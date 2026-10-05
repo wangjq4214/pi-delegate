@@ -82,6 +82,10 @@ pi install /absolute/path/to/checkout/packages/pi-open-tui
   "settingsLanguage": "zh",
   "cursorStyle": "block",
   "editorBorderStyle": "surround",
+  "workline": {
+    "marquee": true,
+    "attachToBorder": true
+  },
   "icons": {
     "mode": "auto"
   },
@@ -122,7 +126,9 @@ pi install /absolute/path/to/checkout/packages/pi-open-tui
 | `inlineFooter` | `true`、`false` | 将两条主要 Footer 信息行移入编辑器上下边框以节省垂直空间，默认关闭；扩展状态行仍显示在编辑器外 |
 | `cursorStyle` | `block`、`bar`、`underline` | `bar` 和 `underline` 需要终端支持光标形状转义序列 |
 | `editorBorderStyle` | `surround`、`minimal` | 外观 → 编辑器边框；默认「环绕」。「简洁」仅保留上下横线，文字左右留白不变。切换即时生效并保存，仍支持工作状态和内联底栏 |
-| `icons.mode` | `auto`、`nerd`、`unicode`、`ascii` | 控制底栏和遥测通知使用的图标 |
+| `workline.marquee` | 布尔开关 | 外观 → Workline 跑马灯；默认开启。工作文字上有高亮扫光，不横向滚动文字。关闭后状态和耗时仍更新，Pi 原生旋转指示器不受影响 |
+| `workline.attachToBorder` | 布尔开关 | 外观 → Workline 贴合边框；默认开启。关闭后在编辑器上方独占一行，可见 Workline 上下各留一行空白，绝不移入 footer |
+| `icons.mode` | `auto`、`nerd`、`unicode`、`ascii` | 控制底栏、Workline 和遥测通知使用的图标 |
 | `footerSegments` | 布尔开关 | 分别控制底栏中的各项数据 |
 | `footerSegments.capitalizeProviderName` | 布尔开关 | 将底栏中提供商名称的首字母大写；设为 `false` 时保留原始大小写 |
 | `telemetry` | 布尔开关 | 控制遥测总开关和各项指标 |
@@ -132,9 +138,11 @@ pi install /absolute/path/to/checkout/packages/pi-open-tui
 
 开启 `inlineFooter` 后，两条常规 Footer 信息行会移入编辑器边框，从而节省垂直空间。顶部边框左侧显示 Git 分支，右侧信息组以当前目录开头；开启 `sessionName` 时，会话标题也会显示在左侧。Pi 原生 Header 和扩展状态行保持独立显示；终端较窄时优先截断低优先级 Footer 数据，保留右侧统计信息和边框角。
 
+唯一的 **Workline** 将 Pi 的编辑器工作信息与本次运行耗时合并显示。完成后保留 `done` 和本次耗时，直到下一次工作开始或会话重置。无论 `inlineFooter` 是否开启，footer 都不再额外显示 working/done 计时。两个 Workline 开关即时生效并保存。原生重试、压缩等状态保留其语义和样式；边框较窄时会精简或截断 Workline，避免超出宽度。
+
 ## 单轮遥测
 
-每次 Agent 完整运行结束后，pi-open-tui 会显示一条临时结果，并将其中的多个工具调用轮次合并统计：
+每次 Agent 完整运行结束后，贴合边框模式保留原有临时遥测通知，不增加空白行。分离模式将遥测与 `done` 和本次耗时合并在同一条 Workline 中，不另行通知；结果保留到下一次运行或会话重置。两种模式均遵循遥测设置；分离模式按可用宽度截断。其中的多个工具调用轮次合并统计：
 
 ```text
 > TPS 42.5 tok/s | ~ TTFT 1.2s | + 29.7s | ↑ 567 | ↓ 1.2k | ! stall 1x / 4.3s | $ $3.60/M

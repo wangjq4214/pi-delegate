@@ -39,6 +39,11 @@ export interface ThinkingPeekConfig {
 	lines: ThinkingPeekLines;
 }
 
+export interface WorklineConfig {
+	marquee: boolean;
+	attachToBorder: boolean;
+}
+
 export interface OpenTuiConfig {
 	enabled: boolean;
 	inlineFooter: boolean;
@@ -51,6 +56,7 @@ export interface OpenTuiConfig {
 	footerSegments: FooterSegments;
 	telemetry: TelemetryConfig;
 	thinkingPeek: ThinkingPeekConfig;
+	workline: WorklineConfig;
 }
 
 export const DEFAULT_CONFIG: OpenTuiConfig = {
@@ -84,6 +90,10 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 		tokens: true,
 		stalls: true,
 		cost: true,
+	},
+	workline: {
+		marquee: true,
+		attachToBorder: true,
 	},
 	thinkingPeek: {
 		lines: 1,
@@ -160,6 +170,13 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 			config.thinkingPeek = structuredClone(DEFAULT_CONFIG.thinkingPeek);
 		} else {
 			config.thinkingPeek.lines = normalizeThinkingPeekLines(config.thinkingPeek.lines);
+		}
+		if (typeof config.workline !== "object" || config.workline === null || Array.isArray(config.workline)) {
+			config.workline = structuredClone(DEFAULT_CONFIG.workline);
+		} else {
+			for (const key of ["marquee", "attachToBorder"] as const) {
+				if (typeof config.workline[key] !== "boolean") config.workline[key] = DEFAULT_CONFIG.workline[key];
+			}
 		}
 		return config;
 	} catch (err) {

@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ExtensionAPI, ExtensionContext, KeybindingsManager } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, KeybindingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import { TuiMainScreen, type EditorTheme, type Terminal, type TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { installEditor, OpenTuiEditor } from "../src/editor.ts";
+import { DEFAULT_CONFIG } from "../src/config.ts";
+import { createWorklineRenderer } from "../src/workline.ts";
 import { stripAnsi } from "../src/utils.ts";
 
 const tui = {
@@ -415,4 +417,158 @@ test("keeps a hardware cursor after Pi re-applies its runtime settings", () => {
 		"software cursor stays stripped",
 	);
 	hostTui.stop();
+});
+
+const worklineTheme = {
+	fg: (color: string, text: string) => `\x1b[${color === "accent" ? 36 : color === "success" ? 32 : 90}m${text}\x1b[0m`,
+} as Theme;
+
+function worklineFixture(inlineFooter = false, borderStyle: "minimal" | "surround" = "surround") {
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	config.inlineFooter = inlineFooter;
+	const state: { workingSince: number | undefined; lastDoneIn: number | undefined } = { workingSince: undefined, lastDoneIn: undefined };
+	let now = 2_000;
+	const renderer = createWorklineRenderer(() => state, () => config, () => worklineTheme, () => now);
+	const editor = new OpenTuiEditor(tui, editorTheme, { matches: () => false } as unknown as KeybindingsManager,
+		"block", {
+			enabled: () => config.inlineFooter,
+			render: () => ({ top: { left: "main", right: "cwd" }, bottom: { left: "model", right: "stats" } }),
+		}, borderStyle, renderer);
+	editor.setText("abcdef\nghijkl");
+	return { config, state, renderer, editor, setNow: (value: number) => { now = value; } };
+}
+
+test("one Workline merges native work/time and persists done in both placements/footer modes", () => {
+	for (const inline of [false, true]) for (const borderStyle of ["surround", "minimal"] as const) {
+		const { config, state, editor, setNow } = worklineFixture(inline, borderStyle);
+		const idle = editor.render(100).map(stripAnsi);
+		state.workingSince = 0;
+		editor.setWorkingStatusIndicator({ kind: "working", renderInBorder: () => "o Custom work", renderSpinnerInBorder: () => "o" });
+		for (const attached of [true, false]) {
+			config.workline.attachToBorder = attached;
+			const lines = editor.render(100).map(stripAnsi);
+			assert.equal(lines.length, idle.length + (attached ? 0 : 3));
+			assert.match(lines[attached ? 0 : 1]!, /Custom work 2s/);
+			assert.equal(lines.filter((line) => line.includes("Custom work")).length, 1);
+			if (!attached) {
+				assert.equal(lines[0], "");
+				assert.equal(lines[2], "");
+				assert.deepEqual(lines.slice(3), idle);
+			} else {
+				assert.deepEqual(lines.slice(1), idle.slice(1));
+			}
+			if (inline) assert.match(lines[attached ? 0 : 3]!, /main.*cwd/);
+		}
+		state.workingSince = undefined;
+		state.lastDoneIn = 2_000;
+		editor.setWorkingStatusIndicator(undefined);
+		const done = editor.render(100).map(stripAnsi);
+		assert.match(done[1]!, /done 2s/);
+		assert.equal(done.filter((line) => line.includes("done")).length, 1);
+		setNow(10_000);
+		assert.deepEqual(editor.render(100).map(stripAnsi), done);
+		state.workingSince = 10_000;
+		state.lastDoneIn = undefined;
+		assert.doesNotMatch(editor.render(100).join("\n"), /done/);
+		assert.match(stripAnsi(editor.render(100)[1]!), /working 0s/);
+		state.workingSince = undefined;
+		assert.deepEqual(editor.render(100).map(stripAnsi), idle);
+	}
+});
+
+test("Workline sweep changes highlight, not text; off still updates elapsed time", () => {
+	const { config, state, renderer, setNow } = worklineFixture();
+	state.workingSince = 0;
+	const native = { renderInBorder: () => "o 工作 é 👩‍💻 custom work", renderSpinnerInBorder: () => "o" };
+	const first = renderer.render(80, native);
+	setNow(2_250);
+	const second = renderer.render(80, native);
+	assert.equal(stripAnsi(first), stripAnsi(second));
+	assert.notEqual(first, second);
+	config.workline.marquee = false;
+	const staticFirst = renderer.render(80, native);
+	setNow(2_500);
+	assert.equal(renderer.render(80, native), staticFirst);
+	setNow(4_000);
+	assert.match(stripAnsi(renderer.render(80, native)), /4s$/);
+	assert.doesNotMatch(renderer.render(80, native), /\x1b\[90m/);
+	for (const attached of [true, false]) {
+		config.workline.attachToBorder = attached;
+		assert.equal(renderer.attached(), attached);
+		assert.equal(config.workline.marquee, false);
+	}
+});
+
+test("Workline keeps special native statuses and bounds ANSI/CJK at narrow widths", () => {
+	const { config, state, renderer, editor } = worklineFixture(true);
+	state.workingSince = 0;
+	const retry = { kind: "retry", renderInBorder: () => "\x1b[33mRetrying in 2s\x1b[0m", renderSpinnerInBorder: () => "R" };
+	assert.equal(renderer.render(80, retry), retry.renderInBorder());
+	assert.equal(renderer.render(2, retry, true), "R");
+	state.workingSince = undefined;
+	state.lastDoneIn = 2_000;
+	assert.equal(renderer.render(80, retry), retry.renderInBorder());
+	state.workingSince = 0;
+	state.lastDoneIn = undefined;
+	editor.setWorkingStatusIndicator({ kind: "working", renderInBorder: () => "o 工作 👩‍💻 é", renderSpinnerInBorder: () => "o" });
+	for (const attached of [true, false]) for (const marquee of [true, false]) {
+		config.workline = { attachToBorder: attached, marquee };
+		for (const width of [0, 1, 2, 3, 4, 5, 8, 10, 20, 40, 80]) {
+			assert.ok(visibleWidth(renderer.render(width)) <= width);
+			for (const line of editor.render(width)) assert.ok(visibleWidth(line) <= Math.max(2, width), `${width}: ${line}`);
+		}
+	}
+});
+
+test("detached Workline compensates mouse rows and ignores its own row", () => {
+	const { config, state, editor } = worklineFixture();
+	config.workline.attachToBorder = false;
+	state.workingSince = 0;
+	editor.render(40);
+	const click = (y: number) => editor.handleMouse({
+		type: "click", button: "left", x: 4, y, screenX: 4, screenY: y,
+		width: 40, height: 8, shift: false, alt: false, ctrl: false,
+	});
+	click(5);
+	assert.deepEqual(editor.getCursor(), { line: 1, col: 2 });
+	const before = editor.getCursor();
+	for (const row of [0, 1, 2]) {
+		assert.deepEqual(click(row), { handled: true });
+		assert.deepEqual(editor.getCursor(), before);
+	}
+	config.workline.attachToBorder = true;
+	editor.render(40);
+	click(1);
+	assert.deepEqual(editor.getCursor(), { line: 0, col: 2 });
+});
+
+test("detached telemetry shares done row, obeys live config/theme and stays width bounded", () => {
+	const { config, state } = worklineFixture();
+	state.lastDoneIn = 2_000;
+	const telemetry = {
+		tps: 12.5, ttftMs: 100, totalMs: 2_000, inputTokens: 50, outputTokens: 25,
+		cacheReadTokens: 0, stallMs: 0, stallCount: 0, rateUsdPerMTokens: 4,
+		generationMs: 2_000, totalTokens: 75, costUsd: 0.0003, measurementMs: 2_000,
+	};
+	let currentTheme = worklineTheme;
+	const renderer = createWorklineRenderer(() => state, () => config, () => currentTheme, () => 2_000, () => telemetry);
+	const attached = renderer.render(200);
+	assert.equal(stripAnsi(attached), "+ done 2s");
+	config.workline.attachToBorder = false;
+	assert.match(stripAnsi(renderer.render(200)), /done 2s \| .*TPS 12.5 tok\/s.*TTFT/);
+	for (const width of [0, 1, 2, 3, 4, 8, 20, 40, 80, 200]) assert.ok(visibleWidth(renderer.render(width)) <= width);
+	currentTheme = { fg: (_color: string, text: string) => text } as Theme;
+	assert.doesNotMatch(renderer.render(200), /\x1b/);
+	config.telemetry.enabled = false;
+	assert.equal(stripAnsi(renderer.render(200)), "+ done 2s");
+	config.telemetry = { enabled: true, tps: false, ttft: false, duration: false, tokens: false, stalls: false, cost: false };
+	assert.equal(stripAnsi(renderer.render(200)), "+ done 2s");
+	config.workline.attachToBorder = true;
+	assert.equal(stripAnsi(renderer.render(200)), stripAnsi(attached));
+	state.workingSince = 2_000;
+	assert.doesNotMatch(stripAnsi(renderer.render(200)), /TPS|done/);
+	state.workingSince = undefined;
+	state.lastDoneIn = undefined;
+	assert.equal(renderer.render(200), "");
 });

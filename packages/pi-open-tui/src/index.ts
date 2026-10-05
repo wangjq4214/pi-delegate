@@ -2,11 +2,12 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { type OpenTuiConfig, DEFAULT_CONFIG, ensureConfigExists, loadConfig, saveConfig } from "./config.ts";
 import { installEditor } from "./editor.ts";
 import { installFooter } from "./footer.ts";
+import { createWorklineRenderer } from "./workline.ts";
 import { emptyGitStatus, readGitStatus } from "./git.ts";
 import { readRuntimeInfo } from "./runtime.ts";
 import { SessionLifecycle } from "./session-lifecycle.ts";
 import { registerSettingsCommand } from "./settings-command.ts";
-import { formatTurnTelemetry, TurnTelemetryTracker } from "./telemetry.ts";
+import { formatTurnTelemetry, TurnTelemetryTracker, type TurnTelemetry } from "./telemetry.ts";
 import {
 	createInitialState,
 	getModelMeta,
@@ -45,6 +46,7 @@ export default function (pi: ExtensionAPI) {
 	const sessionLifecycle = new SessionLifecycle();
 	const state: FooterState = createInitialState();
 	const turnTelemetry = new TurnTelemetryTracker();
+	let worklineTelemetry: TurnTelemetry | undefined;
 
 	let config: OpenTuiConfig = structuredClone(DEFAULT_CONFIG);
 	let active = false;
@@ -152,6 +154,7 @@ export default function (pi: ExtensionAPI) {
 					render: footer.renderInline,
 				},
 				config.editorBorderStyle,
+				createWorklineRenderer(() => state, () => config, () => ctx.ui.theme, Date.now, () => worklineTelemetry),
 			);
 			active = true;
 		}
@@ -214,7 +217,7 @@ export default function (pi: ExtensionAPI) {
 		stopWorkingTimer();
 		const tick = () => {
 			if (!sessionLifecycle.isCurrent() || !active) return;
-			requestFooterRender?.();
+			editor?.requestRender();
 		};
 		tick();
 		workingTimer = setInterval(tick, 250);
@@ -234,6 +237,7 @@ export default function (pi: ExtensionAPI) {
 		state.sessionStartEpoch = Date.now();
 		state.workingSince = undefined;
 		state.lastDoneIn = undefined;
+		worklineTelemetry = undefined;
 		invalidateUsageCache();
 
 		ensureConfigExists();
@@ -248,6 +252,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async (_event, ctx) => {
 		sessionLifecycle.shutdown();
 		stopWorkingTimer();
+		worklineTelemetry = undefined;
 		if (active) {
 			uninstallUi(ctx);
 		}
@@ -262,6 +267,7 @@ export default function (pi: ExtensionAPI) {
 		peekTaskEpoch++;
 		state.workingSince = Date.now();
 		state.lastDoneIn = undefined;
+		worklineTelemetry = undefined;
 		startWorkingTimer();
 	});
 
@@ -272,6 +278,7 @@ export default function (pi: ExtensionAPI) {
 			state.lastDoneIn = Date.now() - state.workingSince;
 			state.workingSince = undefined;
 		}
+		editor?.requestRender();
 		requestFooterRender?.();
 	});
 
@@ -326,8 +333,13 @@ export default function (pi: ExtensionAPI) {
 	pi.on("agent_settled", (event, ctx) => {
 		const telemetry = turnTelemetry.handle(event);
 		if (telemetry && config.enabled && config.telemetry.enabled && isTuiContext(ctx)) {
-			const message = formatTurnTelemetry(telemetry, ctx.ui.theme, config.telemetry, config.icons.mode);
-			if (message) ctx.ui.notify(message, "info");
+			if (config.workline.attachToBorder) {
+				const message = formatTurnTelemetry(telemetry, ctx.ui.theme, config.telemetry, config.icons.mode);
+				if (message) ctx.ui.notify(message, "info");
+			} else if (sessionLifecycle.isCurrent() && active) {
+				worklineTelemetry = telemetry;
+				editor?.requestRender();
+			}
 		}
 		// Only clear the peek label when this task is still the current one.
 		const settleEpoch = peekTaskEpoch;

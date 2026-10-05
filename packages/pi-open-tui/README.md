@@ -80,6 +80,10 @@ Run `/open-tui` to open the settings dialog. It provides **General**, **Appearan
   "settingsLanguage": "en",
   "cursorStyle": "block",
   "editorBorderStyle": "surround",
+  "workline": {
+    "marquee": true,
+    "attachToBorder": true
+  },
   "icons": {
     "mode": "auto"
   },
@@ -120,7 +124,9 @@ Key options:
 | `inlineFooter` | `true`, `false` | Moves the two main Footer rows into the editor's top and bottom borders; defaults to `false`. Extension status rows remain below the editor |
 | `cursorStyle` | `block`, `bar`, `underline` | `bar` and `underline` require terminal cursor-shape support |
 | `editorBorderStyle` | `surround`, `minimal` | Appearance → Editor border; Surround is the default. Minimal keeps only horizontal borders with unchanged text inset. Changes apply immediately and are saved; working status and inline footer remain supported |
-| `icons.mode` | `auto`, `nerd`, `unicode`, `ascii` | Controls footer and telemetry icons |
+| `workline.marquee` | Boolean | Appearance → Workline marquee; defaults to `true`. Sweeps a highlight across the working message without scrolling it. Turning it off keeps status/time updates and Pi's native spinner |
+| `workline.attachToBorder` | Boolean | Appearance → Workline attached to border; defaults to `true`. Set to `false` for a row above the editor with one blank row above and below the visible Workline; never moves Workline into the footer |
+| `icons.mode` | `auto`, `nerd`, `unicode`, `ascii` | Controls footer, Workline and telemetry icons |
 | `footerSegments` | Boolean flags | Shows or hides individual footer data |
 | `footerSegments.capitalizeProviderName` | Boolean | Capitalizes the first character of the provider name in the footer; set it to `false` to keep the provider's original casing |
 | `telemetry` | Boolean flags | Enables telemetry and its individual measurements |
@@ -130,9 +136,11 @@ Key options:
 
 With `inlineFooter` enabled, the two normal Footer rows are rendered inside the editor frame to save vertical space. The top border places the Git branch on the left and CWD first in the right-hand group; the session title appears on the left too when `sessionName` is enabled. The native Pi header and extension status rows remain separate; narrow terminals truncate lower-priority Footer data first, keeping the right-hand statistics and the border corner.
 
+The single **Workline** merges Pi's editor working message with elapsed run time. On completion, `done` and the run duration remain until the next run (or a session reset). The footer no longer shows a second working/done timer, regardless of `inlineFooter`. Both Workline switches apply immediately and are saved. Native retry/compaction status messages keep their own meaning and styling; narrow borders may compact or truncate the Workline to fit.
+
 ## Turn telemetry
 
-After each complete agent run, pi-open-tui shows one transient result. Tool-call turns are combined into that result:
+After each complete agent run, attached-to-border mode retains the transient telemetry notification without adding blank rows. Detached mode combines telemetry with `done` and the run duration in the same Workline row, with no separate notification; the result remains until the next run or session reset. Both modes respect telemetry settings; the detached row truncates to the available width. Tool-call turns are combined into that result:
 
 ```text
 > TPS 42.5 tok/s | ~ TTFT 1.2s | + 29.7s | ↑ 567 | ↓ 1.2k | ! stall 1x / 4.3s | $ $3.60/M
