@@ -46,6 +46,7 @@ for (const [task, signal, status, error] of [
 		const tool = registeredTool();
 		const result = await tool.execute("test", { task }, signal, undefined, {
 			...configurationContext,
+			cwd: process.cwd(),
 		} as ExtensionToolContext);
 		expect(result.details).toMatchObject({ status, error });
 		expect(result.isError).toBe(true);

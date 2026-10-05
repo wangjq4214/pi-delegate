@@ -3,6 +3,7 @@
 **Status:** Superseded
 **Date:** 2026-07-17
 **Superseded by:** [0002-session-owned-background-delegation](./0002-session-owned-background-delegation.md)
+**Superseded by (working-directory clause only):** [0008-generic-per-delegation-working-directory](./0008-generic-per-delegation-working-directory.md)
 
 Supersession scope (2026-10-03): ADR 0002 replaces the exclusively synchronous lifecycle with synchronous delegation plus opt-in, session-owned background execution. The RPC, parent-only registration, tool-reinitialization, fresh-session, and explicit task/context decisions below remain in force. This record previously reached Completed status; the new background mode is Proposed, not implemented.
 

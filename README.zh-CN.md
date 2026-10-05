@@ -47,7 +47,7 @@ Pi 直接加载 TypeScript 源码，无需构建。
 pi install /absolute/path/to/pi-delegate
 ```
 
-`package.json` 声明了扩展入口。请先使用 Bun 安装本地依赖。该 package 当前标记为 `private`，尚未发布到 npm。
+`package.json` 声明了扩展入口和随包提供的 `delegate-worktree` skill。请先使用 Bun 安装本地依赖。该 package 当前标记为 `private`，尚未发布到 npm。
 
 ## 使用
 
@@ -82,7 +82,7 @@ pi install /absolute/path/to/pi-delegate
 ## 限制
 
 - 后台执行需要长期运行的 TUI 或 RPC 会话。退出、重载、替换会话或分支导航后，任务不会继续运行。
-- 主／子 agent 共享工作目录；扩展不提供工作区隔离或操作系统沙箱。
+- 主／子 agent 默认共享工作目录；可通过 `cwd` 选择其他已有目录。随包提供的 `delegate-worktree` skill 指导主 agent 管理 Git 工作区；扩展本身不管理 worktree、不强制文件系统隔离，也不提供操作系统沙箱。
 - 不会自动复制主 agent 的完整对话，请明确提供相关背景。
 - 软催促只是建议，不是强制超时。后台 usage 与 Pi 主会话总量分开报告。
 - Steering 回执只确认 RPC 处理结果，不确认模型消费或任务完成；初始化期间返回 `not_ready`，超时结果不确定，不应自动重试。

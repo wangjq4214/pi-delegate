@@ -42,8 +42,8 @@ The child follows normal initialization rather than executing tools through pare
 
 Inheritance includes:
 
-- The parent's working directory and environment.
-- Project-trust state, current model, and thinking level.
+- The parent's environment and, by default, working directory; optional `cwd` selects another existing directory.
+- Current model and thinking level. Same-directory execution retains parent project trust; a different directory follows native target trust, replaying explicit CLI trust overrides rather than transferring the parent's directory-specific decision.
 - Extensions loaded through conventional configuration discovery, explicit extension paths, and observable tool/command source paths.
 - Available extension CLI flags that can be replayed.
 - The full inherited tool set, followed by restoration of the parent's active subset.
@@ -127,7 +127,9 @@ Refusing an individual request does not automatically cancel the whole task. Whe
 
 ## Workspace and security boundaries
 
-Parent and child agents access the same workspace. There is no worktree isolation, file locking, or operating-system sandbox provided by this extension.
+Parent and child agents share a startup workspace by default. Optional `cwd` selects a separate existing directory without enforcing an access boundary. There is no automatic worktree isolation, conflict warning, file locking, permission policy or operating-system sandbox provided by this extension.
+
+The bundled `delegate-worktree` skill guides the parent in preparing worktrees from explicit commits without automatically stashing, committing or copying dirty main-workspace state. The parent reviews actual child artifacts, integrates and validates changes before cleanup. Failed or unmerged workspaces are retained. Runtime cleanup removes only owned process/initialization resources, never the selected workspace; background task IDs still expire with their existing ownership scope.
 
 Coordinate modification scopes when multiple agents can write files. A prompt such as "analyze only" is an instruction, not an enforced filesystem permission.
 

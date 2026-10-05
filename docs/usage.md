@@ -25,11 +25,30 @@ Children do not register any of these tools. Apart from an internal child-initia
 | --- | --- | --- |
 | `task` | Yes | Task text. Empty or whitespace-only text is rejected. |
 | `context` | No | Supplementary context. The parent's complete conversation is not copied. |
+| `cwd` | No | Existing child startup directory; relative to the parent's invocation cwd. Omitted uses parent cwd. |
 | `title` | No | Short TUI display title. Defaults to the shortened first line of `task`. |
 | `background` | No | Set to `true` to return a background task ID instead of waiting. Defaults to synchronous execution. |
 | `model` | No | Exact configured `{ "provider": "...", "id": "..." }` identity; omitted inherits the current parent model. |
 | `thinkingLevel` | No | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`; omitted independently inherits the current parent level. |
 | `pressure` | No | Per-task warning and urgent finish-reminder thresholds. Omitted fields use defaults. |
+
+### Per-task working directory and worktrees
+
+```json
+{
+  "task": "Implement and test the requested change; return a reviewable commit or patch",
+  "cwd": "../task workspace",
+  "context": "Baseline commit and acceptance criteria go here"
+}
+```
+
+Both modes resolve cwd to an absolute path at submission, before queueing. Explicit non-string values (including `null`), blank paths, missing paths, non-directory paths or inaccessible paths fail explicitly; the plugin never creates a target or falls back to the parent directory. Startup rechecks the selected path if it became unusable while queued. Directory selection does not change the parent's cwd or restrict filesystem access.
+
+After observed child spawn, synchronous results expose `details.cwd`; background terminal query/completion results expose `details.result.cwd`. These are absolute startup paths, retained on later failure/cancellation, not a claim that initialization succeeded or the task completed. Queued cancellation and pre-spawn failure have no effective cwd metadata.
+
+The selected directory drives normal Pi project/context discovery. Inherited resource paths retain their parent/startup meaning. A different directory uses native target project trust (with explicit parent CLI `--approve`/`--no-approve` overrides replayed); the parent's directory-specific trust decision is not transferred. Incompatible tool reconstruction fails before task execution. See [runtime inheritance](runtime.md#tool-and-configuration-inheritance).
+
+Loading the package through normal Pi package discovery also provides the `delegate-worktree` skill; no separate skill installation is needed. Load `/skill:delegate-worktree` for independent Git workspaces, a definite commit baseline, reviewable child artifacts and parent-owned integration/validation before cleanup. Loading only the extension file does not load package skills. Failed or unmerged workspaces remain inspectable; the plugin never manages Git worktrees or merges.
 
 ### Per-task model and thinking selection
 

@@ -121,6 +121,7 @@ export function captureInheritance(
 	>,
 	entryPath: string,
 	argv: string[] = process.argv.slice(2),
+	childCwd: string = ctx.cwd,
 ): {
 	args: string[];
 	snapshot: InheritanceSnapshot;
@@ -178,10 +179,14 @@ export function captureInheritance(
 	}
 	paths.add(entryPath);
 
-	const args = [
-		"--no-session",
-		ctx.isProjectTrusted() ? "--approve" : "--no-approve",
-	];
+	const args = ["--no-session"];
+	// A parent-directory trust decision does not authorize a different project.
+	// Explicit CLI overrides still have their native per-run meaning.
+	const trust =
+		resolve(childCwd) === resolve(ctx.cwd)
+			? ctx.isProjectTrusted()
+			: parsed.projectTrustOverride;
+	if (trust !== undefined) args.push(trust ? "--approve" : "--no-approve");
 	if (parsed.noExtensions) args.push("--no-extensions");
 	for (const path of paths) args.push("--extension", path);
 	// Names here are a registration allowlist, not just the active subset. Child initialization

@@ -47,7 +47,7 @@ With Pi CLI installed:
 pi install /absolute/path/to/pi-delegate
 ```
 
-The package declares its extension entry point in `package.json`. Install its dependencies with Bun first. It is currently marked `private` and is not published to npm.
+The package declares its extension entry point and bundled `delegate-worktree` skill in `package.json`. Install its dependencies with Bun first. It is currently marked `private` and is not published to npm.
 
 ## Usage
 
@@ -82,7 +82,7 @@ See the [usage guide](docs/usage.md) for parameters, result states, pressure set
 ## Limitations
 
 - Background execution requires a long-lived TUI or RPC session. Tasks do not survive exit, reload, session replacement, or branch navigation.
-- Parent and child agents share the working directory; the extension does not provide workspace isolation or an operating-system sandbox.
+- Parent and child agents share the working directory by default; optional `cwd` selects another existing directory. The bundled `delegate-worktree` skill guides parent-managed Git workspaces; the extension does not manage worktrees, enforce filesystem isolation, or provide an operating-system sandbox.
 - The parent's full conversation is not copied automatically. Supply relevant context explicitly.
 - Soft pressure is advisory, not a hard timeout. Background usage is reported separately from Pi's parent-session totals.
 - Steering returns RPC handling receipts, not model-consumption or completion confirmation; initialization returns `not_ready`, and a timeout is uncertain, not a reason to retry automatically.

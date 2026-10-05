@@ -10,6 +10,8 @@ The user requested a background agent mode that does not block the main agent an
 
 ADR 0001 established fresh RPC children, parent-only delegation, tool reinitialization, and an exclusively synchronous lifecycle. This decision supersedes that exclusivity and extends the lifecycle; its RPC, registration, inheritance, fresh-session, and explicit task/context decisions remain unchanged. Existing synchronous calls keep their behavior.
 
+Later amendment (2026-10-04): [ADR 0008](./0008-generic-per-delegation-working-directory.md) replaces the mandatory same-working-directory clause retained from ADR 0001 with an optional generic per-task `cwd`, retaining the parent's directory by default. This does not supersede the lifecycle decisions in this record.
+
 Sources:
 
 - User request and subsequent confirmation of the recommended defaults in the refinement conversation.

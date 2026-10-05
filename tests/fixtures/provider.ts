@@ -267,6 +267,10 @@ export default function fixture(pi: ExtensionAPI): void {
 							? process.env.FIXTURE_FINAL_TEXT
 							: JSON.stringify({
 									pid: process.pid,
+									cwd: process.cwd(),
+									systemPrompt: context.messages.filter(
+										(item) => item.role === "system",
+									),
 									startupConfiguration,
 									calls,
 									prefix: pi.getFlag("fixture-prefix"),

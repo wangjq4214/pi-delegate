@@ -732,3 +732,224 @@ test("real concurrent child startup and UI retain snapshots across parent change
 		}
 	});
 }, 30000);
+
+test("real Pi RPC: separate non-Git cwd discovers target context and executes inherited read locally", async () => {
+	await withParent(async (_parent, state, args, env, logs) => {
+		const target = join(state.cwd, "target workspace");
+		await mkdir(target);
+		await writeFile(join(target, "workspace-proof.txt"), "target-only proof");
+		await writeFile(join(target, "AGENTS.md"), "TARGET_CONTEXT_0008");
+		await writeFile(join(state.cwd, "AGENTS.md"), "PARENT_CONTEXT_0008");
+		const children = await Promise.all(
+			[state.cwd, target].map((cwd) =>
+				runDelegation({
+					...captureInheritance(
+						{
+							getAllTools: () => state.tools,
+							getActiveTools: () => state.active,
+							getCommands: () => state.commands,
+						},
+						{ ...state, isProjectTrusted: () => state.trusted },
+						entry,
+						args,
+						cwd,
+					),
+					cwd,
+					env,
+					task: "exercise-read",
+				}),
+			),
+		);
+		for (const [index, child] of children.entries()) {
+			expect(child.details.status).toBe("completed");
+			expect(child.details.cwd).toBe(index === 0 ? state.cwd : target);
+			const report = JSON.parse(child.content[0].text);
+			expect(report.cwd).toBe(child.details.cwd);
+			expect(JSON.stringify(report.lastResult)).toContain(
+				index === 0 ? "workspace proof" : "target-only proof",
+			);
+			expect(JSON.stringify(report.systemPrompt)).toContain(
+				index === 0 ? "PARENT_CONTEXT_0008" : "TARGET_CONTEXT_0008",
+			);
+			expect(report.tools).not.toContain("delegate");
+		}
+		expect(existsSync(join(target, ".git"))).toBe(false);
+		expect(existsSync(target)).toBe(true);
+		verifyCleanup(logs);
+	});
+}, 30_000);
+
+for (const trust of ["native", "approve", "no-approve"] as const) {
+	test(`real Pi RPC: target project loading follows ${trust} trust without rebasing inherited sources`, async () => {
+		await withParent(async (_parent, state, args, env, logs) => {
+			const target = join(state.cwd, `trust ${trust}`);
+			const project = join(target, ".pi");
+			await mkdir(join(project, "extensions"), { recursive: true });
+			const marker = join(logs, `target-${trust}.loaded`);
+			await writeFile(
+				join(project, "extensions", "context.ts"),
+				`import {writeFileSync} from 'node:fs'; export default function(pi) { pi.on('session_start', () => writeFileSync(${JSON.stringify(marker)}, 'target')); }`,
+			);
+			const startup = args.filter(
+				(arg) => arg !== "--no-approve" && arg !== "--no-extensions",
+			);
+			if (trust !== "native") startup.push(`--${trust}`);
+			const selection = captureInheritance(
+				{
+					getAllTools: () => state.tools,
+					getActiveTools: () => state.active,
+					getCommands: () => state.commands,
+				},
+				{ ...state, isProjectTrusted: () => true },
+				entry,
+				startup,
+				target,
+			);
+			const child = await runDelegation({
+				...selection,
+				cwd: target,
+				env,
+				task: "trust-probe",
+			});
+			expect(child.details.status).toBe("completed");
+			expect(child.details.cwd).toBe(target);
+			expect(existsSync(marker)).toBe(trust === "approve");
+			expect(JSON.parse(child.content[0].text).prefix).toBe("configured");
+			verifyCleanup(logs);
+		});
+	}, 30_000);
+}
+
+for (const background of [false, true]) {
+	test(`real parent public delegate cwd: ${background ? "background completion" : "sync result"} reads selected workspace`, async () => {
+		await withParent(async (parent, state, _args, _env, logs) => {
+			const target = join(state.cwd, "public target");
+			await mkdir(target);
+			await writeFile(
+				join(target, "workspace-proof.txt"),
+				"public-target-proof",
+			);
+			const settled = parent.waitForSettled();
+			try {
+				await parent.request("prompt", {
+					message: `CONFIG ${JSON.stringify({ task: "exercise-read", cwd: "public target", background })}`,
+				});
+				await settled.promise;
+			} finally {
+				settled.dispose();
+			}
+			let outcome: unknown;
+			for (let i = 0; i < 500 && !outcome; i++) {
+				const { messages } = await parent.request<{
+					messages: AgentSession["messages"];
+				}>("get_messages");
+				if (background) {
+					const completion = messages.find(
+						(item) =>
+							item.role === "custom" &&
+							item.customType === "pi-delegate:completed",
+					);
+					if (completion?.role === "custom") outcome = completion.details;
+				} else {
+					const result = messages.find(
+						(item) =>
+							item.role === "toolResult" && item.toolName === "delegate",
+					);
+					if (result?.role === "toolResult") {
+						outcome = result.details;
+						expect(JSON.stringify(result.content)).toContain(
+							"public-target-proof",
+						);
+					}
+				}
+				if (!outcome) await Bun.sleep(10);
+			}
+			expect(outcome).toMatchObject(
+				background
+					? { status: "completed", result: { cwd: target } }
+					: { status: "completed", cwd: target },
+			);
+			verifyCleanup(logs);
+		});
+	}, 30_000);
+}
+
+test("real incompatible target registration fails before the original task", async () => {
+	await withParent(async (_parent, state, args, env, logs) => {
+		const target = join(state.cwd, "incompatible target");
+		const project = join(target, ".pi", "extensions");
+		await mkdir(project, { recursive: true });
+		await writeFile(
+			join(project, "mismatch.ts"),
+			`import {Type} from '@earendil-works/pi-ai'; export default function(pi) { pi.registerTool({name:'fixture_echo', label:'Mismatch', description:'Mismatch', exposure:'deferred', parameters:Type.Object({value:Type.Number()}), async execute() { throw new Error('must not run'); }}); }`,
+		);
+		const startup = args.filter(
+			(arg) => arg !== "--no-approve" && arg !== "--no-extensions",
+		);
+		startup.push("--approve");
+		const selection = captureInheritance(
+			{
+				getAllTools: () => state.tools,
+				getActiveTools: () => state.active,
+				getCommands: () => state.commands,
+			},
+			{ ...state, isProjectTrusted: () => state.trusted },
+			entry,
+			startup,
+			target,
+		);
+		const child = await runDelegation({
+			...selection,
+			cwd: target,
+			env,
+			task: "must-not-start",
+		});
+		expect(child.details.status).toBe("failed");
+		expect(child.details.error).toContain("Pi RPC child exited: code=1");
+		expect(child.details.cwd).toBe(target);
+		for (const file of readdirSync(logs).filter((name) =>
+			name.endsWith(".json"),
+		)) {
+			const log = JSON.parse(readFileSync(join(logs, file), "utf8"));
+			if (log.child)
+				expect(existsSync(join(logs, `${log.pid}.onset`))).toBe(false);
+		}
+		verifyCleanup(logs);
+	});
+}, 30_000);
+
+for (const background of [false, true]) {
+	test(`real Pi public ${background ? "background" : "sync"} rejects cwd null without launching a fallback child`, async () => {
+		await withParent(async (parent, _state, _args, _env, logs) => {
+			const settled = parent.waitForSettled();
+			try {
+				await parent.request("prompt", {
+					message: `CONFIG ${JSON.stringify({ task: "exercise-read", cwd: null, background })}`,
+				});
+				await settled.promise;
+			} finally {
+				settled.dispose();
+			}
+			const { messages } = await parent.request<{
+				messages: AgentSession["messages"];
+			}>("get_messages");
+			const result = messages.find(
+				(item) => item.role === "toolResult" && item.toolName === "delegate",
+			);
+			if (result?.role !== "toolResult")
+				throw new Error("Missing delegate result");
+			expect(result.isError).toBe(true);
+			expect(result.details).toMatchObject({
+				status: "failed",
+				error: "Delegation cwd must be a non-blank directory path",
+			});
+			expect(result.details).not.toHaveProperty("cwd");
+			expect(result.details).not.toHaveProperty("taskId");
+			const children = readdirSync(logs)
+				.filter((file) => file.endsWith(".json"))
+				.map((file) => JSON.parse(readFileSync(join(logs, file), "utf8")))
+				.filter((log) => log.child);
+			expect(children).toEqual([]);
+		});
+	}, 30_000);
+}

@@ -29,6 +29,7 @@ import {
 	thinkingParameter,
 	validateSelection,
 } from "./configuration.ts";
+import { selectCwd, validateCwd, validateCwdInput } from "./cwd.ts";
 import {
 	CHILD_ENV,
 	captureInheritance,
@@ -96,6 +97,8 @@ export interface DelegationDetails
 	sessionId?: string;
 	error?: string;
 	configuration?: ConfigurationDetails;
+	/** Absolute startup directory, present only after the child has spawned. */
+	cwd?: string;
 }
 
 export interface DelegationResult {
@@ -157,6 +160,7 @@ export async function runDelegation(
 		let result: DelegationResult;
 		try {
 			options.signal?.throwIfAborted();
+			validateCwd(options.cwd);
 			const policy = resolvePressure(options.pressure);
 			directory = await mkdtemp(join(tmpdir(), "pi-delegate-"));
 			const snapshotPath = join(directory, "inheritance.json");
@@ -164,6 +168,8 @@ export async function runDelegation(
 				mode: 0o600,
 			});
 			options.signal?.throwIfAborted();
+			// Snapshot creation awaits filesystem work; recheck immediately before spawn.
+			validateCwd(options.cwd);
 			rpc = new RpcProcess(
 				process.versions.bun ? "node" : process.execPath,
 				[options.cliPath ?? resolveCli(), "--mode", "rpc", ...options.args],
@@ -179,6 +185,9 @@ export async function runDelegation(
 				options.signal,
 				options.ui,
 			);
+			rpc.child.once("spawn", () => {
+				details.cwd = options.cwd;
+			});
 			await rpc.request("prompt", { message: `/${INIT_COMMAND}` });
 			const { entries } = await rpc.request<{ entries: SessionEntry[] }>(
 				"get_entries",
@@ -505,6 +514,12 @@ export function registerDelegate(
 					"Relevant background, decisions, or file paths. The parent conversation is not copied.",
 			}),
 		),
+		cwd: Type.Optional(
+			Type.String({
+				description:
+					"Existing child startup directory. Relative paths resolve against the parent cwd at submission; omitted uses parent cwd. Not a sandbox.",
+			}),
+		),
 		background: Type.Optional(
 			Type.Boolean({
 				description:
@@ -520,7 +535,7 @@ export function registerDelegate(
 			name: DELEGATE_TOOL,
 			label: "Delegate",
 			description:
-				"Run a self-contained task in a fresh subagent with inherited tools except delegation. The parent conversation is not copied; supply necessary context. The subagent shares the working directory, so coordinate file edits. By default, wait for the result. With background:true, return a taskId and deliver completion automatically; use delegate_status, delegate_steer, or delegate_cancel to manage the task. Large results include a full-output file path.",
+				"Run a self-contained task in a fresh subagent with inherited tools except delegation. The parent conversation is not copied; supply necessary context. By default the subagent shares the parent working directory; optional cwd selects another existing directory, not a sandbox. Coordinate file edits. By default, wait for the result. With background:true, return a taskId and deliver completion automatically; use delegate_status, delegate_steer, or delegate_cancel to manage the task. Large results include a full-output file path.",
 			parameters,
 			prepareArguments(args) {
 				if (args === null || typeof args !== "object" || Array.isArray(args))
@@ -530,6 +545,14 @@ export function registerDelegate(
 				// Never trust an internal diagnostic supplied by a caller.
 				delete prepared.__piDelegatePressureError;
 				delete prepared.__piDelegateSelectionError;
+				delete prepared.__piDelegateCwdError;
+				try {
+					validateCwdInput(prepared.cwd);
+				} catch (error) {
+					delete prepared.cwd;
+					prepared.__piDelegateCwdError =
+						error instanceof Error ? error.message : String(error);
+				}
 				try {
 					validateSelection(prepared.model, prepared.thinkingLevel);
 				} catch (error) {
@@ -556,6 +579,12 @@ export function registerDelegate(
 					: controller.signal;
 				try {
 					combined.throwIfAborted();
+					const cwdError = (
+						params as Static<typeof parameters> & {
+							__piDelegateCwdError?: string;
+						}
+					).__piDelegateCwdError;
+					if (cwdError !== undefined) throw new Error(cwdError);
 					const selectionError = (
 						params as Static<typeof parameters> & {
 							__piDelegateSelectionError?: string;
@@ -580,11 +609,18 @@ export function registerDelegate(
 						params.model,
 						params.thinkingLevel,
 					);
-					const inherited = captureInheritance(pi, ctx, entryPath);
+					const cwd = selectCwd(ctx.cwd, params.cwd);
+					const inherited = captureInheritance(
+						pi,
+						ctx,
+						entryPath,
+						process.argv.slice(2),
+						cwd,
+					);
 					const options: DelegationOptions = {
 						...inherited,
 						requestedConfiguration,
-						cwd: ctx.cwd,
+						cwd,
 						task: params.task,
 						context: params.context,
 						pressure: policy,
