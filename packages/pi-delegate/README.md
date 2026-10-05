@@ -118,4 +118,4 @@ See the [development guide](docs/development.md) before making changes. Run the 
 
 ## License
 
-This repository does not currently include a license file. Licensing terms have not been specified.
+[MIT](../../LICENSE). See the workspace root for the full license text.

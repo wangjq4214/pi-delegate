@@ -1,0 +1,84 @@
+name: Bug report
+description: Report a reproducible problem with a package or the workspace.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: checkboxes
+    id: existing-issues
+    attributes:
+      label: Existing issues
+      options:
+        - label: I have searched the existing issues for this problem.
+          required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Affected area
+      options:
+        - pi-delegate
+        - pi-open-tui
+        - Workspace / tooling
+        - Multiple packages / unsure
+    validations:
+      required: true
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and its impact.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the exact install or launch command and a minimal example.
+      placeholder: |
+        1. Install or load the affected package with ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Package version or Git commit
+      description: Identify the affected package version, or the commit for a local checkout.
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Runtime versions
+      description: Include Pi, Node.js, and Bun versions where applicable. Use N/A for runtimes not involved.
+      placeholder: "Pi 1.0.0, Node.js 22.19.0, Bun 1.4.1"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include your OS, terminal, and shell.
+      placeholder: "Windows 11, Windows Terminal, PowerShell 7"
+    validations:
+      required: true
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Relevant configuration
+      description: Include relevant settings, enabled extensions, or delegation parameters. Remove API keys, tokens, private prompts, and other sensitive values.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste logs or attach screenshots. Remove sensitive values first.
+    validations:
+      required: false

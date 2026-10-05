@@ -1,6 +1,7 @@
 {
 	"name": "@wangjq4214/pi-delegate",
 	"version": "0.1.0",
+	"license": "MIT",
 	"files": [
 		"dist",
 		"skills",
@@ -35,6 +36,9 @@
 	},
 	"scripts": {
 		"build": "rolldown -c",
+		"build:watch": "rolldown -c --watch",
+		"dev": "pi -e ./src/index.ts",
+		"start": "pi -e ./dist/index.js",
 		"prepack": "bun run build",
 		"check": "biome check --error-on-warnings .",
 		"check:fix": "biome check --write --error-on-warnings",

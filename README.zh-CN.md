@@ -7,13 +7,13 @@
 | 包 | 用途 | 状态 |
 | --- | --- | --- |
 | [`@wangjq4214/pi-delegate`](packages/pi-delegate/README.zh-CN.md) | 通过 RPC 委派子代理的 Pi 扩展 | 保留现有扩展、npm 包名和行为 |
-| [`@wangjq4214/pi-open-tui`](packages/pi-open-tui/README.md) | 重写 Pi 终端 UI 的独立应用 | 目前仅有应用骨架，private，尚不发布 |
+| [`@wangjq4214/pi-open-tui`](packages/pi-open-tui/README.zh-CN.md) | 从 OldSuns/pi-open-tui 导入的可配置 Pi 终端 UI 扩展 | 上游 v0.3.11，private，尚不发布 |
 
 `pi-open-tui` 不是 delegate UI 的抽取。两个包互不依赖，本次不引入共享运行时包或 Turbo/Nx。
 
 ## 开发
 
-使用 Git、Bun 1.4.1 或更高版本；delegate 的 Pi 宿主/子进程及构建后的应用需要 Node.js 22.19 或更高版本。
+使用 Git、Bun 1.4.1 或更高版本；Pi 宿主、delegate 子进程和 UI 扩展的上游测试需要 Node.js 22.19 或更高版本。
 
 在仓库根目录执行：
 
@@ -37,7 +37,7 @@ bun run --filter @wangjq4214/pi-open-tui build
 bun run --filter @wangjq4214/pi-open-tui start
 ```
 
-UI 命令目前只输出骨架提示并退出，不会启动交互式 Pi 会话。
+两个包都使用 Rolldown 生成 `dist/index.js`、source map 和根目录许可证的副本 `dist/LICENSE`。`dev` 加载 TypeScript 源码；`start` 加载构建产物，运行前需要先构建。修改源码或 `build:watch` 完成重新构建后，在 Pi 中执行 `/reload`。这些脚本在包目录启动 Pi。
 
 ### 加载或安装 delegate
 
@@ -56,7 +56,7 @@ pi install npm:@wangjq4214/pi-delegate
 ```text
 packages/
   pi-delegate/       扩展源码、测试、skills、文档和构建配置
-  pi-open-tui/       独立应用入口、测试和构建配置
+  pi-open-tui/       导入的 UI 扩展、测试和文档
 tests/               仓库级 Git-hook 和 workspace 测试
 .grimoire/           项目需求和架构记录
 package.json         Private workspace 根配置和共享开发工具
@@ -71,4 +71,4 @@ bun.lock             统一的 workspace 锁文件
 
 ## 许可证
 
-仓库目前没有许可证文件，尚未指定许可条款。
+本仓库采用 [MIT 许可证](LICENSE)。根目录许可证覆盖整个仓库，并保留上游 pi-open-tui 的版权声明。

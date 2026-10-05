@@ -23,5 +23,16 @@
 				"organizeImports": "on"
 			}
 		}
-	}
+	},
+	"overrides": [
+		{
+			"includes": [
+				"packages/pi-open-tui/src/**",
+				"packages/pi-open-tui/tests/**"
+			],
+			"formatter": { "enabled": false },
+			"linter": { "enabled": false },
+			"assist": { "enabled": false }
+		}
+	]
 }

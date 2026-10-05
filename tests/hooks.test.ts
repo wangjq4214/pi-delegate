@@ -19,6 +19,7 @@ function withRepository(check: (cwd: string) => void) {
 	try {
 		for (const file of [
 			"package.json",
+			"LICENSE",
 			"tsconfig.json",
 			"tsconfig.base.json",
 			"biome.json",
@@ -88,7 +89,7 @@ function commit(cwd: string, file: string, source: string) {
 
 test("pre-commit formats and safely fixes nested paths with spaces, then stages the result", () => {
 	withRepository((cwd) => {
-		const file = "packages/pi-open-tui/src/a fixture.ts";
+		const file = "packages/pi-delegate/src/a fixture.ts";
 		const result = commit(
 			cwd,
 			file,
@@ -115,7 +116,7 @@ test("pre-commit blocks unfixable lint errors without applying unsafe fixes", ()
 
 test("pre-commit blocks type errors after applying formatting", () => {
 	withRepository((cwd) => {
-		const file = "packages/pi-open-tui/src/type.ts";
+		const file = "packages/pi-delegate/src/type.ts";
 		const result = commit(cwd, file, "export const value:string=42\n");
 		expect(result.code).not.toBe(0);
 		expect(result.output).toContain("TS2322");

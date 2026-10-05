@@ -118,4 +118,4 @@ pi install /absolute/path/to/checkout/packages/pi-delegate
 
 ## 许可证
 
-本仓库目前没有许可证文件，尚未指定许可条款。
+采用 [MIT 许可证](../../LICENSE)，完整许可文本位于 workspace 根目录。

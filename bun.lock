@@ -29,7 +29,23 @@
     },
     "packages/pi-open-tui": {
       "name": "@wangjq4214/pi-open-tui",
-      "version": "0.0.0",
+      "version": "0.3.11",
+      "devDependencies": {
+        "@earendil-works/pi-ai": "1.0.0",
+        "@earendil-works/pi-coding-agent": "1.0.0",
+        "@earendil-works/pi-tui": "1.0.0",
+        "@types/node": "26.6.4",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-ai": ">=1.0.0",
+        "@earendil-works/pi-coding-agent": ">=1.0.0",
+        "@earendil-works/pi-tui": ">=1.0.0",
+      },
+      "optionalPeers": [
+        "@earendil-works/pi-ai",
+        "@earendil-works/pi-coding-agent",
+        "@earendil-works/pi-tui",
+      ],
     },
   },
   "packages": {

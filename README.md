@@ -7,13 +7,13 @@ A Bun + TypeScript monorepo with two independent packages:
 | Package | Purpose | Status |
 | --- | --- | --- |
 | [`@wangjq4214/pi-delegate`](packages/pi-delegate/README.md) | Pi extension for RPC subagent delegation | Existing extension; npm name and behavior preserved |
-| [`@wangjq4214/pi-open-tui`](packages/pi-open-tui/README.md) | Standalone application to rewrite Pi’s terminal UI | Application scaffold only; private and not published |
+| [`@wangjq4214/pi-open-tui`](packages/pi-open-tui/README.md) | Configurable Pi terminal UI extension imported from OldSuns/pi-open-tui | Upstream v0.3.11; private and not published |
 
 `pi-open-tui` is not a delegate UI extraction. Neither package depends on the other. No shared runtime package or Turbo/Nx layer is introduced.
 
 ## Development
 
-Use Git, Bun 1.4.1 or later, and Node.js 22.19 or later for delegate’s Pi host/children and the built application.
+Use Git, Bun 1.4.1 or later, and Node.js 22.19 or later for the Pi host, delegate’s children, and the UI extension’s upstream tests.
 
 From the repository root:
 
@@ -37,7 +37,7 @@ bun run --filter @wangjq4214/pi-open-tui build
 bun run --filter @wangjq4214/pi-open-tui start
 ```
 
-The UI commands currently print a scaffold message and exit; they do not start an interactive Pi session.
+Both packages use Rolldown to emit `dist/index.js`, a source map, and a copy of the root license at `dist/LICENSE`. `dev` loads TypeScript source; `start` loads the bundle and requires a prior build. Use `/reload` in Pi after source changes, or after a `build:watch` rebuild. These scripts run Pi in the package directory.
 
 ### Load or install delegate
 
@@ -56,7 +56,7 @@ The root is private and is not a Pi package. Build/pack/publish delegate from `p
 ```text
 packages/
   pi-delegate/       Extension source, tests, skills, docs and build config
-  pi-open-tui/       Independent application entry, tests and build config
+  pi-open-tui/       Imported UI extension, tests and docs
 tests/               Repository-level Git-hook and workspace tests
 .grimoire/           Project requirements and architectural records
 package.json         Private workspace root and shared development tools
@@ -71,4 +71,4 @@ See the [delegate development guide](packages/pi-delegate/docs/development.md) f
 
 ## License
 
-This repository does not currently include a license file. Licensing terms have not been specified.
+[MIT](LICENSE). The root license covers this repository and retains the upstream pi-open-tui copyright notice.

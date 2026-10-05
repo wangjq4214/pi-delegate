@@ -1,0 +1,51 @@
+name: Feature request
+description: Suggest an improvement to a package or the workspace.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: checkboxes
+    id: existing-issues
+    attributes:
+      label: Existing issues
+      options:
+        - label: I have searched the existing issues for this request.
+          required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Affected area
+      options:
+        - pi-delegate
+        - pi-open-tui
+        - Workspace / tooling
+        - Multiple packages / unsure
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the user need or workflow that is currently difficult.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the desired behavior and how you would use it.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe existing workarounds or other solutions you considered.
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add examples or screenshots. Remove sensitive values first.
+    validations:
+      required: false

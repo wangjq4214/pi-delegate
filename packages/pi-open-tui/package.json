@@ -1,17 +1,68 @@
 {
 	"name": "@wangjq4214/pi-open-tui",
-	"version": "0.0.0",
 	"private": true,
-	"type": "module",
-	"description": "Independent application scaffold for a new Pi terminal UI.",
+	"packageManager": "bun@1.4.1",
 	"engines": {
 		"node": ">=22.19.0"
 	},
+	"version": "0.3.11",
+	"description": "A polished TUI for Pi coding agent: animated logo header, Starship-style footer, rounded editor with model metadata, and prompt-box user messages.",
+	"type": "module",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/wangjq4214/pi-delegate.git",
+		"directory": "packages/pi-open-tui"
+	},
+	"keywords": [
+		"pi-package",
+		"pi",
+		"pi-coding-agent",
+		"pi-extension",
+		"tui",
+		"starship",
+		"theme"
+	],
+	"license": "MIT",
+	"files": [
+		"dist",
+		"docs",
+		"README.md",
+		"README.zh-CN.md"
+	],
 	"scripts": {
 		"build": "rolldown -c",
-		"dev": "bun run src/cli.ts",
-		"start": "node dist/cli.js",
-		"typecheck": "tsc --noEmit",
-		"test": "bun test"
+		"build:watch": "rolldown -c --watch",
+		"prepack": "bun run build",
+		"dev": "pi -e ./src/index.ts",
+		"start": "pi -e ./dist/index.js",
+		"test": "node --test tests/settings-command.test.ts tests/footer.test.ts tests/editor.test.ts tests/telemetry.test.ts tests/peek.test.ts",
+		"typecheck": "tsc --noEmit"
+	},
+	"pi": {
+		"extensions": [
+			"./dist/index.js"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": ">=1.0.0",
+		"@earendil-works/pi-ai": ">=1.0.0",
+		"@earendil-works/pi-tui": ">=1.0.0"
+	},
+	"peerDependenciesMeta": {
+		"@earendil-works/pi-coding-agent": {
+			"optional": true
+		},
+		"@earendil-works/pi-ai": {
+			"optional": true
+		},
+		"@earendil-works/pi-tui": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "1.0.0",
+		"@earendil-works/pi-ai": "1.0.0",
+		"@earendil-works/pi-tui": "1.0.0",
+		"@types/node": "26.6.4"
 	}
 }

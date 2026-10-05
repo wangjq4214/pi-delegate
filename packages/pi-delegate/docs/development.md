@@ -36,6 +36,18 @@ The `pi.extensions` field in `packages/pi-delegate/package.json` declares `dist/
 
 Rolldown builds a single Node.js ESM entry with a source map. Node built-ins and Pi host modules remain external. The source entry remains available for direct development loading; delegation resolves the matching source or built entry for child processes. Pi host modules are peer dependencies and pinned as development dependencies for local types; they are not bundled.
 
+For the same source/bundle commands as the UI package:
+
+```sh
+bun run --filter @wangjq4214/pi-delegate dev
+bun run --filter @wangjq4214/pi-delegate build
+bun run --filter @wangjq4214/pi-delegate start
+# In another terminal, for bundle changes:
+bun run --filter @wangjq4214/pi-delegate build:watch
+```
+
+These scripts run Pi in the package directory. Reload source or rebuilt bundles with `/reload`; avoid loading an installed copy alongside the explicit source entry. The bundle includes `dist/LICENSE` copied from the workspace root. `prepack` builds before packing/publishing; inspect `npm pack --dry-run --workspace @wangjq4214/pi-delegate` from the root before a release. For Node inspector setup, see the [UI development guide](../../pi-open-tui/docs/development.md#bundle-debugging-and-packaging), substituting delegate’s package directory and source entry as needed.
+
 ## Development commands
 
 Run the following from the workspace root. For delegate-only checks, use `bun run --filter @wangjq4214/pi-delegate build`, `typecheck`, or `test`. Bare `bun test` is supported inside `packages/pi-delegate`, not at the workspace root, because fixtures use package-relative paths.
@@ -114,9 +126,10 @@ packages/pi-delegate/
   package.json                   Published Pi package manifest
   rolldown.config.mjs            Extension build configuration
   tsconfig.json                  Extends shared compiler options
-packages/pi-open-tui/             Independent application scaffold
-  src/cli.ts                     Placeholder application entry
-  tests/                         Application tests
+packages/pi-open-tui/             Independent imported Pi UI extension
+  src/                           Upstream source entry and modules
+  tests/                         Upstream Node test suite
+  rolldown.config.mjs            Extension bundle and license emission
 tests/                           Repository-level tests, including Git hooks
 .grimoire/                       Requirements and architecture records
 biome.json                       Shared Biome configuration
