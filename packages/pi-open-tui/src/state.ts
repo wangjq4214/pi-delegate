@@ -1,16 +1,15 @@
 import type { Usage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { RunState } from "./run-outcome.ts";
 import type { GitStatus } from "./git.ts";
 import { emptyGitStatus } from "./git.ts";
 import type { RuntimeInfo } from "./runtime.ts";
 import { finiteOrZero, formatProviderLabel } from "./utils.ts";
 
-export interface FooterState {
+export interface FooterState extends RunState {
 	git: GitStatus;
 	runtime: RuntimeInfo | null;
 	sessionStartEpoch: number;
-	workingSince: number | undefined;
-	lastDoneIn: number | undefined;
 }
 
 export interface UsageTotals {
@@ -81,7 +80,7 @@ export function createInitialState(): FooterState {
 		runtime: null,
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
-		lastDoneIn: undefined,
+		lastRun: undefined,
 	};
 }
 

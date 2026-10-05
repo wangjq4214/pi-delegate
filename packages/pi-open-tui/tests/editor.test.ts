@@ -5,6 +5,8 @@ import { TuiMainScreen, type EditorTheme, type Terminal, type TUI, visibleWidth 
 import { installEditor, OpenTuiEditor } from "../src/editor.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
 import { createWorklineRenderer } from "../src/workline.ts";
+import type { RunState } from "../src/run-outcome.ts";
+import { resolveGlyphs } from "../src/icons.ts";
 import { stripAnsi } from "../src/utils.ts";
 
 const tui = {
@@ -420,14 +422,14 @@ test("keeps a hardware cursor after Pi re-applies its runtime settings", () => {
 });
 
 const worklineTheme = {
-	fg: (color: string, text: string) => `\x1b[${color === "accent" ? 36 : color === "success" ? 32 : 90}m${text}\x1b[0m`,
+	fg: (color: string, text: string) => `\x1b[${color === "accent" ? 36 : color === "success" ? 32 : color === "warning" ? 33 : color === "error" ? 31 : 90}m${text}\x1b[0m`,
 } as Theme;
 
 function worklineFixture(inlineFooter = false, borderStyle: "minimal" | "surround" = "surround") {
 	const config = structuredClone(DEFAULT_CONFIG);
 	config.icons.mode = "ascii";
 	config.inlineFooter = inlineFooter;
-	const state: { workingSince: number | undefined; lastDoneIn: number | undefined } = { workingSince: undefined, lastDoneIn: undefined };
+	const state: RunState = { workingSince: undefined, lastRun: undefined };
 	let now = 2_000;
 	const renderer = createWorklineRenderer(() => state, () => config, () => worklineTheme, () => now);
 	const editor = new OpenTuiEditor(tui, editorTheme, { matches: () => false } as unknown as KeybindingsManager,
@@ -461,7 +463,7 @@ test("one Workline merges native work/time and persists done in both placements/
 			if (inline) assert.match(lines[attached ? 0 : 3]!, /main.*cwd/);
 		}
 		state.workingSince = undefined;
-		state.lastDoneIn = 2_000;
+		state.lastRun = { outcome: "completed", elapsedMs: 2_000 };
 		editor.setWorkingStatusIndicator(undefined);
 		const done = editor.render(100).map(stripAnsi);
 		assert.match(done[1]!, /done 2s/);
@@ -469,7 +471,7 @@ test("one Workline merges native work/time and persists done in both placements/
 		setNow(10_000);
 		assert.deepEqual(editor.render(100).map(stripAnsi), done);
 		state.workingSince = 10_000;
-		state.lastDoneIn = undefined;
+		state.lastRun = undefined;
 		assert.doesNotMatch(editor.render(100).join("\n"), /done/);
 		assert.match(stripAnsi(editor.render(100)[1]!), /working 0s/);
 		state.workingSince = undefined;
@@ -507,10 +509,10 @@ test("Workline keeps special native statuses and bounds ANSI/CJK at narrow width
 	assert.equal(renderer.render(80, retry), retry.renderInBorder());
 	assert.equal(renderer.render(2, retry, true), "R");
 	state.workingSince = undefined;
-	state.lastDoneIn = 2_000;
+	state.lastRun = { outcome: "completed", elapsedMs: 2_000 };
 	assert.equal(renderer.render(80, retry), retry.renderInBorder());
 	state.workingSince = 0;
-	state.lastDoneIn = undefined;
+	state.lastRun = undefined;
 	editor.setWorkingStatusIndicator({ kind: "working", renderInBorder: () => "o 工作 👩‍💻 é", renderSpinnerInBorder: () => "o" });
 	for (const attached of [true, false]) for (const marquee of [true, false]) {
 		config.workline = { attachToBorder: attached, marquee };
@@ -545,7 +547,7 @@ test("detached Workline compensates mouse rows and ignores its own row", () => {
 
 test("detached telemetry shares done row, obeys live config/theme and stays width bounded", () => {
 	const { config, state } = worklineFixture();
-	state.lastDoneIn = 2_000;
+	state.lastRun = { outcome: "completed", elapsedMs: 2_000 };
 	const telemetry = {
 		tps: 12.5, ttftMs: 100, totalMs: 2_000, inputTokens: 50, outputTokens: 25,
 		cacheReadTokens: 0, stallMs: 0, stallCount: 0, rateUsdPerMTokens: 4,
@@ -569,6 +571,46 @@ test("detached telemetry shares done row, obeys live config/theme and stays widt
 	state.workingSince = 2_000;
 	assert.doesNotMatch(stripAnsi(renderer.render(200)), /TPS|done/);
 	state.workingSince = undefined;
-	state.lastDoneIn = undefined;
+	state.lastRun = undefined;
 	assert.equal(renderer.render(200), "");
+});
+
+test("every terminal outcome has distinct glyph/text/color in every icon mode and layout", () => {
+	const outcomes = [
+		{ outcome: "completed", glyph: "done", label: "done", code: 32 },
+		{ outcome: "interrupted", glyph: "interrupted", label: "interrupted", code: 33 },
+		{ outcome: "failed", glyph: "failed", label: "failed", code: 31 },
+		{ outcome: "ended", glyph: "ended", label: "ended", code: 90 },
+	] as const;
+	for (const mode of ["nerd", "unicode", "ascii"] as const) {
+		const glyphs = resolveGlyphs(mode);
+		assert.equal(new Set(outcomes.map(({ glyph }) => glyphs[glyph])).size, 4);
+		for (const inline of [false, true]) for (const border of ["minimal", "surround"] as const) {
+			const { config, state, renderer, editor, setNow } = worklineFixture(inline, border);
+			config.icons.mode = mode;
+			const idle = editor.render(100).map(stripAnsi);
+			for (const attached of [true, false]) for (const { outcome, glyph, label, code } of outcomes) {
+				config.workline.attachToBorder = attached;
+				state.lastRun = { outcome, elapsedMs: 2_000 };
+				const expected = `${glyphs[glyph]} ${label} 2s`;
+				assert.equal(renderer.render(100), `\x1b[${code}m${expected}\x1b[0m`);
+				const lines = editor.render(100).map(stripAnsi);
+				assert.equal(lines.length, idle.length + (attached ? 0 : 3));
+				assert.ok(lines[attached ? 0 : 1]!.includes(expected));
+				assert.equal(lines.filter((line) => line.includes(expected)).length, 1);
+				assert.deepEqual(lines.slice(attached ? 1 : 3), idle.slice(attached ? 1 : 0));
+				setNow(10_000);
+				assert.deepEqual(editor.render(100).map(stripAnsi), lines);
+				for (const width of [0, 1, 2, 3, 4, 8, 10, 20, 40]) {
+					assert.ok(visibleWidth(renderer.render(width)) <= width);
+					for (const line of editor.render(width)) assert.ok(visibleWidth(line) <= Math.max(2, width));
+				}
+				for (const kind of ["retry", "compaction", "branch-summary"]) {
+					const native = { kind, renderInBorder: () => `\x1b[35m${kind}\x1b[0m`, renderSpinnerInBorder: () => "N" };
+					assert.equal(renderer.render(100, native), native.renderInBorder());
+					assert.equal(renderer.render(1, native, true), "N");
+				}
+			}
+		}
+	}
 });

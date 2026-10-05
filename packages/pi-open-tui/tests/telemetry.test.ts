@@ -86,6 +86,31 @@ function endTurn(tracker: TurnTelemetryTracker, message: AssistantMessage, turnI
 	});
 }
 
+test("session reset discards pending turns and completed-turn aggregates", () => {
+	let now = 0;
+	const tracker = new TurnTelemetryTracker(() => now);
+	tracker.handle({ type: "agent_start" });
+	const previous = makeMessage(100);
+	startTurn(tracker, previous);
+	now = 100;
+	endTurn(tracker, previous);
+	startTurn(tracker, previous, 1);
+	tracker.reset();
+	assert.equal(tracker.handle({ type: "agent_settled" }), undefined);
+	assert.equal(endTurn(tracker, previous, 1), undefined);
+
+	now = 1_000;
+	tracker.handle({ type: "agent_start" });
+	const current = makeMessage(20);
+	startTurn(tracker, current);
+	now = 1_100;
+	endTurn(tracker, current);
+	const telemetry = tracker.handle({ type: "agent_settled" });
+	assert.ok(telemetry);
+	assert.equal(telemetry.outputTokens, 20);
+	assert.equal(telemetry.totalMs, 100);
+});
+
 test("uses total output over full generation time", () => {
 	let now = 0;
 	const tracker = new TurnTelemetryTracker(() => now);
@@ -602,8 +627,11 @@ test("open-tui keeps a bounded peek scoped to the current assistant", async () =
 		await new Promise((resolve) => setTimeout(resolve, 350));
 
 		assert.ok(renderRequests > requestsBeforeTick, "working timer requests a render even without stream deltas");
-		await emit("agent_end", { type: "agent_end" });
-		assert.match(stripAnsi(mountedEditor.render(85)[0]!), /done/);
+		await emit("agent_end", { type: "agent_end", messages: [] });
+		assert.doesNotMatch(stripAnsi(mountedEditor.render(85)[0]!), /done|ended/);
+		assert.match(stripAnsi(mountedEditor.render(85)[0]!), /working/);
+		await emit("agent_settled", { type: "agent_settled" });
+		assert.match(stripAnsi(mountedEditor.render(85)[0]!), /ended/);
 		await emit("agent_start", { type: "agent_start" });
 		assert.doesNotMatch(stripAnsi(mountedEditor.render(85)[0]!), /done/);
 		assert.ok(
@@ -654,7 +682,7 @@ test("settled telemetry notifies attached, merges detached, and resets with task
 				setHiddenThinkingLabel() {},
 			},
 		} as unknown as ExtensionContext;
-		const emit = async (event: string, payload: unknown = { type: event }) => {
+		const emit = async (event: string, payload: unknown = { type: event, ...(event === "agent_end" ? { messages: [] } : {}) }) => {
 			for (const handler of handlers.get(event) ?? []) await handler(payload, ctx);
 		};
 		const previous = process.env.PI_CODING_AGENT_DIR;
@@ -681,8 +709,9 @@ test("settled telemetry notifies attached, merges detached, and resets with task
 				await emit("message_update", update(message));
 				await emit("message_end", { type: "message_end", message });
 				await emit("turn_end", { type: "turn_end", turnIndex: 0, message, toolResults: [] });
-				await emit("agent_end");
-				assert.doesNotMatch(mountedEditor!.render(200).join("\n"), /TPS/);
+				await emit("agent_end", { type: "agent_end", messages: [message] });
+				assert.doesNotMatch(mountedEditor!.render(200).join("\n"), /TPS|done/);
+				await emit("agent_before_settle", { type: "agent_before_settle", outcome: "completed" });
 				await emit("agent_settled");
 			};
 			await run();
@@ -708,6 +737,7 @@ test("settled telemetry notifies attached, merges detached, and resets with task
 			await emit("agent_start");
 			assert.doesNotMatch(mountedEditor.render(200).join("\n"), /TPS|done/);
 			await emit("agent_end");
+			await emit("agent_settled");
 			await run();
 			await emit("session_start");
 			assert.deepEqual(mountedEditor.render(200).map(stripAnsi), idle);

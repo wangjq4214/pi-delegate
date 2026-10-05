@@ -7,6 +7,9 @@ export interface IconGlyphs {
 	git: string;
 	working: string;
 	done: string;
+	interrupted: string;
+	failed: string;
+	ended: string;
 	context: string;
 	model: string;
 	thinking: string;
@@ -37,6 +40,9 @@ const NERD_GLYPHS: IconGlyphs = {
 	git: "",
 	working: "",
 	done: "",
+	interrupted: "",
+	failed: "",
+	ended: "",
 	context: "",
 	model: "",
 	thinking: "",
@@ -71,6 +77,9 @@ const ASCII_GLYPHS: IconGlyphs = {
 	git: "*",
 	working: "o",
 	done: "+",
+	interrupted: "!",
+	failed: "x",
+	ended: "-",
 	context: "#",
 	model: "M",
 	thinking: "~",
@@ -108,6 +117,9 @@ const UNICODE_GLYPHS: IconGlyphs = {
 	git: "🌿",
 	working: "◷",
 	done: "✓",
+	interrupted: "■",
+	failed: "✗",
+	ended: "•",
 	context: "≡",
 	model: "💻",
 	thinking: "💡",

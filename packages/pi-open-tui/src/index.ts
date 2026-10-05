@@ -8,6 +8,7 @@ import { readRuntimeInfo } from "./runtime.ts";
 import { SessionLifecycle } from "./session-lifecycle.ts";
 import { registerSettingsCommand } from "./settings-command.ts";
 import { formatTurnTelemetry, TurnTelemetryTracker, type TurnTelemetry } from "./telemetry.ts";
+import { RunOutcomeTracker } from "./run-outcome.ts";
 import {
 	createInitialState,
 	getModelMeta,
@@ -45,6 +46,7 @@ function isTuiContext(ctx: ExtensionContext): boolean {
 export default function (pi: ExtensionAPI) {
 	const sessionLifecycle = new SessionLifecycle();
 	const state: FooterState = createInitialState();
+	const runOutcome = new RunOutcomeTracker(state);
 	const turnTelemetry = new TurnTelemetryTracker();
 	let worklineTelemetry: TurnTelemetry | undefined;
 
@@ -235,8 +237,9 @@ export default function (pi: ExtensionAPI) {
 		sessionLifecycle.start();
 		lastCtx = ctx;
 		state.sessionStartEpoch = Date.now();
-		state.workingSince = undefined;
-		state.lastDoneIn = undefined;
+		stopWorkingTimer();
+		runOutcome.reset();
+		turnTelemetry.reset();
 		worklineTelemetry = undefined;
 		invalidateUsageCache();
 
@@ -252,6 +255,8 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async (_event, ctx) => {
 		sessionLifecycle.shutdown();
 		stopWorkingTimer();
+		runOutcome.reset();
+		turnTelemetry.reset();
 		worklineTelemetry = undefined;
 		if (active) {
 			uninstallUi(ctx);
@@ -259,30 +264,33 @@ export default function (pi: ExtensionAPI) {
 		lastCtx = undefined;
 	});
 
-	pi.on("agent_start", (event, _ctx) => {
-		turnTelemetry.handle(event);
+	pi.on("agent_start", (event, ctx) => {
 		if (!sessionLifecycle.isCurrent()) return;
+		const newRun = state.workingSince === undefined;
+		runOutcome.handle(event, ctx.signal);
+		turnTelemetry.handle(event);
 		// agent_start also covers custom-message and continuation-triggered tasks
 		// that do not emit a user message_start event.
 		peekTaskEpoch++;
-		state.workingSince = Date.now();
-		state.lastDoneIn = undefined;
-		worklineTelemetry = undefined;
+		if (newRun) worklineTelemetry = undefined;
 		startWorkingTimer();
 	});
 
-	pi.on("agent_end", (_event, _ctx) => {
+	pi.on("agent_end", (event, ctx) => {
 		if (!sessionLifecycle.isCurrent()) return;
-		stopWorkingTimer();
-		if (state.workingSince !== undefined) {
-			state.lastDoneIn = Date.now() - state.workingSince;
-			state.workingSince = undefined;
-		}
-		editor?.requestRender();
-		requestFooterRender?.();
+		runOutcome.handle(event, ctx.signal);
+		// A low-level loop can end before automatic recovery or continuation.
+		// Keep the timer running; only agent_settled publishes the final result.
 	});
 
-	pi.on("turn_start", (event) => {
+	pi.on("agent_before_settle", (event) => {
+		if (!sessionLifecycle.isCurrent()) return;
+		runOutcome.handle(event);
+	});
+
+	pi.on("turn_start", (event, ctx) => {
+		if (!sessionLifecycle.isCurrent()) return;
+		runOutcome.handle(event, ctx.signal);
 		turnTelemetry.handle(event);
 	});
 
@@ -326,11 +334,18 @@ export default function (pi: ExtensionAPI) {
 		turnTelemetry.handle(event);
 	});
 
-	pi.on("turn_end", (event) => {
+	pi.on("turn_end", (event, ctx) => {
+		if (!sessionLifecycle.isCurrent()) return;
+		runOutcome.handle(event, ctx.signal);
 		turnTelemetry.handle(event);
 	});
 
 	pi.on("agent_settled", (event, ctx) => {
+		if (!sessionLifecycle.isCurrent() || state.workingSince === undefined) return;
+		runOutcome.handle(event);
+		stopWorkingTimer();
+		editor?.requestRender();
+		requestFooterRender?.();
 		const telemetry = turnTelemetry.handle(event);
 		if (telemetry && config.enabled && config.telemetry.enabled && isTuiContext(ctx)) {
 			if (config.workline.attachToBorder) {
@@ -361,8 +376,9 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("message_end", (event, ctx) => {
-		turnTelemetry.handle(event);
 		if (!sessionLifecycle.isCurrent()) return;
+		runOutcome.handle(event, ctx.signal);
+		turnTelemetry.handle(event);
 		if (event.message?.role === "assistant" && peek.phase === "thinking") {
 			// Sub-message finished (answer text or a tool call): freeze the peek line.
 			peek.phase = "done";
@@ -384,6 +400,14 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_tree", (_event, ctx) => {
 		if (!sessionLifecycle.isCurrent()) return;
+		stopWorkingTimer();
+		runOutcome.reset();
+		turnTelemetry.reset();
+		worklineTelemetry = undefined;
+		peekTaskEpoch++;
+		resetPeek();
+		clearPeekLabel(ctx);
+		editor?.requestRender();
 		invalidateUsageCache();
 		refreshInteractiveState(ctx);
 	});

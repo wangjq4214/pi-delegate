@@ -4,11 +4,14 @@
 
 Unchecked items are unimplemented capability candidates, listed in suggested priority order. Behavior, defaults, and interfaces should be agreed before implementation. This list is not a release commitment. Tool-call and user-message improvements remain exploratory directions.
 
+## Completed
+
+- [x] **Trustworthy run outcomes:** distinguish completed, interrupted, failed, and neutral ended runs in the Workline with different leading icons, labels and colors in every icon mode.
+  - Publish at full-run `agent_settled`; preserve elapsed time through retries/compaction/continuations, native status priority, telemetry placement and attached/detached layouts. Reset evidence/results at run and session boundaries.
+  - Use structured public host evidence, not tool failures or status text. Unknown evidence and unresolved truncation stay neutral. Pi 1.0.0 has no authoritative final-outcome field; invisible post-loop before-settle cancellation remains an explicit limitation. See [Workline semantics](../README.md#configuration).
+
 ## TODO
 
-- [ ] **Trustworthy run outcomes:** distinguish completed, interrupted, and failed runs in the Workline instead of treating every stopped run as successful.
-  - Use reliable host lifecycle signals; show a neutral ended state when the outcome is unknown. A failed tool call does not necessarily mean the agent run failed.
-  - Preserve elapsed time, native retry/compaction semantics, and attached/detached layouts. Reset outcomes across run and session boundaries.
 - [ ] **Extension status folding and filtering:** bound the space occupied by extension statuses, with configurable visibility, ordering, and pinned entries.
   - Show an overflow indicator and provide an on-demand view of full statuses. Preserve extension-provided colors and support narrow terminals.
   - Operate on generic extension status keys without depending on pi-delegate or interpreting arbitrary status text as structured task state.

@@ -17,7 +17,7 @@ function sweep(text: string, theme: Theme, now: number): string {
 }
 
 export function createWorklineRenderer(
-	getState: () => Pick<FooterState, "workingSince" | "lastDoneIn">,
+	getState: () => Pick<FooterState, "workingSince" | "lastRun">,
 	getConfig: () => OpenTuiConfig,
 	getTheme: () => Theme,
 	now: () => number = Date.now,
@@ -44,11 +44,19 @@ export function createWorklineRenderer(
 			if (config.workline.marquee && !compact) label = sweep(label, theme, timestamp);
 			return truncateToWidth(label ? `${label} ${duration}` : duration, width, "");
 		}
-		if (state.lastDoneIn !== undefined) {
-			const done = theme.fg("success", `${glyphs.done} done ${formatDuration(state.lastDoneIn)}`);
+		if (state.lastRun !== undefined) {
+			const { outcome, elapsedMs } = state.lastRun;
+			const presentation = {
+				completed: { icon: glyphs.done, label: "done", color: "success" },
+				interrupted: { icon: glyphs.interrupted, label: "interrupted", color: "warning" },
+				failed: { icon: glyphs.failed, label: "failed", color: "error" },
+				ended: { icon: glyphs.ended, label: "ended", color: "muted" },
+			} as const;
+			const { icon, label, color } = presentation[outcome];
+			const resultLabel = theme.fg(color, `${icon} ${label} ${formatDuration(elapsedMs)}`);
 			const telemetry = !config.workline.attachToBorder && config.telemetry.enabled ? getTelemetry() : undefined;
 			const result = telemetry ? formatTurnTelemetry(telemetry, theme, config.telemetry, config.icons.mode) : "";
-			return truncateToWidth(result ? `${done} ${theme.fg("dim", "|")} ${result}` : done, width, "");
+			return truncateToWidth(result ? `${resultLabel} ${theme.fg("dim", "|")} ${result}` : resultLabel, width, "");
 		}
 		return truncateToWidth(native?.renderInBorder(width) ?? "", width, "");
 	};

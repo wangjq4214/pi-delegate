@@ -35,7 +35,7 @@
 		"prepack": "bun run build",
 		"dev": "pi -e ./src/index.ts",
 		"start": "pi -e ./dist/index.js",
-		"test": "node --test tests/settings-command.test.ts tests/footer.test.ts tests/editor.test.ts tests/telemetry.test.ts tests/peek.test.ts",
+		"test": "node --test tests/settings-command.test.ts tests/footer.test.ts tests/editor.test.ts tests/telemetry.test.ts tests/peek.test.ts tests/run-outcome.test.ts tests/run-outcome.integration.test.ts tests/run-outcome.host.test.ts",
 		"typecheck": "tsc --noEmit"
 	},
 	"pi": {

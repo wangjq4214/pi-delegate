@@ -164,7 +164,7 @@ test("narrow footer keeps the cwd basename and drops runtime first", () => {
 		runtime: { name: "nodejs", version: "24.6.0" },
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
-		lastDoneIn: undefined,
+		lastRun: undefined,
 	};
 	installFooter(
 		ctx,
@@ -213,7 +213,7 @@ test("narrow footer sheds the context bar before left segments", () => {
 		runtime: null,
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
-		lastDoneIn: undefined,
+		lastRun: undefined,
 	};
 	installFooter(
 		ctx,
@@ -272,7 +272,7 @@ test("provides inline footer content without duplicating native rows", () => {
 		runtime: null,
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
-		lastDoneIn: undefined,
+		lastRun: undefined,
 	};
 	const handle = installFooter(
 		ctx,
@@ -597,7 +597,7 @@ test("ASCII footer renders icons as semantic labels", () => {
 		runtime: { name: "nodejs", version: "24.6.0" },
 		sessionStartEpoch: Date.now(),
 		workingSince: Date.now() - 2_000,
-		lastDoneIn: undefined,
+		lastRun: undefined,
 	};
 
 	const handle = installFooter(
@@ -649,10 +649,10 @@ test("ASCII footer renders icons as semantic labels", () => {
 		};
 		assertNoTimer();
 		state.workingSince = undefined;
-		state.lastDoneIn = 2_000;
+		state.lastRun = { outcome: "completed", elapsedMs: 2_000 };
 		assertNoTimer();
 		state.workingSince = Date.now() - 2_000;
-		state.lastDoneIn = undefined;
+		state.lastRun = undefined;
 	}
 	config.inlineFooter = false;
 	const readsBeforeHidden = extensionStatusReads;
@@ -700,7 +700,7 @@ function renderFooterWithSession(opts: {
 		runtime: null,
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
-		lastDoneIn: undefined,
+		lastRun: undefined,
 	};
 	installFooter(
 		ctx,
@@ -781,7 +781,7 @@ function renderFooterWithHost(opts: {
 		runtime: null,
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
-		lastDoneIn: undefined,
+		lastRun: undefined,
 	};
 	installFooter(
 		ctx,
@@ -859,7 +859,7 @@ function renderStatusLines(statuses: Map<string, string>, width = 160): string[]
 		runtime: null,
 		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
-		lastDoneIn: undefined,
+		lastRun: undefined,
 	};
 	installFooter(
 		ctx,

@@ -136,11 +136,22 @@ Key options:
 
 With `inlineFooter` enabled, the two normal Footer rows are rendered inside the editor frame to save vertical space. The top border places the Git branch on the left and CWD first in the right-hand group; the session title appears on the left too when `sessionName` is enabled. The native Pi header and extension status rows remain separate; narrow terminals truncate lower-priority Footer data first, keeping the right-hand statistics and the border corner.
 
-The single **Workline** merges Pi's editor working message with elapsed run time. On completion, `done` and the run duration remain until the next run (or a session reset). The footer no longer shows a second working/done timer, regardless of `inlineFooter`. Both Workline switches apply immediately and are saved. Native retry/compaction status messages keep their own meaning and styling; narrow borders may compact or truncate the Workline to fit.
+The single **Workline** merges Pi's editor working message with elapsed run time. A run ends at `agent_settled`, not each low-level `agent_end`: retries, compaction and queued continuations keep the same timer and do not publish a premature result. The final status and duration remain until the next run, session replacement/reload, or successful tree navigation.
+
+| Outcome | Label | Unicode / ASCII icon | Color |
+| --- | --- | --- | --- |
+| Observed normal completion | `done` | `✓` / `+` | Success |
+| Observed interruption | `interrupted` | `■` / `!` | Warning |
+| Observed failure | `failed` | `✗` / `x` | Error |
+| Insufficient outcome evidence | `ended` | `•` / `-` | Muted |
+
+Nerd Font mode also uses four distinct glyphs. `done` describes normal host completion, not proof that the user's task succeeded. A failed tool call alone does not make the run failed. Unresolved length-truncated responses and recovery cancellations without decisive evidence show neutral `ended`. Pi 1.0.0 does not attach an outcome to settlement: results reflect current-run public lifecycle evidence, not exhaustive final-cause diagnosis. In particular, cancellation by another extension during a post-loop `agent_before_settle` handler can be indistinguishable from normal completion or failure.
+
+The footer no longer shows a second working/result timer, regardless of `inlineFooter`. Both Workline switches apply immediately and are saved. Native retry/compaction status messages keep their own meaning, styling and display priority; narrow borders may compact or truncate the Workline to fit.
 
 ## Turn telemetry
 
-After each complete agent run, attached-to-border mode retains the transient telemetry notification without adding blank rows. Detached mode combines telemetry with `done` and the run duration in the same Workline row, with no separate notification; the result remains until the next run or session reset. Both modes respect telemetry settings; the detached row truncates to the available width. Tool-call turns are combined into that result:
+After each settled agent run, attached-to-border mode retains the transient telemetry notification without adding blank rows. Detached mode combines telemetry with the outcome and run duration in the same Workline row, with no separate notification; the result remains until the next run or session reset. Both modes respect telemetry settings; the detached row truncates to the available width. Tool-call turns are combined into that result:
 
 ```text
 > TPS 42.5 tok/s | ~ TTFT 1.2s | + 29.7s | ↑ 567 | ↓ 1.2k | ! stall 1x / 4.3s | $ $3.60/M

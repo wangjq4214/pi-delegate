@@ -78,6 +78,12 @@ export class TurnTelemetryTracker {
 		this.now = now;
 	}
 
+	reset(): void {
+		this.turn = undefined;
+		this.agentStartMs = null;
+		this.agentTurns = [];
+	}
+
 	handle(event: TelemetryEvent): TurnTelemetry | undefined {
 		switch (event.type) {
 			case "agent_start":
