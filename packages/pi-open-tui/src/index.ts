@@ -151,6 +151,7 @@ export default function (pi: ExtensionAPI) {
 					enabled: () => config.inlineFooter,
 					render: footer.renderInline,
 				},
+				config.editorBorderStyle,
 			);
 			active = true;
 		}
@@ -379,6 +380,7 @@ export default function (pi: ExtensionAPI) {
 		getConfig: () => config,
 		onConfigChanged: (newConfig) => {
 			const cursorStyleChanged = config.cursorStyle !== newConfig.cursorStyle;
+			const borderStyleChanged = config.editorBorderStyle !== newConfig.editorBorderStyle;
 			const thinkingPeekLinesChanged = config.thinkingPeek.lines !== newConfig.thinkingPeek.lines;
 			saveConfig(newConfig);
 			config = newConfig;
@@ -390,6 +392,9 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (cursorStyleChanged && active && editor) {
 				editor.setCursorStyle(newConfig.cursorStyle);
+			}
+			if (borderStyleChanged && active && editor) {
+				editor.setBorderStyle(newConfig.editorBorderStyle);
 			}
 			if (lastCtx) {
 				pendingUiChange = getPendingUiChange(newConfig.enabled, active);

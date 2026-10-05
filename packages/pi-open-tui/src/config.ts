@@ -5,6 +5,7 @@ import type { IconMode } from "./icons.ts";
 
 export type SettingsLanguage = "en" | "zh";
 export type CursorStyle = "block" | "bar" | "underline";
+export type EditorBorderStyle = "surround" | "minimal";
 export type ThinkingPeekLines = 0 | 1 | 2;
 
 export type { IconMode } from "./icons.ts";
@@ -43,6 +44,7 @@ export interface OpenTuiConfig {
 	inlineFooter: boolean;
 	settingsLanguage: SettingsLanguage;
 	cursorStyle: CursorStyle;
+	editorBorderStyle: EditorBorderStyle;
 	icons: {
 		mode: IconMode;
 	};
@@ -56,6 +58,7 @@ export const DEFAULT_CONFIG: OpenTuiConfig = {
 	inlineFooter: false,
 	settingsLanguage: "en",
 	cursorStyle: "block",
+	editorBorderStyle: "surround",
 	icons: {
 		mode: "auto",
 	},
@@ -149,6 +152,9 @@ export function loadConfig(notify?: (msg: string, level: "warning" | "info") => 
 		}
 		if (config.cursorStyle !== "block" && config.cursorStyle !== "bar" && config.cursorStyle !== "underline") {
 			config.cursorStyle = DEFAULT_CONFIG.cursorStyle;
+		}
+		if (config.editorBorderStyle !== "surround" && config.editorBorderStyle !== "minimal") {
+			config.editorBorderStyle = DEFAULT_CONFIG.editorBorderStyle;
 		}
 		if (typeof config.thinkingPeek !== "object" || config.thinkingPeek === null || Array.isArray(config.thinkingPeek)) {
 			config.thinkingPeek = structuredClone(DEFAULT_CONFIG.thinkingPeek);

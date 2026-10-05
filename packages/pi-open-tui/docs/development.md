@@ -11,6 +11,7 @@ This package imports [OldSuns/pi-open-tui](https://github.com/OldSuns/pi-open-tu
 - Documentation and `AGENTS.md` use workspace commands. The standalone application scaffold is removed; Rolldown now bundles the imported extension.
 - The packages remain independent. This is a Pi extension, not a standalone application or an extraction of delegate's UI.
 - The custom Logo/model/CWD/command-tip header and its dedicated helpers are removed locally. Open TUI never overrides the host header, leaving Pi's native header in place; footer, editor, settings, thinking peek and telemetry remain available. This is not a measured performance claim.
+- Editor border styles are a local addition: Surround retains the rounded frame; Minimal replaces corners and side rails with horizontal endpoints and spaces while preserving content width, mouse coordinates, colors, working status and inline footer. `/open-tui` Appearance settings apply and persist the choice; old or invalid configuration defaults to Surround.
 
 The imported extension and tests are excluded from Biome formatting, lint, and import organization through a narrowly scoped root override. This intentionally preserves the upstream snapshot rather than introducing a mass rewrite. Package metadata and workspace integration tests remain checked by Biome; imported code is verified by TypeScript and its upstream tests.
 

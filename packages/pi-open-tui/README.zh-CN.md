@@ -81,6 +81,7 @@ pi install /absolute/path/to/checkout/packages/pi-open-tui
   "inlineFooter": false,
   "settingsLanguage": "zh",
   "cursorStyle": "block",
+  "editorBorderStyle": "surround",
   "icons": {
     "mode": "auto"
   },
@@ -120,6 +121,7 @@ pi install /absolute/path/to/checkout/packages/pi-open-tui
 | `settingsLanguage` | `en`、`zh` | 切换 `/open-tui` 设置界面的语言 |
 | `inlineFooter` | `true`、`false` | 将两条主要 Footer 信息行移入编辑器上下边框以节省垂直空间，默认关闭；扩展状态行仍显示在编辑器外 |
 | `cursorStyle` | `block`、`bar`、`underline` | `bar` 和 `underline` 需要终端支持光标形状转义序列 |
+| `editorBorderStyle` | `surround`、`minimal` | 外观 → 编辑器边框；默认「环绕」。「简洁」仅保留上下横线，文字左右留白不变。切换即时生效并保存，仍支持工作状态和内联底栏 |
 | `icons.mode` | `auto`、`nerd`、`unicode`、`ascii` | 控制底栏和遥测通知使用的图标 |
 | `footerSegments` | 布尔开关 | 分别控制底栏中的各项数据 |
 | `footerSegments.capitalizeProviderName` | 布尔开关 | 将底栏中提供商名称的首字母大写；设为 `false` 时保留原始大小写 |

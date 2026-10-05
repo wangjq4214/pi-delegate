@@ -79,6 +79,7 @@ Run `/open-tui` to open the settings dialog. It provides **General**, **Appearan
   "inlineFooter": false,
   "settingsLanguage": "en",
   "cursorStyle": "block",
+  "editorBorderStyle": "surround",
   "icons": {
     "mode": "auto"
   },
@@ -118,6 +119,7 @@ Key options:
 | `settingsLanguage` | `en`, `zh` | Changes the `/open-tui` interface language |
 | `inlineFooter` | `true`, `false` | Moves the two main Footer rows into the editor's top and bottom borders; defaults to `false`. Extension status rows remain below the editor |
 | `cursorStyle` | `block`, `bar`, `underline` | `bar` and `underline` require terminal cursor-shape support |
+| `editorBorderStyle` | `surround`, `minimal` | Appearance → Editor border; Surround is the default. Minimal keeps only horizontal borders with unchanged text inset. Changes apply immediately and are saved; working status and inline footer remain supported |
 | `icons.mode` | `auto`, `nerd`, `unicode`, `ascii` | Controls footer and telemetry icons |
 | `footerSegments` | Boolean flags | Shows or hides individual footer data |
 | `footerSegments.capitalizeProviderName` | Boolean | Capitalizes the first character of the provider name in the footer; set it to `false` to keep the provider's original casing |

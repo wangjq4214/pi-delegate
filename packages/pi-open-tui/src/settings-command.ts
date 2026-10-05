@@ -32,6 +32,7 @@ const COPY = {
 			thinkingPeek: "Thinking peek",
 			language: "Language",
 			cursorStyle: "Cursor style",
+			editorBorderStyle: "Editor border",
 			iconMode: "Icon mode",
 			cwd: "CWD",
 			hostname: "Hostname",
@@ -56,6 +57,7 @@ const COPY = {
 			thinkingPeek: { off: "Off", one: "1 line", two: "2 lines" },
 			languages: { en: "English", zh: "简体中文" },
 			cursorStyles: { block: "Block", bar: "Bar", underline: "Underline" },
+			editorBorderStyles: { surround: "Surround", minimal: "Minimal" },
 			icons: { auto: "Auto", nerd: "Nerd", unicode: "Unicode", ascii: "ASCII" },
 		},
 	},
@@ -69,6 +71,7 @@ const COPY = {
 			thinkingPeek: "思考预览",
 			language: "语言",
 			cursorStyle: "光标样式",
+			editorBorderStyle: "编辑器边框",
 			iconMode: "图标模式",
 			cwd: "当前目录",
 			hostname: "主机名",
@@ -93,6 +96,7 @@ const COPY = {
 			thinkingPeek: { off: "关闭", one: "单行", two: "双行" },
 			languages: { en: "English", zh: "简体中文" },
 			cursorStyles: { block: "块", bar: "竖线", underline: "下划线" },
+			editorBorderStyles: { surround: "环绕", minimal: "简洁" },
 			icons: { auto: "自动", nerd: "Nerd", unicode: "Unicode", ascii: "ASCII" },
 		},
 	},
@@ -166,6 +170,7 @@ function buildIconsItems(config: OpenTuiConfig, copy: SettingsCopy): SettingItem
 	return [
 		{ id: "mode", label: copy.labels.iconMode, currentValue: copy.values.icons[config.icons.mode] },
 		{ id: "cursorStyle", label: copy.labels.cursorStyle, currentValue: copy.values.cursorStyles[config.cursorStyle] },
+		{ id: "editorBorderStyle", label: copy.labels.editorBorderStyle, currentValue: copy.values.editorBorderStyles[config.editorBorderStyle] },
 	];
 }
 
@@ -226,6 +231,7 @@ function handleSettingChange(
 	if (tab === "icons") {
 		if (itemId === "mode") return cycleIconMode(config);
 		if (itemId === "cursorStyle") return cycleCursorStyle(config);
+		if (itemId === "editorBorderStyle") return { ...config, editorBorderStyle: config.editorBorderStyle === "surround" ? "minimal" : "surround" };
 	}
 	if (tab === "segments") {
 		return toggleSetting(config, itemId as keyof OpenTuiConfig["footerSegments"]);

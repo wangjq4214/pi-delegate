@@ -21,6 +21,54 @@ const editorTheme = {
 	},
 } as EditorTheme;
 
+test("minimal borders preserve inset, content and live switching", () => {
+	const editor = new OpenTuiEditor(tui, editorTheme, { matches: () => false } as unknown as KeybindingsManager);
+	editor.setText("abcdef");
+	const surround = editor.render(40).map(stripAnsi);
+	editor.setBorderStyle("minimal");
+	const minimal = editor.render(40).map(stripAnsi);
+	assert.equal(minimal[0], "─".repeat(40));
+	assert.equal(minimal.at(-1), "─".repeat(40));
+	assert.equal(minimal[1]?.indexOf("abcdef"), 2);
+	assert.equal(minimal[1]?.slice(2, -2), surround[1]?.slice(2, -2));
+	assert.ok(minimal.every((line) => !/[│╭╮╰╯]/.test(line)));
+	editor.handleMouse({
+		type: "click", button: "left", x: 3, y: 1, screenX: 3, screenY: 1,
+		width: 40, height: 8, shift: false, alt: false, ctrl: false,
+	});
+	assert.equal(editor.getCursor().col, 1);
+	editor.setBorderStyle("surround");
+	assert.equal(stripAnsi(editor.render(40)[0] ?? ""), surround[0]);
+});
+
+test("minimal borders retain colored status, inline footer and bounded widths", () => {
+	for (const inline of [false, true]) {
+		const editor = new OpenTuiEditor(tui, editorTheme, { matches: () => false } as unknown as KeybindingsManager,
+			"block", {
+				enabled: () => inline,
+				render: () => ({ top: { left: "cwd", right: "context" }, bottom: { left: "model", right: "stats" } }),
+			}, "minimal");
+		editor.setText("x");
+		editor.setWorkingStatusIndicator({
+			renderInBorder: () => "\x1b[32mworking\x1b[0m",
+			renderSpinnerInBorder: () => "◐",
+		});
+		const lines = editor.render(80);
+		assert.match(lines[0] ?? "", /\x1b\[32mworking\x1b\[0m/);
+		if (inline) {
+			assert.match(stripAnsi(lines[0] ?? ""), /cwd.*context/);
+			assert.match(stripAnsi(lines.at(-1) ?? ""), /model.*stats/);
+		}
+		for (const width of [1, 2, 3, 4, 5, 10, 20, 80]) {
+			for (const line of editor.render(width)) {
+				// Pi itself emits a two-column cursor cell at width 1; preserve that fallback.
+				assert.ok(visibleWidth(line) <= Math.max(2, width));
+				assert.doesNotMatch(stripAnsi(line), /[│╭╮╰╯]/);
+			}
+		}
+	}
+});
+
 test("compensates Pi editor padding for the custom left rail", () => {
 	const editor = new OpenTuiEditor(
 		tui,
@@ -131,27 +179,30 @@ test("renders inline footer lines in the editor frame", () => {
 });
 
 test("keeps a narrow scrolled working border intact", () => {
-	const editor = new OpenTuiEditor(
-		tui,
-		editorTheme,
-		{ matches: () => false } as unknown as KeybindingsManager,
-	);
-	editor.setText(Array.from({ length: 10 }, (_, index) => `line ${index}`).join("\n"));
-	let spinnerRenders = 0;
-	editor.setWorkingStatusIndicator({
-		renderInBorder: () => "◐ working status that ignores width",
-		renderSpinnerInBorder: () => {
-			spinnerRenders++;
-			return "◐";
-		},
-	});
+	for (const style of ["surround", "minimal"] as const) {
+		const editor = new OpenTuiEditor(
+			tui,
+			editorTheme,
+			{ matches: () => false } as unknown as KeybindingsManager,
+		);
+		editor.setBorderStyle(style);
+		editor.setText(Array.from({ length: 10 }, (_, index) => `line ${index}`).join("\n"));
+		let spinnerRenders = 0;
+		editor.setWorkingStatusIndicator({
+			renderInBorder: () => "◐ working status that ignores width",
+			renderSpinnerInBorder: () => {
+				spinnerRenders++;
+				return "◐";
+			},
+		});
 
-	const topBorder = stripAnsi(editor.render(30)[0] ?? "");
+		const topBorder = stripAnsi(editor.render(30)[0] ?? "");
 
-	assert.equal(spinnerRenders, 1);
-	assert.equal(visibleWidth(topBorder), 30);
-	assert.match(topBorder, /↑ 3 more/);
-	assert.ok(topBorder.endsWith("╮"));
+		assert.equal(spinnerRenders, 1);
+		assert.equal(visibleWidth(topBorder), 30);
+		assert.match(topBorder, /↑ 3 more/);
+		assert.ok(topBorder.endsWith(style === "minimal" ? "─" : "╮"));
+	}
 });
 
 

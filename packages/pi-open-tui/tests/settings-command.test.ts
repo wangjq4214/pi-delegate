@@ -5,8 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type Component, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
-import { DEFAULT_CONFIG, loadConfig, type OpenTuiConfig } from "../src/config.ts";
-import { installEditor } from "../src/editor.ts";
+import { DEFAULT_CONFIG, loadConfig, saveConfig, type OpenTuiConfig } from "../src/config.ts";
+import { installEditor, OpenTuiEditor } from "../src/editor.ts";
 import { getPendingUiChange } from "../src/index.ts";
 import { registerSettingsCommand } from "../src/settings-command.ts";
 
@@ -90,6 +90,69 @@ async function openSettings(
 function selectedLine(component: SettingsComponent): string {
 	return component.render(80).find((line) => line.includes("→ ")) ?? "";
 }
+
+test("previews border styles without reinstalling and localizes their names", async () => {
+	for (const language of ["en", "zh"] as const) {
+		let mounted: OpenTuiEditor | undefined;
+		let installs = 0;
+		const editorTui = {
+			terminal: { rows: 24 }, requestRender() {},
+			getShowHardwareCursor: () => false,
+		} as unknown as TUI;
+		const handle = installEditor({} as ExtensionAPI, {
+			ui: { setEditorComponent: (factory: Parameters<ExtensionContext["ui"]["setEditorComponent"]>[0]) => {
+				installs++;
+				assert.ok(factory);
+				mounted = factory(editorTui, {
+					borderColor: (s: string) => s,
+					selectList: { selectedPrefix: (s: string) => s, selectedText: (s: string) => s,
+						description: (s: string) => s, scrollInfo: (s: string) => s, noMatch: (s: string) => s },
+				}, {} as Parameters<NonNullable<typeof factory>>[2]) as OpenTuiEditor;
+			} },
+		} as unknown as ExtensionContext, "block", undefined, "minimal");
+		assert.ok(mounted);
+		assert.match(mounted.render(40)[0] ?? "", /^─+$/);
+		handle.setBorderStyle("surround");
+		const config = structuredClone(DEFAULT_CONFIG);
+		config.settingsLanguage = language;
+		const settings = await openSettings(config, (next) => {
+			handle.setBorderStyle(next.editorBorderStyle);
+			assert.match(mounted!.render(40)[0] ?? "", next.editorBorderStyle === "minimal" ? /^─+$/ : /^╭/);
+		});
+		settings.component.handleInput("\t");
+		settings.component.handleInput("\x1b[B");
+		settings.component.handleInput("\x1b[B");
+		assert.match(selectedLine(settings.component), language === "zh" ? /编辑器边框.*环绕/ : /Editor border.*Surround/);
+		settings.component.handleInput("\r");
+		assert.equal(settings.getConfig().editorBorderStyle, "minimal");
+		assert.match(selectedLine(settings.component), language === "zh" ? /简洁/ : /Minimal/);
+		settings.component.handleInput(" ");
+		assert.equal(settings.getConfig().editorBorderStyle, "surround");
+		assert.equal(installs, 1);
+		settings.component.handleInput("q");
+		await settings.waitForClose();
+	}
+});
+
+test("persists border styles and defaults legacy config to surround", () => {
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-open-tui-border-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		writeFileSync(join(agentDir, "open-tui.json"), "{}");
+		assert.equal(loadConfig().editorBorderStyle, "surround");
+		for (const style of ["minimal", "surround"] as const) {
+			const config = structuredClone(DEFAULT_CONFIG);
+			config.editorBorderStyle = style;
+			saveConfig(config);
+			assert.equal(loadConfig().editorBorderStyle, style);
+		}
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previous;
+		rmSync(agentDir, { recursive: true, force: true });
+	}
+});
 
 test("closes cleanly after enabling or disabling the UI", async () => {
 	for (const enabled of [true, false]) {
@@ -303,6 +366,7 @@ test("normalizes invalid settings values", () => {
 		writeFileSync(join(agentDir, "open-tui.json"), JSON.stringify({
 			settingsLanguage: "de",
 			cursorStyle: "invalid",
+			editorBorderStyle: "invalid",
 			inlineFooter: "yes",
 			thinkingPeek: { lines: 9 },
 			fullscreen: { wheelScrollLines: 10 },
@@ -310,6 +374,7 @@ test("normalizes invalid settings values", () => {
 		const loaded = loadConfig();
 		assert.equal(loaded.settingsLanguage, "en");
 		assert.equal(loaded.cursorStyle, "block");
+		assert.equal(loaded.editorBorderStyle, "surround");
 		assert.equal(loaded.inlineFooter, false);
 		assert.equal(loaded.thinkingPeek.lines, 1);
 		assert.equal("fullscreen" in loaded, true);
