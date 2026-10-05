@@ -178,6 +178,13 @@ bun run check
 
 See the [development guide](docs/development.md) for source/bundle debugging, Node inspector setup, and publication previews. Both packages build automatically through `prepack` before packing/publishing; the UI package remains private. Detailed docs are maintained in English.
 
+## Documentation
+
+- [Development guide](docs/development.md) — setup, verification, debugging, and maintenance boundaries.
+- [Roadmap](docs/roadmap.md) — prioritized capability candidates and TODOs.
+
+The detailed documentation is maintained in English.
+
 ## Acknowledgements
 
 This project builds on several Pi community packages:

@@ -180,6 +180,13 @@ bun run check
 
 导入来源、验证方式和维护边界见 [开发指南](docs/development.md)。详细文档以英文维护。
 
+## 文档
+
+- [开发指南](docs/development.md) — 环境搭建、验证、调试和维护边界。
+- [路线图](docs/roadmap.md) — 按建议优先级排列的候选能力与 TODO。
+
+详细文档以英文维护。
+
 ## 致谢
 
 本项目基于多个 Pi 社区包的工作：
