@@ -47,7 +47,7 @@ import {
 	TaskPressure,
 	validatePressureInput,
 } from "./pressure.ts";
-import { RpcProcess } from "./rpc.ts";
+import { type RpcDiagnostics, RpcProcess } from "./rpc.ts";
 import { Admission, concurrencyLimit } from "./scheduling.ts";
 import { AgentStatus, type StatusObserver } from "./status.ts";
 import { type SteeringControl, TaskSteering } from "./steering.ts";
@@ -90,12 +90,20 @@ export type DelegationStatus =
 	| "failed"
 	| "cancelled";
 
+export type StartupStage =
+	| "prepare"
+	| "spawn"
+	| "initialize"
+	| "configure"
+	| "submit";
+
 export interface DelegationDetails
 	extends Omit<Awaited<ReturnType<typeof formatDelegationOutput>>, "text"> {
 	status: DelegationStatus;
 	stopReason?: AssistantMessage["stopReason"];
 	sessionId?: string;
 	error?: string;
+	startupDiagnostics?: RpcDiagnostics & { stage: StartupStage };
 	configuration?: ConfigurationDetails;
 	/** Absolute startup directory, present only after the child has spawned. */
 	cwd?: string;
@@ -120,11 +128,15 @@ function failedResult(
 		: error instanceof Error
 			? error.message
 			: String(error);
+	const diagnostics = cancelled ? undefined : details.startupDiagnostics;
+	const diagnosticText = diagnostics
+		? `\nStartup stage: ${diagnostics.stage}${diagnostics.stderr ? `\n\nChild stderr${diagnostics.stderrTruncated ? " (tail truncated to 16 KiB)" : ""}:\n${diagnostics.stderr}` : ""}`
+		: "";
 	return {
 		content: [
 			{
 				type: "text",
-				text: `[Delegation ${status}: ${message}]${details.fullOutputPath ? `\nPartial output saved to: ${details.fullOutputPath}. Use read to retrieve it.` : ""}`,
+				text: `[Delegation ${status}: ${message}]${diagnosticText}${details.fullOutputPath ? `\nPartial output saved to: ${details.fullOutputPath}. Use read to retrieve it.` : ""}`,
 			},
 		],
 		details: { ...details, status, error: message },
@@ -140,6 +152,12 @@ export async function runDelegation(
 	let directory: string | undefined;
 	let rpc: RpcProcess | undefined;
 	let settlement: ReturnType<RpcProcess["waitForSettled"]> | undefined;
+	let startupStage: StartupStage | undefined = "prepare";
+	let primaryFailure: { error: unknown } | undefined;
+	const started = () => {
+		startupStage = undefined;
+		rpc?.discardDiagnostics();
+	};
 	let pressure: TaskPressure | undefined;
 	let unsubscribeEvents: (() => void) | undefined;
 	let steering: TaskSteering | undefined;
@@ -170,6 +188,7 @@ export async function runDelegation(
 			options.signal?.throwIfAborted();
 			// Snapshot creation awaits filesystem work; recheck immediately before spawn.
 			validateCwd(options.cwd);
+			startupStage = "spawn";
 			rpc = new RpcProcess(
 				process.versions.bun ? "node" : process.execPath,
 				[options.cliPath ?? resolveCli(), "--mode", "rpc", ...options.args],
@@ -187,6 +206,7 @@ export async function runDelegation(
 			);
 			rpc.child.once("spawn", () => {
 				details.cwd = options.cwd;
+				startupStage = "initialize";
 			});
 			await rpc.request("prompt", { message: `/${INIT_COMMAND}` });
 			const { entries } = await rpc.request<{ entries: SessionEntry[] }>(
@@ -210,6 +230,7 @@ export async function runDelegation(
 				);
 
 			if (details.configuration) {
+				startupStage = "configure";
 				const requested = details.configuration.requested;
 				await rpc.request("set_model", {
 					provider: requested.model.provider,
@@ -279,7 +300,10 @@ export async function runDelegation(
 					...(streamingUsage ? [streamingUsage] : []),
 				]);
 				options.onUsage?.(observedUsage);
-				if (record.type === "agent_start") options.onPhase?.("running");
+				if (record.type === "agent_start") {
+					started();
+					options.onPhase?.("running");
+				}
 				steering?.observe(record);
 				pressure?.observe(record);
 				options.status?.observe(record);
@@ -291,11 +315,13 @@ export async function runDelegation(
 			if (options.signal?.aborted) steering.close();
 			// Prefixing prevents tasks beginning with '/' from becoming extension commands.
 			const message = `Task:\n${options.task}${options.context === undefined ? "" : `\n\nSupplementary context:\n${options.context}`}`;
+			startupStage = "submit";
 			const accepted = await rpc.request<{ disposition: string }>("prompt", {
 				message,
 			});
 			if (accepted.disposition !== "started")
 				throw new Error(`Child task did not start: ${accepted.disposition}`);
+			started();
 			steering.confirmStart();
 			await Promise.race([settlement.promise, pressure.failure]);
 			pressure.dispose();
@@ -368,6 +394,9 @@ export async function runDelegation(
 				usage,
 				isError: status === "failed" || status === "cancelled",
 			};
+		} catch (error) {
+			primaryFailure = { error };
+			throw error;
 		} finally {
 			steering?.close();
 			if (steering)
@@ -386,8 +415,14 @@ export async function runDelegation(
 		options.signal?.throwIfAborted();
 		return result;
 	} catch (error) {
+		if (startupStage && !options.signal?.aborted) {
+			details.startupDiagnostics = {
+				stage: startupStage,
+				...(rpc?.diagnostics() ?? { stderr: "", stderrTruncated: false }),
+			};
+		}
 		return failedResult(
-			error,
+			primaryFailure ? primaryFailure.error : error,
 			options.signal?.aborted,
 			details,
 			usage ?? observedUsage,

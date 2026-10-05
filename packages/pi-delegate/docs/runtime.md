@@ -83,6 +83,12 @@ Background execution is asynchronous work inside the current Pi session, not a p
 
 Normal completion and failure also release the child process and temporary initialization snapshot.
 
+Startup failures automatically include a **model-visible diagnostic tail** of child stderr, limited to the last **16 KiB**, alongside the original error. `details.startupDiagnostics` reports the startup step (`prepare`, `spawn`, `initialize`, `configure`, or `submit`), stderr, a truncation flag, and unexpected exit code/signal when observed. Intentional cleanup exit codes are not presented as the cause of failure. Synchronous results, background completion messages, and `delegate_status` use the same diagnostics.
+
+**Privacy:** child stderr may contain sensitive extension/configuration output. Failure diagnostics are enabled by default and are not guaranteed to be redacted. Do not log credentials in child startup code. No stderr log artifact is persisted by pi-delegate; the parent host may retain the returned failure text as part of its normal conversation history.
+
+Collection ends and its buffer is discarded when original-task execution is observed or the task prompt is accepted as started. Successful tasks, subsequent runtime failures, and cancellations do not return startup stderr. Stderr alone does not make startup fail and is never parsed as RPC data. Diagnostics are collected after the existing bounded cleanup; pipes forcibly closed during cleanup may leave the tail incomplete. This is startup-error visibility, not a full execution record or a guarantee that reported task results are correct.
+
 Usage is collected from final child entries when available. If cancellation or a transport failure prevents collection, results retain usage already observed in message events and the latest cumulative streaming update. Unreported provider usage cannot be recovered; these failure-path totals can be partial. Streaming updates, final messages, and final entries are not added together twice.
 
 The authoritative readback includes assistant/tool-result messages, standalone usage entries and usage-bearing compaction/branch-summary entries. Nested tool usage already included in a tool result is not counted again; reasoning and cache-write subsets are not extra output/cache charges.

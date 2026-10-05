@@ -20,6 +20,15 @@ export class RpcTimeoutError extends Error {
 	}
 }
 
+const STDERR_MAX_BYTES = 16 * 1024;
+
+export interface RpcDiagnostics {
+	stderr: string;
+	stderrTruncated: boolean;
+	exitCode?: number | null;
+	signal?: NodeJS.Signals | null;
+}
+
 export class RpcProcess {
 	readonly child: ChildProcessWithoutNullStreams;
 	private pending = new Map<string, Pending>();
@@ -30,6 +39,10 @@ export class RpcProcess {
 	private stopPromise?: Promise<void>;
 	private closed: Promise<void>;
 	private writeTail: Promise<void> = Promise.resolve();
+	private stderrTail = Buffer.alloc(0);
+	private stderrTruncated = false;
+	private collectingDiagnostics = true;
+	private unexpectedExit?: Pick<RpcDiagnostics, "exitCode" | "signal">;
 
 	constructor(
 		executable: string,
@@ -60,19 +73,54 @@ export class RpcProcess {
 				newline = buffer.indexOf("\n");
 			}
 		});
-		// Drain diagnostics without copying potentially sensitive extension output into tool results.
-		this.child.stderr.resume();
+		this.child.stderr.on("data", (chunk: Buffer) => {
+			if (!this.collectingDiagnostics) return;
+			const size = this.stderrTail.length + chunk.length;
+			this.stderrTruncated ||= size > STDERR_MAX_BYTES;
+			if (chunk.length >= STDERR_MAX_BYTES) {
+				// Copy, rather than retain a view of a potentially huge backing buffer.
+				this.stderrTail = Buffer.from(chunk.subarray(-STDERR_MAX_BYTES));
+			} else {
+				this.stderrTail = Buffer.concat([
+					this.stderrTail.subarray(Math.max(0, size - STDERR_MAX_BYTES)),
+					chunk,
+				]);
+			}
+		});
 		this.child.stdout.on("error", (error) => this.fail(error));
 		this.child.stdin.on("error", (error) => this.fail(error));
 		this.child.on("error", (error) => this.fail(error));
 		this.child.on("exit", (code, exitSignal) => {
-			if (!this.closing)
+			if (!this.closing) {
+				this.unexpectedExit = { exitCode: code, signal: exitSignal };
 				this.fail(
 					new Error(`Pi RPC child exited: code=${code}, signal=${exitSignal}`),
 				);
+			}
 		});
 		signal?.addEventListener("abort", this.abort, { once: true });
 		if (signal?.aborted) this.abort();
+	}
+
+	/** Snapshot after bounded cleanup to include the last available pipe bytes. */
+	diagnostics(): RpcDiagnostics {
+		let start = 0;
+		if (this.stderrTruncated) {
+			// A raw-byte tail can start halfway through a UTF-8 code point.
+			while ((this.stderrTail[start] & 0xc0) === 0x80) start++;
+		}
+		return {
+			stderr: this.stderrTail.subarray(start).toString("utf8"),
+			stderrTruncated: this.stderrTruncated,
+			...this.unexpectedExit,
+		};
+	}
+
+	discardDiagnostics(): void {
+		this.collectingDiagnostics = false;
+		this.stderrTail = Buffer.alloc(0);
+		this.stderrTruncated = false;
+		this.unexpectedExit = undefined;
 	}
 
 	private abort = () => {
