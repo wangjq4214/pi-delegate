@@ -2,6 +2,7 @@ import type { ExtensionContext, Theme, ThemeColor } from "@earendil-works/pi-cod
 import { hostname as osHostname } from "node:os";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { OpenTuiConfig } from "./config.ts";
+import type { InlineFooterLine, InlineFooterLines } from "./editor.ts";
 import type { IconGlyphs } from "./icons.ts";
 import { resolveGlyphs, resolveIconMode, runtimeSymbol } from "./icons.ts";
 import type { GitStatus } from "./git.ts";
@@ -25,6 +26,7 @@ import {
 } from "./utils.ts";
 import type { FooterState, ModelMeta, UsageTotals } from "./state.ts";
 import { getUsageTotals } from "./state.ts";
+export type { InlineFooterLine, InlineFooterLines } from "./editor.ts";
 
 export function shortHostname(hostname: string): string {
 	return hostname.split(".")[0] ?? "";
@@ -68,12 +70,12 @@ function renderGitSegment(
 		} else if (git.commit?.detached) {
 			parts.push(theme.fg("warning", glyphs.git));
 			parts.push(theme.fg("warning", "HEAD"));
-			if (git.commit.oid) {
-				const shortHash = git.commit.oid.slice(0, 7);
-				const tag = git.commit.tag ? ` ${git.commit.tag}` : "";
-				parts.push(theme.fg("dim", `${shortHash}${tag}`));
-			}
 		}
+	}
+	if (segments.gitCommit && git.commit?.detached && git.commit.oid) {
+		if (!segments.gitBranch) parts.push(theme.fg("warning", glyphs.git));
+		const tag = git.commit.tag ? ` ${git.commit.tag}` : "";
+		parts.push(theme.fg("dim", `${git.commit.oid.slice(0, 7)}${tag}`));
 	}
 
 	if (segments.gitStatus) {
@@ -204,20 +206,6 @@ export interface FooterHooks {
 	scheduleGitRefresh: () => void;
 }
 
-interface FooterDataLike {
-	getExtensionStatuses(): ReadonlyMap<string, string>;
-}
-
-export interface InlineFooterLine {
-	left: string;
-	right: string;
-}
-
-export interface InlineFooterLines {
-	top: InlineFooterLine;
-	bottom: InlineFooterLine;
-}
-
 /**
  * Split the bottom border content the way `alignRight` splits the plain row:
  * the right block (statistics) survives, the left one (model) shrinks to an
@@ -259,19 +247,10 @@ function renderFooterContent(
 	getConfig: () => OpenTuiConfig,
 	getModelMeta: () => ModelMeta,
 	theme: Theme,
-	footerData: FooterDataLike,
 	width: number,
-): { mainLines: [string, string]; inlineLines: InlineFooterLines; extensionLines: string[] } {
-	if (width <= 0) {
-		return {
-			mainLines: ["", ""],
-			inlineLines: {
-				top: { left: "", right: "" },
-				bottom: { left: "", right: "" },
-			},
-			extensionLines: [],
-		};
-	}
+	inline: boolean,
+): InlineFooterLines {
+	if (width <= 0) return { top: { left: "", right: "" }, bottom: { left: "", right: "" } };
 
 	const state = getState();
 	const config = getConfig();
@@ -347,26 +326,21 @@ function renderFooterContent(
 			contextCompact = compact;
 		}
 	}
-	const allParts: PrioritizedSegment[] = [...leftParts];
-	if (contextText) {
-		// ponytail: priority 4 = sheds with runtime, before git/cwd.
-		allParts.push({ text: contextText, compactText: contextCompact, priority: 4 });
-		// Context stays at the far right; cwd is the first item in this group.
-		inlineTopRightParts.push({ text: contextText, compactText: contextCompact, priority: 4 });
+	if (contextText) inlineTopRightParts.push({ text: contextText, compactText: contextCompact, priority: 4 });
+
+	let top: InlineFooterLine;
+	if (inline) {
+		const left = fitInlineSegments(inlineTopLeftParts, Math.floor(width * 0.45), theme);
+		const rightBudget = Math.max(0, width - visibleWidth(left) - (left ? 1 : 0));
+		top = { left, right: fitInlineSegments(inlineTopRightParts, rightBudget, theme) };
+	} else {
+		// Higher numeric priority survives longer: context/runtime outrank cwd.
+		const allParts = [...leftParts];
+		if (contextText) allParts.push({ text: contextText, compactText: contextCompact, priority: 4 });
+		const fitted = fitSegmentsByPriority(allParts, width, theme.fg("dim", "..."));
+		const right = contextText ? fitted.pop() ?? "" : "";
+		top = { left: fitted.join(" "), right };
 	}
-
-	const fitted = fitSegmentsByPriority(allParts, width, theme.fg("dim", "..."));
-	const fittedContext = contextText ? fitted.pop() ?? "" : "";
-	const line1 = alignRight(fitted.join(" "), fittedContext, width, theme);
-
-	const inlineLeftBudget = Math.floor(width * 0.45);
-	const inlineTopLeft = fitInlineSegments(inlineTopLeftParts, inlineLeftBudget, theme);
-	const inlineRightBudget = Math.max(0, width - visibleWidth(inlineTopLeft) - (inlineTopLeft ? 1 : 0));
-	const inlineTop: InlineFooterLine = {
-		left: inlineTopLeft,
-		right: fitInlineSegments(inlineTopRightParts, inlineRightBudget, theme),
-	};
-
 	const modelParts: string[] = [];
 	modelParts.push(theme.fg("mdLink", glyphs.model));
 	if (meta.provider && meta.provider !== "Unknown") {
@@ -378,14 +352,7 @@ function renderFooterContent(
 	}
 	const modelBlock = modelParts.join(theme.fg("dim", " · "));
 	const statsBlock = renderStatsBlock(theme, totals, glyphs, segments);
-	const inlineBottom = fitInlineLine(modelBlock, statsBlock, width, theme);
-	const line2 = alignRight(inlineBottom.left, inlineBottom.right, width, theme);
-	const mainLines: [string, string] = [line1, line2]
-		.map((line) => truncateToWidth(line, width, theme.fg("dim", "..."))) as [string, string];
-	const extensionLines = segments.extensionStatuses
-		? renderExtensionStatusLines(theme, footerData.getExtensionStatuses(), glyphs, width)
-		: [];
-	return { mainLines, inlineLines: { top: inlineTop, bottom: inlineBottom }, extensionLines };
+	return { top, bottom: fitInlineLine(modelBlock, statsBlock, width, theme) };
 }
 
 export function installFooter(
@@ -403,17 +370,17 @@ export function installFooter(
 			hooks.scheduleGitRefresh();
 			tui.requestRender();
 		});
-		const getContent = (width: number) => renderFooterContent(
+		const getContent = (width: number, inline: boolean) => renderFooterContent(
 			ctx,
 			getState,
 			getConfig,
 			getModelMeta,
 			theme,
-			footerData,
 			width,
+			inline,
 		);
 
-		renderInline = (width) => getContent(width).inlineLines;
+		renderInline = (width) => getContent(width, true);
 
 		return {
 			dispose() {
@@ -424,8 +391,15 @@ export function installFooter(
 			invalidate() {},
 			render(width: number): string[] {
 				if (width <= 0) return [""];
-				const { mainLines, extensionLines } = getContent(width);
-				return getConfig().inlineFooter ? extensionLines : [...mainLines, ...extensionLines];
+				const config = getConfig();
+				const extensionLines = config.footerSegments.extensionStatuses
+					? renderExtensionStatusLines(theme, footerData.getExtensionStatuses(), resolveGlyphs(config.icons.mode), width)
+					: [];
+				if (config.inlineFooter) return extensionLines;
+				const { top, bottom } = getContent(width, false);
+				const mainLines = [top, bottom].map((line) =>
+					truncateToWidth(alignRight(line.left, line.right, width, theme), width, theme.fg("dim", "...")));
+				return [...mainLines, ...extensionLines];
 			},
 		};
 	});

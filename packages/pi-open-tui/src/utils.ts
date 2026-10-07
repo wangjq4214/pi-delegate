@@ -97,11 +97,6 @@ export function formatDuration(ms: number): string {
 	return `${h}h ${m}m ${s}s`;
 }
 
-export function formatModelLabel(model: { provider?: string; id?: string } | null | undefined): string {
-	if (!model?.id) return "no-model";
-	return model.provider ? `${model.provider}/${model.id}` : model.id;
-}
-
 export function formatProviderLabel(provider: string | undefined, capitalize: boolean): string {
 	if (!provider) return "Unknown";
 	return capitalize ? provider.charAt(0).toUpperCase() + provider.slice(1) : provider;
@@ -275,11 +270,6 @@ export function findBottomBorderIndex(lines: string[]): number {
 		if (line !== undefined && isEditorBorderLine(line)) return i;
 	}
 	return Math.max(0, lines.length - 1);
-}
-
-export function padRight(text: string, width: number, ellipsis = ""): string {
-	const clipped = truncateToWidth(text, width, ellipsis);
-	return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
 }
 
 export function sanitizeStatus(text: string): string {

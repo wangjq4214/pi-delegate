@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { IconMode } from "./icons.ts";
@@ -105,93 +105,72 @@ export function getConfigPath(): string {
 	return join(agentDir, "open-tui.json");
 }
 
-function normalizeThinkingPeekLines(value: unknown): ThinkingPeekLines {
-	return value === 0 || value === 1 || value === 2 ? value : DEFAULT_CONFIG.thinkingPeek.lines;
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function deepMerge<T>(base: T, override: unknown): T {
-	if (typeof base !== "object" || base === null || Array.isArray(base)) {
-		return (override as T) ?? base;
-	}
-	if (typeof override !== "object" || override === null || Array.isArray(override)) {
-		return base;
-	}
-	const result = { ...(base as Record<string, unknown>) };
-	const overrideRec = override as Record<string, unknown>;
-	for (const key of Object.keys(overrideRec)) {
-		const baseVal = (base as Record<string, unknown>)[key];
-		const overVal = overrideRec[key];
-		if (typeof baseVal === "object" && baseVal !== null && !Array.isArray(baseVal)
-			&& typeof overVal === "object" && overVal !== null && !Array.isArray(overVal)) {
-			result[key] = deepMerge(baseVal, overVal);
-		} else if (overVal !== undefined) {
-			result[key] = overVal;
-		}
+/** Validate known fields against their defaults; retain unknown fields for legacy settings. */
+function normalizeFields<T extends object>(defaults: T, value: unknown): T {
+	const input = isRecord(value) ? value : {};
+	const result: Record<string, unknown> = { ...input };
+	for (const [key, fallback] of Object.entries(defaults)) {
+		const candidate = input[key];
+		result[key] = isRecord(fallback)
+			? normalizeFields(fallback, candidate)
+			: typeof candidate === typeof fallback ? candidate : fallback;
 	}
 	return result as T;
+}
+
+function enumValue<T>(value: unknown, choices: readonly T[], fallback: T): T {
+	return choices.includes(value as T) ? value as T : fallback;
+}
+
+function normalizeConfig(value: unknown): OpenTuiConfig {
+	const config = normalizeFields(DEFAULT_CONFIG, value);
+	config.settingsLanguage = enumValue(config.settingsLanguage, ["en", "zh"], DEFAULT_CONFIG.settingsLanguage);
+	config.cursorStyle = enumValue(config.cursorStyle, ["block", "bar", "underline"], DEFAULT_CONFIG.cursorStyle);
+	config.editorBorderStyle = enumValue(config.editorBorderStyle, ["surround", "minimal"], DEFAULT_CONFIG.editorBorderStyle);
+	config.icons.mode = enumValue(config.icons.mode, ["auto", "nerd", "unicode", "ascii"], DEFAULT_CONFIG.icons.mode);
+	config.thinkingPeek.lines = enumValue(config.thinkingPeek.lines, [0, 1, 2], DEFAULT_CONFIG.thinkingPeek.lines);
+	return config;
 }
 
 export function ensureConfigExists(): void {
 	const path = getConfigPath();
 	if (existsSync(path)) return;
+	mkdirSync(getAgentDir(), { recursive: true });
 	try {
-		const agentDir = getAgentDir();
-		if (!existsSync(agentDir)) mkdirSync(agentDir, { recursive: true });
-		writeFileSync(path, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n", "utf8");
-	} catch {
-		// ponytail: silent fallback — config creation is best-effort
+		writeFileSync(path, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n", { encoding: "utf8", flag: "wx", mode: 0o600 });
+	} catch (error) {
+		// A concurrent instance may have created the config; never overwrite it.
+		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
 	}
 }
 
 export function loadConfig(notify?: (msg: string, level: "warning" | "info") => void): OpenTuiConfig {
-	const path = getConfigPath();
-	if (!existsSync(path)) {
-		ensureConfigExists();
-		return structuredClone(DEFAULT_CONFIG);
-	}
-
 	try {
-		const raw = readFileSync(path, "utf8");
-		const parsed: unknown = JSON.parse(raw);
-		const config = deepMerge(DEFAULT_CONFIG, parsed);
-		if (typeof config.inlineFooter !== "boolean") {
-			config.inlineFooter = DEFAULT_CONFIG.inlineFooter;
-		}
-		if (config.settingsLanguage !== "en" && config.settingsLanguage !== "zh") {
-			config.settingsLanguage = DEFAULT_CONFIG.settingsLanguage;
-		}
-		if (config.cursorStyle !== "block" && config.cursorStyle !== "bar" && config.cursorStyle !== "underline") {
-			config.cursorStyle = DEFAULT_CONFIG.cursorStyle;
-		}
-		if (config.editorBorderStyle !== "surround" && config.editorBorderStyle !== "minimal") {
-			config.editorBorderStyle = DEFAULT_CONFIG.editorBorderStyle;
-		}
-		if (typeof config.thinkingPeek !== "object" || config.thinkingPeek === null || Array.isArray(config.thinkingPeek)) {
-			config.thinkingPeek = structuredClone(DEFAULT_CONFIG.thinkingPeek);
-		} else {
-			config.thinkingPeek.lines = normalizeThinkingPeekLines(config.thinkingPeek.lines);
-		}
-		if (typeof config.workline !== "object" || config.workline === null || Array.isArray(config.workline)) {
-			config.workline = structuredClone(DEFAULT_CONFIG.workline);
-		} else {
-			for (const key of ["marquee", "attachToBorder"] as const) {
-				if (typeof config.workline[key] !== "boolean") config.workline[key] = DEFAULT_CONFIG.workline[key];
-			}
-		}
-		return config;
-	} catch (err) {
-		notify?.(`open-tui config parse error: ${err instanceof Error ? err.message : String(err)}`, "warning");
+		ensureConfigExists();
+		return normalizeConfig(JSON.parse(readFileSync(getConfigPath(), "utf8")));
+	} catch (error) {
+		notify?.(`open-tui config error: ${error instanceof Error ? error.message : String(error)}`, "warning");
 		return structuredClone(DEFAULT_CONFIG);
 	}
 }
 
+/** Same-filesystem replacement: a failed save leaves the previous configuration intact. */
 export function saveConfig(config: OpenTuiConfig): void {
+	const data = JSON.stringify(config, null, 2) + "\n";
 	const path = getConfigPath();
+	const agentDir = getAgentDir();
+	mkdirSync(agentDir, { recursive: true });
+	const mode = existsSync(path) ? statSync(path).mode & 0o777 : 0o600;
+	const tempDir = mkdtempSync(join(agentDir, ".open-tui-"));
 	try {
-		const agentDir = getAgentDir();
-		if (!existsSync(agentDir)) mkdirSync(agentDir, { recursive: true });
-		writeFileSync(path, JSON.stringify(config, null, 2) + "\n", "utf8");
-	} catch {
-		// ponytail: silent fallback — config save is best-effort
+		const tempPath = join(tempDir, "config.json");
+		writeFileSync(tempPath, data, { encoding: "utf8", flag: "wx", mode });
+		renameSync(tempPath, path);
+	} finally {
+		rmSync(tempDir, { recursive: true, force: true });
 	}
 }

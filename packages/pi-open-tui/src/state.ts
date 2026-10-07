@@ -9,7 +9,6 @@ import { finiteOrZero, formatProviderLabel } from "./utils.ts";
 export interface FooterState extends RunState {
 	git: GitStatus;
 	runtime: RuntimeInfo | null;
-	sessionStartEpoch: number;
 }
 
 export interface UsageTotals {
@@ -78,7 +77,6 @@ export function createInitialState(): FooterState {
 	return {
 		git: emptyGitStatus(),
 		runtime: null,
-		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastRun: undefined,
 	};

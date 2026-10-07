@@ -116,6 +116,8 @@ Run `/open-tui` to open the settings dialog. It provides **General**, **Appearan
 }
 ```
 
+Missing or wrongly typed known fields use their defaults; unknown legacy fields are retained. Read/JSON errors produce a warning and use defaults. Saves replace the file on the same filesystem instead of overwriting it in place. If saving fails, changes still apply for the current session, a warning explains that they were not saved, and the previous configuration remains intact.
+
 Key options:
 
 | Option | Values | Notes |
@@ -132,9 +134,15 @@ Key options:
 | `telemetry` | Boolean flags | Enables telemetry and its individual measurements |
 | `thinkingPeek.lines` | `0`, `1`, `2` | Off, one-line, or two-line hidden thinking preview |
 
-`sessionName` appears only when the session has a name. `hostname` shows the short host name (first label of the machine's host name, e.g. `mba` from `mba.example.com`) with a server icon. `gitCommit` shows the short hash and tag in detached HEAD state. Disabling `extensionStatuses` hides the entire extension status line, including MCP status. Each status keeps the colours its extension applied with `ctx.ui.theme.fg()`. A status without colours renders in the muted theme colour.
+`sessionName` appears only when the session has a name. `hostname` shows the short host name (first label of the machine's host name, e.g. `mba` from `mba.example.com`) with a server icon. `gitCommit` independently controls the short hash and tag in detached HEAD state; `gitBranch` controls the branch name or `HEAD` label. Disabling `extensionStatuses` hides the entire extension status line, including MCP status. Each status keeps the colours its extension applied with `ctx.ui.theme.fg()`. A status without colours renders in the muted theme colour.
 
 With `inlineFooter` enabled, the two normal Footer rows are rendered inside the editor frame to save vertical space. The top border places the Git branch on the left and CWD first in the right-hand group; the session title appears on the left too when `sessionName` is enabled. The native Pi header and extension status rows remain separate; narrow terminals truncate lower-priority Footer data first, keeping the right-hand statistics and the border corner.
+
+Top-row data compacts before it is truncated: CWD has priority 0, hostname 1, session name 2, Git 3, and runtime/context 4 (higher survives longer; equal priorities shed earlier items first). The inline border fits its left and right groups separately. Bottom-row statistics survive before the model label.
+
+Git supports unborn branches, simultaneous ahead/behind counts, stashes and detached HEAD. Snapshots refresh on session start, branch changes, tool completion, settled runs and settings changes. Reads are single-flight and pending requests coalesce; superseded results and old-session results cannot overwrite newer state. This is not a general filesystem watcher: edits made outside Pi are observed at the next refresh trigger.
+
+Runtime markers are checked in the current working directory, including suffixes such as `.csproj`, `.fsproj` and `.cabal`. Detection retains first-match precedence across project types; standalone `.kt` or `.kotlin-version` markers identify Kotlin. Gradle Kotlin DSL keeps the Java/JVM label because it does not establish the project language. C-only source markers select C; mixed C/C++ sources or generic Make/CMake markers alone retain the C++ fallback.
 
 The single **Workline** merges Pi's editor working message with elapsed run time. A run ends at `agent_settled`, not each low-level `agent_end`: retries, compaction and queued continuations keep the same timer and do not publish a premature result. The final status and duration remain until the next run, session replacement/reload, or successful tree navigation.
 
@@ -176,6 +184,8 @@ When Pi's **Hide thinking** setting is enabled, pi-open-tui shows a compact tick
 ```
 
 The ticker appears only once the model actually streams reasoning, so non-reasoning models never show it. Pi's own Hide thinking toggle controls visibility; changing it takes effect immediately. Each row is truncated by *visible* width, so CJK-wide thinking text cannot overflow. Configure it from **General → Thinking peek** in `/open-tui`, or via `thinkingPeek.lines` in `open-tui.json`.
+
+Thinking peek uses an isolated host-component compatibility bridge. If the host tree or terminal width is unavailable/incompatible, it falls back to the native label and warns once per session instead of interrupting event handling. Only the pinned development host is covered by lifecycle tests; other host versions still need verification.
 
 ## Development
 

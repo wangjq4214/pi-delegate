@@ -9,6 +9,8 @@ Unchecked items are unimplemented capability candidates, listed in suggested pri
 - [x] **Trustworthy run outcomes:** distinguish completed, interrupted, failed, and neutral ended runs in the Workline with different leading icons, labels and colors in every icon mode.
   - Publish at full-run `agent_settled`; preserve elapsed time through retries/compaction/continuations, native status priority, telemetry placement and attached/detached layouts. Reset evidence/results at run and session boundaries.
   - Use structured public host evidence, not tool failures or status text. Unknown evidence and unresolved truncation stay neutral. Pi 1.0.0 has no authoritative final-outcome field; invisible post-loop before-settle cancellation remains an explicit limitation. See [Workline semantics](../README.md#configuration).
+- [x] **Settings persistence foundation:** validate known configuration fields, retain unknown legacy fields, safely replace saved configuration and warn when a change is applied only to the current session.
+- [x] **Project status reliability:** parse porcelain-v2 Git branches/counts/stashes, separate branch and detached commit switches, coalesce latest-only refreshes, and recognize runtime file suffixes.
 
 ## TODO
 
@@ -21,9 +23,8 @@ Unchecked items are unimplemented capability candidates, listed in suggested pri
 - [ ] **Recent-run telemetry:** provide an on-demand view of recent outcomes, duration, TTFT, TPS, and output tokens for the current session.
   - Keep bounded in-memory history, preserve existing measurement definitions, and distinguish missing measurements from zero. Do not retain prompts, tool contents, or reasoning text.
   - Avoid cross-session persistence or a telemetry database in the initial version.
-- [ ] **Reliable settings and diagnostics:** validate all configuration fields, save safely, and report persistence failures instead of silently ignoring them.
-  - Distinguish temporarily applied settings from saved settings; provide page-local reset and diagnostics for the configuration path, resolved icon mode, and relevant terminal capabilities.
-  - Preserve existing valid configuration on failed writes and avoid exposing credentials or unrelated environment variables. Land validation and persistence foundations before or alongside features that add settings.
+- [ ] **Settings reset and diagnostics:** provide page-local reset and diagnostics for the configuration path, resolved icon mode, and relevant terminal capabilities.
+  - Build on the completed validation/persistence foundation. Avoid exposing credentials or unrelated environment variables.
 - [ ] **Tool-call presentation:** make calls easy to scan through concise summaries of status, tool name, target or command, and measurable elapsed time.
   - Keep successful calls compact, expose useful failure context, and retain access to full arguments and results through expansion. Preserve diffs, images, truncation notices, and saved-output paths.
   - Compose with existing tool renderers rather than replacing tool execution. Use tool-specific summaries only for recognized schemas; preserve custom rendering or conservative fallback for unknown tools.

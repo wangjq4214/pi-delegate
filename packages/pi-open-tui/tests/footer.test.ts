@@ -141,7 +141,7 @@ test("footer compacts cwd before truncating lower-priority segments", () => {
 	);
 });
 
-test("narrow footer keeps the cwd basename and drops runtime first", () => {
+test("narrow footer compacts cwd to its basename before shedding segments", () => {
 	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
 	const ctx = {
 		model: { provider: "openai", contextWindow: 1_000 },
@@ -162,7 +162,6 @@ test("narrow footer keeps the cwd basename and drops runtime first", () => {
 	const state: FooterState = {
 		git: { ...emptyGitStatus(), branch: "main" },
 		runtime: { name: "nodejs", version: "24.6.0" },
-		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastRun: undefined,
 	};
@@ -190,7 +189,7 @@ test("narrow footer keeps the cwd basename and drops runtime first", () => {
 	assert.ok(!out.includes("~/work/projects"), `full cwd should be compacted\n${out}`);
 });
 
-test("narrow footer sheds the context bar before left segments", () => {
+test("narrow footer compacts context before truncating segments", () => {
 	let footerFactory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
 	const ctx = {
 		model: { provider: "openai", contextWindow: 1_000 },
@@ -211,7 +210,6 @@ test("narrow footer sheds the context bar before left segments", () => {
 	const state: FooterState = {
 		git: { ...emptyGitStatus(), branch: "main" },
 		runtime: null,
-		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastRun: undefined,
 	};
@@ -270,7 +268,6 @@ test("provides inline footer content without duplicating native rows", () => {
 	const state: FooterState = {
 		git: { ...emptyGitStatus(), branch: "main" },
 		runtime: null,
-		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastRun: undefined,
 	};
@@ -595,7 +592,6 @@ test("ASCII footer renders icons as semantic labels", () => {
 	const state: FooterState = {
 		git: { ...emptyGitStatus(), branch: "main", modified: 2 },
 		runtime: { name: "nodejs", version: "24.6.0" },
-		sessionStartEpoch: Date.now(),
 		workingSince: Date.now() - 2_000,
 		lastRun: undefined,
 	};
@@ -698,7 +694,6 @@ function renderFooterWithSession(opts: {
 	const state: FooterState = {
 		git: emptyGitStatus(),
 		runtime: null,
-		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastRun: undefined,
 	};
@@ -779,7 +774,6 @@ function renderFooterWithHost(opts: {
 	const state: FooterState = {
 		git: emptyGitStatus(),
 		runtime: null,
-		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastRun: undefined,
 	};
@@ -857,7 +851,6 @@ function renderStatusLines(statuses: Map<string, string>, width = 160): string[]
 	const state: FooterState = {
 		git: emptyGitStatus(),
 		runtime: null,
-		sessionStartEpoch: Date.now(),
 		workingSince: undefined,
 		lastRun: undefined,
 	};
@@ -962,4 +955,65 @@ test("status line wraps coloured text inside the given width", () => {
 	for (const line of lines) {
 		assert.ok(visibleWidth(line) <= 40, `width ${visibleWidth(line)} exceeds 40`);
 	}
+});
+
+function footerRegressionFixture() {
+	let factory: NonNullable<Parameters<ExtensionContext["ui"]["setFooter"]>[0]> | undefined;
+	const reads = { model: 0, statuses: 0 };
+	const ctx = {
+		ui: { setFooter(next: typeof factory) { factory = next; } },
+		sessionManager: { getCwd: () => "/work/project", getEntries: () => [], getSessionName: () => undefined },
+		getContextUsage: () => undefined,
+	} as unknown as ExtensionContext;
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	const state: FooterState = { git: emptyGitStatus(), runtime: null, workingSince: undefined, lastRun: undefined };
+	const handle = installFooter(ctx, () => state, () => config, () => {
+		reads.model++;
+		return { provider: "fixture", model: "model", effort: "off" };
+	}, { setRequestRender() {}, scheduleGitRefresh() {} });
+	assert.ok(factory);
+	const component = factory({ requestRender() {} } as TUI, theme, {
+		onBranchChange: () => () => {},
+		getExtensionStatuses() { reads.statuses++; return new Map([["fixture", "extension status"]]); },
+	} as unknown as ReadonlyFooterDataProvider) as Component;
+	return { config, state, handle, component, reads };
+}
+
+test("detached Git branch and commit switches are independent in plain and inline layouts", () => {
+	const { config, state, handle, component } = footerRegressionFixture();
+	state.git.commit = { detached: true, oid: "abcdef123456789", tag: "release-tag" };
+	for (const branch of [false, true]) for (const commit of [false, true]) {
+		config.footerSegments.gitBranch = branch;
+		config.footerSegments.gitCommit = commit;
+		for (const out of [component.render(200).join("\n"), handle.renderInline(200)!.top.left]) {
+			assert.equal(out.includes("HEAD"), branch, `HEAD: branch=${branch}, commit=${commit}`);
+			assert.equal(out.includes("abcdef1"), commit, `hash: branch=${branch}, commit=${commit}`);
+			assert.equal(out.includes("release-tag"), commit, `tag: branch=${branch}, commit=${commit}`);
+		}
+	}
+});
+
+test("footer renders only the requested layout and keeps extension status work out of inline borders", () => {
+	const { config, handle, component, reads } = footerRegressionFixture();
+	config.inlineFooter = true;
+	assert.match(component.render(100).join("\n"), /extension status/);
+	assert.deepEqual(reads, { model: 0, statuses: 1 });
+	handle.renderInline(100);
+	assert.deepEqual(reads, { model: 1, statuses: 1 });
+	config.inlineFooter = false;
+	assert.match(component.render(100).join("\n"), /extension status/);
+	assert.deepEqual(reads, { model: 2, statuses: 2 });
+	config.footerSegments.extensionStatuses = false;
+	assert.doesNotMatch(component.render(100).join("\n"), /extension status/);
+	assert.deepEqual(reads, { model: 3, statuses: 2 });
+});
+
+test("layout preserves higher-priority context/runtime over cwd and Git, in original order", () => {
+	const segments = [
+		{ text: "cwd", priority: 0 }, { text: "Git", priority: 3 },
+		{ text: "runtime", priority: 4 }, { text: "ctx", priority: 4 },
+	];
+	assert.deepEqual(fitSegmentsByPriority(segments, 11), ["runtime", "ctx"]);
+	assert.deepEqual(fitSegmentsByPriority(segments, 7), ["ctx"]);
 });

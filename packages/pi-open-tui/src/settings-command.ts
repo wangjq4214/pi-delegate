@@ -4,7 +4,6 @@ import {
 	Key,
 	matchesKey,
 	SelectList,
-	type Component,
 	type SelectItem,
 	type TUI,
 	Text,
@@ -260,7 +259,7 @@ interface SettingsUiHandle {
 class SettingsUi implements SettingsUiHandle {
 	private tab: Tab = "features";
 	private config: OpenTuiConfig;
-	private selectList: SelectList;
+	private selectList!: SelectList;
 	private readonly selectedItemByTab: Partial<Record<Tab, string>> = {};
 	private readonly container: Box;
 	private readonly theme: Theme;
@@ -281,13 +280,6 @@ class SettingsUi implements SettingsUiHandle {
 		this.onChange = onChange;
 		this.onClose = onClose;
 		this.container = new Box(1, 1, (s: string) => theme.bg("customMessageBg", s));
-		this.selectList = new SelectList([], 12, {
-			selectedPrefix: (t) => theme.fg("accent", t),
-			selectedText: (t) => theme.fg("accent", t),
-			description: (t) => theme.fg("muted", t),
-			scrollInfo: (t) => theme.fg("dim", t),
-			noMatch: (t) => theme.fg("warning", t),
-		});
 		this.rebuild();
 	}
 

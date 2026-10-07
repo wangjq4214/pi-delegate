@@ -8,6 +8,7 @@ import type { EditorTheme, TuiMouseEvent, TuiMouseEventResult, TUI } from "@eare
 import { CURSOR_MARKER, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { CursorStyle, EditorBorderStyle } from "./config.ts";
 import { findBottomBorderIndex, isEditorBorderLine, stripAnsi } from "./utils.ts";
+import { ThinkingLabelTarget } from "./thinking-label.ts";
 
 function fillLine(content: string, width: number): string {
 	const truncated = truncateToWidth(content, Math.max(0, width), "");
@@ -39,42 +40,14 @@ export interface InlineFooterLine {
 	right: string;
 }
 
+export interface InlineFooterLines {
+	top: InlineFooterLine;
+	bottom: InlineFooterLine;
+}
+
 export interface InlineFooterRenderer {
 	enabled(): boolean;
-	render(width: number): { top: InlineFooterLine; bottom: InlineFooterLine } | undefined;
-}
-
-interface HiddenThinkingLabelComponent {
-	children: unknown[];
-	setHiddenThinkingLabel(label: string): void;
-	setHideThinkingBlock(hide: boolean): void;
-	updateContent(message: unknown, isStreaming?: boolean): void;
-}
-
-function isHiddenThinkingLabelComponent(value: object): value is HiddenThinkingLabelComponent {
-	const component = value as unknown as Record<string, unknown>;
-	return Array.isArray(component.children)
-		&& typeof component.setHiddenThinkingLabel === "function"
-		&& typeof component.setHideThinkingBlock === "function"
-		&& typeof component.updateContent === "function";
-}
-
-/** Ponytail until Pi exposes a per-message hidden-thinking label API. */
-function findLatestHiddenThinkingLabel(tui: TUI): HiddenThinkingLabelComponent {
-	const pending: unknown[] = [tui];
-	const visited = new Set<object>();
-	let latest: HiddenThinkingLabelComponent | undefined;
-	while (pending.length > 0) {
-		const value = pending.pop();
-		if (!value || typeof value !== "object" || visited.has(value)) continue;
-		visited.add(value);
-		if (isHiddenThinkingLabelComponent(value)) latest = value;
-		const children = (value as { children?: unknown }).children;
-		if (!Array.isArray(children)) continue;
-		for (let i = children.length - 1; i >= 0; i--) pending.push(children[i]);
-	}
-	if (!latest) throw new Error("Unable to find the active hidden-thinking component");
-	return latest;
+	render(width: number): InlineFooterLines | undefined;
 }
 
 function removeSoftwareCursor(line: string, cursorMarker = ""): string {
@@ -353,15 +326,11 @@ export function installEditor(
 	let previousHardwareCursor: boolean | undefined;
 	let currentCursorStyle = cursorStyle;
 	let currentBorderStyle = borderStyle;
-	let hiddenThinkingTarget: HiddenThinkingLabelComponent | undefined;
-	const getActiveTui = (): TUI => {
-		if (!activeTui) throw new Error("Open TUI editor is not mounted");
-		return activeTui;
-	};
+	let thinkingLabel: ThinkingLabelTarget | undefined;
 
 	ctx.ui.setEditorComponent((tui, editorTheme, keybindings) => {
 		activeTui = tui;
-		hiddenThinkingTarget = undefined;
+		thinkingLabel = new ThinkingLabelTarget(tui);
 		previousHardwareCursor = tui.getShowHardwareCursor();
 		activeEditor = new OpenTuiEditor(tui, editorTheme, keybindings, currentCursorStyle, inlineFooter, currentBorderStyle, workline);
 		return activeEditor;
@@ -370,21 +339,15 @@ export function installEditor(
 		requestRender(): void {
 			activeTui?.requestRender();
 		},
-		getViewportWidth(): number {
-			const columns = getActiveTui().terminal.columns;
-			if (typeof columns !== "number" || !Number.isFinite(columns)) {
-				throw new Error("Open TUI editor terminal has an invalid width");
-			}
-			return Math.max(1, Math.floor(columns));
+		getViewportWidth(): number | undefined {
+			const columns = activeTui?.terminal?.columns;
+			return typeof columns === "number" && Number.isFinite(columns) ? Math.max(1, Math.floor(columns)) : undefined;
 		},
-		setLatestHiddenThinkingLabel(label: string): void {
-			const tui = getActiveTui();
-			hiddenThinkingTarget ??= findLatestHiddenThinkingLabel(tui);
-			hiddenThinkingTarget.setHiddenThinkingLabel(label);
-			tui.requestRender();
+		setLatestHiddenThinkingLabel(label: string): boolean {
+			return thinkingLabel?.set(label) ?? false;
 		},
 		resetHiddenThinkingLabelTarget(): void {
-			hiddenThinkingTarget = undefined;
+			thinkingLabel?.reset();
 		},
 		setBorderStyle(nextBorderStyle: EditorBorderStyle): void {
 			currentBorderStyle = nextBorderStyle;
@@ -395,7 +358,7 @@ export function installEditor(
 			activeEditor?.setCursorStyle(nextCursorStyle, previousHardwareCursor);
 		},
 		cleanup(): void {
-			hiddenThinkingTarget = undefined;
+			thinkingLabel = undefined;
 			ctx.ui.setEditorComponent(undefined);
 			if (activeTui) {
 				if (currentCursorStyle !== "block") activeTui.terminal.write(DEFAULT_CURSOR_STYLE_SEQUENCE);

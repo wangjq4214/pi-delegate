@@ -1,11 +1,12 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type OpenTuiConfig, DEFAULT_CONFIG, ensureConfigExists, loadConfig, saveConfig } from "./config.ts";
+import { type OpenTuiConfig, DEFAULT_CONFIG, loadConfig, saveConfig } from "./config.ts";
 import { installEditor } from "./editor.ts";
 import { installFooter } from "./footer.ts";
 import { createWorklineRenderer } from "./workline.ts";
 import { emptyGitStatus, readGitStatus } from "./git.ts";
 import { readRuntimeInfo } from "./runtime.ts";
 import { SessionLifecycle } from "./session-lifecycle.ts";
+import { LatestRefresh } from "./refresh.ts";
 import { registerSettingsCommand } from "./settings-command.ts";
 import { formatTurnTelemetry, TurnTelemetryTracker, type TurnTelemetry } from "./telemetry.ts";
 import { RunOutcomeTracker } from "./run-outcome.ts";
@@ -65,6 +66,16 @@ export default function (pi: ExtensionAPI) {
 	let peekSettleTimer: ReturnType<typeof setTimeout> | undefined;
 	let peekTaskEpoch = 0; // bumped at every agent task boundary
 	let peekLabelActive = false;
+	let peekWarningShown = false;
+
+	const gitRefresh = new LatestRefresh<typeof state.git>((git) => {
+		state.git = git;
+		requestFooterRender?.();
+	});
+	const runtimeRefresh = new LatestRefresh<typeof state.runtime>((runtime) => {
+		state.runtime = runtime;
+		requestFooterRender?.();
+	});
 
 	const getThinkingLevel = () => (sessionLifecycle.isCurrent() ? pi.getThinkingLevel() : "off");
 
@@ -80,30 +91,23 @@ export default function (pi: ExtensionAPI) {
 	/** Pi decides whether this label is visible; our toggle only controls updates. */
 	const isPeekEnabled = () => sessionLifecycle.isCurrent() && config.enabled && config.thinkingPeek.lines > 0 && active;
 
-	/** Keep each native hidden-thinking label row within Pi's narrowest transcript width. */
-	const hiddenThinkingLabelWidth = (): number => {
-		if (!editor) throw new Error("Open TUI editor is not installed");
-		return Math.max(
-			1,
-			editor.getViewportWidth() - HIDDEN_THINKING_HORIZONTAL_PADDING - HIDDEN_THINKING_SCROLLBAR_RESERVE,
-		);
-	};
-
 	const setPeekLabel = (ctx?: ExtensionContext): void => {
 		if (!isPeekEnabled() || peek.phase === "idle") return;
 		const target = ctx ?? lastCtx;
 		if (!target || !isTuiContext(target)) return;
-		if (!editor) throw new Error("Open TUI editor is not installed");
-		editor.setLatestHiddenThinkingLabel(
-			buildPeekLabel(
-				peek,
-				peekFrame,
-				resolveGlyphs(config.icons.mode),
-				hiddenThinkingLabelWidth(),
-				config.thinkingPeek.lines,
-			),
-		);
-		peekLabelActive = true;
+		const columns = editor?.getViewportWidth();
+		const updated = columns !== undefined && editor?.setLatestHiddenThinkingLabel(buildPeekLabel(
+			peek,
+			peekFrame,
+			resolveGlyphs(config.icons.mode),
+			Math.max(1, columns - HIDDEN_THINKING_HORIZONTAL_PADDING - HIDDEN_THINKING_SCROLLBAR_RESERVE),
+			config.thinkingPeek.lines,
+		));
+		if (updated) peekLabelActive = true;
+		else if (!peekWarningShown) {
+			peekWarningShown = true;
+			target.ui.notify("open-tui: thinking peek unavailable on this host; retaining the native label", "warning");
+		}
 	};
 
 	const clearPeekLabel = (ctx?: ExtensionContext): void => {
@@ -176,34 +180,29 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	const scheduleGitRefresh = async (ctx: ExtensionContext) => {
+	const scheduleGitRefresh = (ctx: ExtensionContext) => {
 		if (!sessionLifecycle.isCurrent()) return;
 		const segs = config.footerSegments;
-		if (!segs.gitBranch && !segs.gitStatus && !segs.gitCommit) {
+		if (!config.enabled || (!segs.gitBranch && !segs.gitStatus && !segs.gitCommit)) {
+			gitRefresh.invalidate();
 			state.git = emptyGitStatus();
 			requestFooterRender?.();
 			return;
 		}
-		const generation = sessionLifecycle.currentGeneration();
 		const cwd = ctx.cwd;
-		const git = await readGitStatus(cwd, {
-			readCommit: true,
-			readTag: segs.gitCommit,
-			readCounts: segs.gitStatus,
-		});
-		if (!sessionLifecycle.isCurrent(generation)) return;
-		state.git = git;
-		requestFooterRender?.();
+		const options = { readCommit: segs.gitCommit, readTag: segs.gitCommit, readCounts: segs.gitStatus };
+		gitRefresh.request(() => readGitStatus(cwd, options));
 	};
 
-	const refreshRuntime = async (ctx: ExtensionContext) => {
+	const refreshRuntime = (ctx: ExtensionContext) => {
 		if (!sessionLifecycle.isCurrent()) return;
-		const generation = sessionLifecycle.currentGeneration();
+		if (!config.enabled || !config.footerSegments.runtime) {
+			runtimeRefresh.invalidate();
+			state.runtime = null;
+			return;
+		}
 		const cwd = ctx.cwd;
-		const runtime = await readRuntimeInfo(cwd);
-		if (!sessionLifecycle.isCurrent(generation)) return;
-		state.runtime = runtime;
-		requestFooterRender?.();
+		runtimeRefresh.request(() => readRuntimeInfo(cwd));
 	};
 
 	const refreshInteractiveState = (ctx: ExtensionContext, project = false) => {
@@ -235,15 +234,21 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		sessionLifecycle.start();
+		pendingUiChange = undefined;
+		peekWarningShown = false;
+		peekTaskEpoch++;
+		resetPeek();
 		lastCtx = ctx;
-		state.sessionStartEpoch = Date.now();
+		gitRefresh.invalidate();
+		runtimeRefresh.invalidate();
+		state.git = emptyGitStatus();
+		state.runtime = null;
 		stopWorkingTimer();
 		runOutcome.reset();
 		turnTelemetry.reset();
 		worklineTelemetry = undefined;
 		invalidateUsageCache();
 
-		ensureConfigExists();
 		config = loadConfig((msg, level) => ctx.ui.notify(msg, level));
 		clearPeekLabel(ctx);
 
@@ -254,6 +259,8 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async (_event, ctx) => {
 		sessionLifecycle.shutdown();
+		gitRefresh.invalidate();
+		runtimeRefresh.invalidate();
 		stopWorkingTimer();
 		runOutcome.reset();
 		turnTelemetry.reset();
@@ -346,6 +353,7 @@ export default function (pi: ExtensionAPI) {
 		stopWorkingTimer();
 		editor?.requestRender();
 		requestFooterRender?.();
+		refreshInteractiveState(ctx, true);
 		const telemetry = turnTelemetry.handle(event);
 		if (telemetry && config.enabled && config.telemetry.enabled && isTuiContext(ctx)) {
 			if (config.workline.attachToBorder) {
@@ -359,9 +367,10 @@ export default function (pi: ExtensionAPI) {
 		// Only clear the peek label when this task is still the current one.
 		const settleEpoch = peekTaskEpoch;
 		if (peekSettleTimer) clearTimeout(peekSettleTimer);
+		const settleGeneration = sessionLifecycle.currentGeneration();
 		peekSettleTimer = setTimeout(() => {
 			peekSettleTimer = undefined;
-			if (!sessionLifecycle.isCurrent() || peekTaskEpoch !== settleEpoch) return;
+			if (!sessionLifecycle.isCurrent(settleGeneration) || peekTaskEpoch !== settleEpoch) return;
 			resetPeek();
 			clearPeekLabel(ctx);
 		}, 300);
@@ -389,7 +398,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("tool_execution_end", (_event, ctx) => {
-		refreshInteractiveState(ctx);
+		refreshInteractiveState(ctx, true);
 	});
 
 	pi.on("session_compact", (_event, ctx) => {
@@ -418,7 +427,14 @@ export default function (pi: ExtensionAPI) {
 			const cursorStyleChanged = config.cursorStyle !== newConfig.cursorStyle;
 			const borderStyleChanged = config.editorBorderStyle !== newConfig.editorBorderStyle;
 			const thinkingPeekLinesChanged = config.thinkingPeek.lines !== newConfig.thinkingPeek.lines;
-			saveConfig(newConfig);
+			try {
+				saveConfig(newConfig);
+			} catch (error) {
+				const detail = error instanceof Error ? error.message : String(error);
+				lastCtx?.ui.notify(newConfig.settingsLanguage === "zh"
+					? `open-tui：设置仅在本次会话生效，保存失败：${detail}`
+					: `open-tui: settings applied for this session only; save failed: ${detail}`, "warning");
+			}
 			config = newConfig;
 			if (newConfig.thinkingPeek.lines === 0 || !newConfig.enabled) {
 				resetPeek();
@@ -435,12 +451,7 @@ export default function (pi: ExtensionAPI) {
 			if (lastCtx) {
 				pendingUiChange = getPendingUiChange(newConfig.enabled, active);
 			}
-			const gitNeeded = newConfig.footerSegments.gitBranch || newConfig.footerSegments.gitStatus || newConfig.footerSegments.gitCommit;
-			if (lastCtx && gitNeeded) {
-				void scheduleGitRefresh(lastCtx);
-			} else {
-				state.git = emptyGitStatus();
-			}
+			if (lastCtx) refreshInteractiveState(lastCtx, true);
 			requestFooterRender?.();
 		},
 		onOverlayClosed: () => {
