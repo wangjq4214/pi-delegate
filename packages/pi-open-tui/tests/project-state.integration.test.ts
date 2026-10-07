@@ -39,7 +39,10 @@ function fixture(t: TestContext, options: { peek?: boolean; project?: boolean } 
 		setHideThinkingBlock() {}, updateContent() {},
 	};
 	const tui = {
-		children: [] as unknown[], terminal: { rows: 24, columns: 200, write() {} },
+		mode: "regular", doRender() {}, renderNow() {},
+		children: [] as unknown[], terminal: {
+			rows: 24, columns: 200, write() {}, start() {}, stop() {}, showCursor() {}, hideCursor() {},
+		},
 		getShowHardwareCursor: () => false, setShowHardwareCursor() {},
 		requestRender() { renders++; },
 	};

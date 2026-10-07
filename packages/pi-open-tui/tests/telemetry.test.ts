@@ -663,7 +663,8 @@ test("settled telemetry notifies attached, merges detached, and resets with task
 		const notifications: string[] = [];
 		let mountedEditor: OpenTuiEditor | undefined;
 		const tui = {
-			terminal: { rows: 24, columns: 200, write() {} },
+			mode: "regular", doRender() {}, renderNow() {},
+			terminal: { rows: 24, columns: 200, write() {}, start() {}, stop() {}, showCursor() {}, hideCursor() {} },
 			getShowHardwareCursor: () => false, setShowHardwareCursor() {}, requestRender() {},
 		};
 		const pi = {

@@ -157,6 +157,14 @@ Nerd Font mode also uses four distinct glyphs. `done` describes normal host comp
 
 The footer no longer shows a second working/result timer, regardless of `inlineFooter`. Both Workline switches apply immediately and are saved. Native retry/compaction status messages keep their own meaning, styling and display priority; narrow borders may compact or truncate the Workline to fit.
 
+## Cursor rendering
+
+`bar` and `underline` keep real, non-blinking terminal cursor shapes; they are not simulated with cell-consuming characters. `block` keeps Pi's software block and hides the real cursor while the editor owns focus. Cursor markers remain available for IME positioning; focused overlays retain their own cursor ownership.
+
+Open TUI installs a reversible, instance-scoped runtime compatibility adapter. It deduplicates cursor visibility commands during renders and, in regular mode, ends synchronized output only after final cursor positioning. It does not modify Pi source/installed files or globally intercept stdout. Disabling/reloading the extension restores its method adaptations and the captured hardware-cursor preference. If the host seam is unavailable, it warns and retains native output rather than claiming flicker prevention.
+
+Recorded-output integration tests cover Pi TUI 1.0.0 and the inspected installed 1.0.4. The adapter uses a non-public rendering method, so future hosts need verification. Actual visual results depend on terminal/tmux synchronized-output support; real terminal flicker and Chinese IME placement still require interactive verification. See the [cursor smoke checklist](docs/development.md#cursor-output-verification).
+
 ## Turn telemetry
 
 After each settled agent run, attached-to-border mode retains the transient telemetry notification without adding blank rows. Detached mode combines telemetry with the outcome and run duration in the same Workline row, with no separate notification; the result remains until the next run or session reset. Both modes respect telemetry settings; the detached row truncates to the available width. Tool-call turns are combined into that result:

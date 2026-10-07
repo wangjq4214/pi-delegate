@@ -44,7 +44,8 @@ for (const attached of [true, false]) {
 		let renderRequests = 0;
 		const notifications: string[] = [];
 		const tui = {
-			terminal: { rows: 24, columns: 100, write() {} },
+			mode: "regular", doRender() {}, renderNow() {},
+			terminal: { rows: 24, columns: 100, write() {}, start() {}, stop() {}, showCursor() {}, hideCursor() {} },
 			getShowHardwareCursor: () => false, setShowHardwareCursor() {},
 			requestRender() { renderRequests++; },
 		};

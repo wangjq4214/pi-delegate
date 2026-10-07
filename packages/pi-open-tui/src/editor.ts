@@ -9,6 +9,7 @@ import { CURSOR_MARKER, truncateToWidth, visibleWidth } from "@earendil-works/pi
 import type { CursorStyle, EditorBorderStyle } from "./config.ts";
 import { findBottomBorderIndex, isEditorBorderLine, stripAnsi } from "./utils.ts";
 import { ThinkingLabelTarget } from "./thinking-label.ts";
+import { installCursorOutput, type CursorOutput } from "./cursor-output.ts";
 
 function fillLine(content: string, width: number): string {
 	const truncated = truncateToWidth(content, Math.max(0, width), "");
@@ -177,8 +178,10 @@ export class OpenTuiEditor extends CustomEditor {
 	private cursorStyle: CursorStyle;
 	private borderStyle: EditorBorderStyle;
 	private previewHardwareCursor = false;
+	private readonly blockHardwareCursor: boolean;
 	private readonly workline: WorklineRenderer | undefined;
 	private detachedWorklineVisible = false;
+	private readonly refreshCursorOutput: (() => void) | undefined;
 
 	constructor(
 		tui: TUI,
@@ -188,18 +191,28 @@ export class OpenTuiEditor extends CustomEditor {
 		inlineFooter?: InlineFooterRenderer,
 		borderStyle: EditorBorderStyle = "surround",
 		workline?: WorklineRenderer,
+		refreshCursorOutput?: () => void,
 	) {
 		super(tui, editorTheme, keybindings, { paddingX: 0 });
 		this.cursorStyle = cursorStyle;
 		this.borderStyle = borderStyle;
 		this.inlineFooter = inlineFooter;
 		this.workline = workline;
+		this.blockHardwareCursor = tui.getShowHardwareCursor?.() ?? false;
+		this.refreshCursorOutput = refreshCursorOutput;
 		configureCursor(tui, cursorStyle);
 		// ponytail: route the frame through this.borderColor so Pi can recolor it
 		// via updateEditorBorderColor() — bash mode ("! " prefix → green) and
 		// thinking-level borders both flow through this one property.
 		this.getRail = () => this.borderColor("│");
 		this.getBorder = (s: string) => this.borderColor(s);
+	}
+
+	override invalidate(): void {
+		// Pi invalidates the remounted tree before the first frame, even when its
+		// transcript-exit mode switch intentionally skips terminal.start().
+		this.refreshCursorOutput?.();
+		super.invalidate();
 	}
 
 	override setPaddingX(_padding: number): void {
@@ -230,14 +243,14 @@ export class OpenTuiEditor extends CustomEditor {
 		this.tui.requestRender();
 	}
 
-	setCursorStyle(cursorStyle: CursorStyle, blockHardwareCursor = false): void {
+	setCursorStyle(cursorStyle: CursorStyle): void {
 		const styleChanged = cursorStyle !== this.cursorStyle;
 		this.previewHardwareCursor = cursorStyle !== "block";
 		this.cursorStyle = cursorStyle;
 		if (styleChanged) {
 			if (cursorStyle === "block") {
 				this.tui.terminal.write(DEFAULT_CURSOR_STYLE_SEQUENCE);
-				this.tui.setShowHardwareCursor(blockHardwareCursor);
+				this.tui.setShowHardwareCursor(this.focused ? false : this.blockHardwareCursor);
 			} else {
 				configureCursor(this.tui, cursorStyle);
 			}
@@ -247,8 +260,13 @@ export class OpenTuiEditor extends CustomEditor {
 
 	private renderBase(width: number): string[] {
 		const renderedLines = super.render(width);
-		if (this.cursorStyle === "block") return renderedLines;
-
+		if (this.cursorStyle === "block") {
+			// Keep the software block, but no duplicate real cursor. Unfocused overlays
+			// retain the host preference and their own CURSOR_MARKER ownership.
+			const show = this.focused ? false : this.blockHardwareCursor;
+			if (this.tui.getShowHardwareCursor?.() !== show) this.tui.setShowHardwareCursor?.(show);
+			return renderedLines;
+		}
 		// Pi re-applies settings.showHardwareCursor after session_start (/reload,
 		// /new, session switches). Non-block styles have no software cursor left to
 		// fall back on, so re-assert the hardware cursor instead of losing it.
@@ -266,6 +284,7 @@ export class OpenTuiEditor extends CustomEditor {
 	}
 
 	render(width: number): string[] {
+		this.refreshCursorOutput?.();
 		const native = this.embeddedWorkingStatusIndicator;
 		const indicator: WorkingStatusIndicator | undefined = this.workline ? {
 			renderInBorder: (budget) => this.workline!.render(budget, native),
@@ -327,13 +346,42 @@ export function installEditor(
 	let currentCursorStyle = cursorStyle;
 	let currentBorderStyle = borderStyle;
 	let thinkingLabel: ThinkingLabelTarget | undefined;
+	let cursorOutput: CursorOutput | undefined;
+	let disposed = false;
+	let warned = false;
+	const warnCursorOutput = () => {
+		if (warned) return;
+		warned = true;
+		ctx.ui.notify?.("open-tui: cursor output adaptation unavailable on this host; using native cursor output", "warning");
+	};
+	const release = () => {
+		cursorOutput?.cleanup();
+		cursorOutput = undefined;
+		if (activeTui) {
+			if (currentCursorStyle !== "block") activeTui.terminal.write(DEFAULT_CURSOR_STYLE_SEQUENCE);
+			if (previousHardwareCursor !== undefined) activeTui.setShowHardwareCursor(previousHardwareCursor);
+		}
+		activeTui = undefined;
+		activeEditor = undefined;
+	};
 
 	ctx.ui.setEditorComponent((tui, editorTheme, keybindings) => {
+		if (disposed) throw new Error("Open TUI editor has been removed");
+		// A host may call the factory again: restore the old instance before capturing preferences.
+		release();
 		activeTui = tui;
 		thinkingLabel = new ThinkingLabelTarget(tui);
 		previousHardwareCursor = tui.getShowHardwareCursor();
-		activeEditor = new OpenTuiEditor(tui, editorTheme, keybindings, currentCursorStyle, inlineFooter, currentBorderStyle, workline);
-		return activeEditor;
+		cursorOutput = installCursorOutput(tui, warnCursorOutput);
+		if (!cursorOutput) warnCursorOutput();
+		try {
+			activeEditor = new OpenTuiEditor(tui, editorTheme, keybindings, currentCursorStyle, inlineFooter, currentBorderStyle, workline,
+				() => cursorOutput?.refresh());
+			return activeEditor;
+		} catch (error) {
+			release();
+			throw error;
+		}
 	});
 	return {
 		requestRender(): void {
@@ -355,14 +403,16 @@ export function installEditor(
 		},
 		setCursorStyle(nextCursorStyle: CursorStyle): void {
 			currentCursorStyle = nextCursorStyle;
-			activeEditor?.setCursorStyle(nextCursorStyle, previousHardwareCursor);
+			activeEditor?.setCursorStyle(nextCursorStyle);
 		},
 		cleanup(): void {
+			if (disposed) return;
+			disposed = true;
 			thinkingLabel = undefined;
-			ctx.ui.setEditorComponent(undefined);
-			if (activeTui) {
-				if (currentCursorStyle !== "block") activeTui.terminal.write(DEFAULT_CURSOR_STYLE_SEQUENCE);
-				if (previousHardwareCursor !== undefined) activeTui.setShowHardwareCursor(previousHardwareCursor);
+			try {
+				ctx.ui.setEditorComponent(undefined);
+			} finally {
+				release();
 			}
 		},
 	};

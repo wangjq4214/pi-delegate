@@ -16,6 +16,7 @@ This package imports [OldSuns/pi-open-tui](https://github.com/OldSuns/pi-open-tu
 - Configuration/Git reliability are local changes: known-field validation with legacy-field retention, same-filesystem replacement and visible save failures; porcelain-v2 branch/stash/change parsing; independent branch/commit switches; single-flight latest-only project refreshes after tools and settlement. Run outcomes and telemetry definitions are unchanged.
 - Runtime suffix markers are explicit. Gradle Kotlin DSL retains Java/JVM precedence; C-only source evidence disambiguates C from the historical C++ Make/CMake fallback. Version probes accept both stdout and stderr.
 - Thinking-label component-tree adaptation lives in `thinking-label.ts` with cycle protection, message-scoped caching/reset, and a once-per-session warning on unavailable compatibility. The editor owns frame geometry; footer content computes only the requested plain/inline layout and does not collect extension statuses for inline borders.
+- Cursor output adaptation is a local runtime change isolated in `cursor-output.ts`: it resolves Pi's stable TUI reference to the current renderer, installs reversible instance wrappers, preserves bounded output and opaque terminal strings, delays regular-mode sync-end until cursor positioning completes, and deduplicates render-time visibility commands in both modes. It never patches host files, global prototypes or stdout. Block hides the editor's real cursor; bar/underline retain real shapes. Terminal restart and editor invalidation rebind the adapter before mode-switch output, including fullscreen transcript exit without terminal restart. Capability failure warns and falls back to native cursor output; this is not a guarantee for future host implementations.
 
 The imported extension and tests are excluded from Biome formatting, lint, and import organization through a narrowly scoped root override. This intentionally preserves the upstream snapshot rather than introducing a mass rewrite. Package metadata and workspace integration tests remain checked by Biome; imported code is verified by TypeScript and its upstream tests.
 
@@ -57,6 +58,25 @@ Source changes take effect after Pi's `/reload`. The `dev` script runs Pi in thi
 In a UTF-8 terminal, verify the native Pi header (no custom Logo or command-tip panel), footer, framed editor, `/open-tui` settings tabs and language switch, icon modes, inline footer, turn telemetry, and thinking peek. Settings are written to `~/.pi/agent/open-tui.json`, the same location used upstream; existing settings are reused. Thinking peek needs a reasoning model and Pi's Hide thinking option. Automated tests do not establish end-to-end terminal or provider compatibility.
 
 For run outcomes, check both Workline placements and Nerd/Unicode/ASCII icon modes. Verify normal completion (`done`), provider failure (`failed`), an observable streaming/tool-phase abort (`interrupted`), and ambiguous recovery cancellation or unresolved truncation (`ended`). Confirm the timer continues through retry/compaction/continuations without an early successful status, native special statuses retain priority, and `/new`, resume/fork/reload and successful tree navigation clear the retained result. The leading icons must differ without relying on color. Tests using the actual pinned host and a deterministic provider are lifecycle integration evidence, not live terminal/font or external-provider verification.
+
+## Cursor output verification
+
+Automated tests use actual Pi TUI renderers and the host's stable forwarding reference with a recording terminal, not a live display. `cursor-output.test.ts` covers fragmented CSI, opaque OSC/DCS/APC/PM/SOS payloads, bounded streaming, cursor-only frames, exceptions, cache invalidation and restoration/other-wrapper ownership. `cursor-output.integration.test.ts` covers both modes, all three styles, both Workline placements, transcript growth/shrink, marker coordinates, focused overlays, style preview, forced repaint/resize, normal mode switching, transcript exit without terminal restart, repeated editor factories and unsupported-seam warning/fallback. Error tests include a partially emitted fullscreen terminal write; sync-end recovery remains best-effort if further terminal writes also fail. The package test command includes both files.
+
+To exercise another installed host without changing its files, from this package directory run (replace the module root):
+
+```sh
+OPEN_TUI_CURSOR_HOST_MODULES=/path/to/global/node_modules node --test tests/cursor-output.integration.test.ts
+```
+
+Output tests passed against the pinned Pi TUI 1.0.0 and the locally inspected installed 1.0.4. They do not prove actual visual or IME behavior. Before acceptance, load the freshly built bundle once (do not also load source/upstream/another installed copy), and record the terminal version plus any tmux/SSH layer:
+
+1. In both regular and fullscreen mode, test block, bar and underline with Workline attached and detached while the assistant streams. No transient cursor should appear on Workline, and editor cursors should not pulse with refreshes. Bar remains a real thin bar; underline remains a real terminal underline; block has no second real cursor.
+2. Type Chinese with an IME, plus wide/combining/emoji text. Candidate windows should follow the input position, including line ends and wrapped lines. Verify input content and cursor navigation remain correct.
+3. Open/close an input dialog and `/open-tui`; preview all styles, return focus, resize, and switch Pi's TUI mode. Dialog cursor ownership must remain correct and no stale editor preview should leak through another overlay.
+4. Disable/re-enable Open TUI, `/reload`, `/new`, and exit. Check that the native editor and shell cursor are restored and no synchronized-output mode remains stuck.
+
+If any scenario fails, retain the exact bundle/version and reproduction. Optionally capture `PI_TUI_WRITE_LOG` on a separate Pi run for ANSI diagnosis; recorded commands alone are not approval of visual correctness. This checklist remains pending until actual terminal/IME feedback is supplied.
 
 ## Bundle debugging and packaging
 
