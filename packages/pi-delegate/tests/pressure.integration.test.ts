@@ -869,7 +869,7 @@ for (const boundary of ["tree", "shutdown"] as const) {
 				await host.prompt(`STATUS ${id}`);
 				const query = tool(await host.messages(), "delegate_status");
 				expect(query.isError).toBe(true);
-				expect(textOf(query)).toContain(`Unknown background task: ${id}`);
+				expect(textOf(query)).toContain(`Unknown delegated task: ${id}`);
 				expect(
 					(await host.messages()).filter(
 						(m) => m.role === "custom" && m.customType === BACKGROUND_MESSAGE,

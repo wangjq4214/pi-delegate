@@ -8,6 +8,7 @@ import type {
 } from "./delegate.ts";
 
 import type { SteeringControl, SteeringReceipt } from "./steering.ts";
+import type { TaskDetails, TaskRecord } from "./tasks.ts";
 export const BACKGROUND_USAGE_NOTICE =
 	"Background task usage is reported separately and is not automatically included in Pi parent-session totals.";
 export const BACKGROUND_MESSAGE = "pi-delegate:completed";
@@ -20,6 +21,7 @@ export interface BackgroundTaskDetails {
 	usage?: DelegationResult["usage"];
 	accounting: string;
 	deliveryError?: string;
+	task?: TaskDetails;
 }
 export interface BackgroundTaskResult {
 	content: [{ type: "text"; text: string }];
@@ -41,6 +43,7 @@ export type BackgroundSteeringResult = {
 interface Task {
 	id: string;
 	controller: AbortController;
+	record?: TaskRecord;
 	context: TaskContext;
 	operation: Promise<void>;
 	phase: "queued" | "initializing" | "running";
@@ -71,7 +74,8 @@ export class BackgroundTasks {
 		if (this.closed) throw new Error("Background task owner is closing");
 		options.signal?.throwIfAborted();
 		const task: Task = {
-			id: randomUUID(),
+			id: options.taskRecord?.taskId ?? randomUUID(),
+			record: options.taskRecord,
 			controller: new AbortController(),
 			context,
 			operation: Promise.resolve(),
@@ -95,6 +99,7 @@ export class BackgroundTasks {
 				},
 				onSteeringControl: (control) => {
 					task.steering = control;
+					options.onSteeringControl?.(control);
 				},
 			}))()
 			.catch((error: unknown) =>
@@ -122,7 +127,7 @@ export class BackgroundTasks {
 				isError: true,
 			};
 		}
-		return this.view(task);
+		return this.view(task, true);
 	}
 
 	async steer(
@@ -182,28 +187,39 @@ export class BackgroundTasks {
 		const task = this.tasks.get(taskId);
 		if (!task) return this.query(taskId);
 		if (!task.result) {
+			task.record?.cancelRequested();
 			task.controller.abort();
 			await task.operation;
 		}
 		return this.query(taskId);
 	}
 
-	private view(task: Task): BackgroundTaskResult {
-		const result = task.result;
-		const status = result?.details.status ?? task.phase;
+	private view(task: Task, includeMetadata = false): BackgroundTaskResult {
+		const record = task.record?.valid() ? task.record : undefined;
+		const metadata = record?.details();
+		const result = record?.result ?? task.result;
+		const status = result?.details.status ?? metadata?.status ?? task.phase;
 		return {
 			content: [
 				{
 					type: "text",
-					text: `[Background task ${task.id}: ${status}]\n${BACKGROUND_USAGE_NOTICE}${result ? `\n\n${result.content[0].text}` : "\nAccepted for background execution; this is not a final task result."}`,
+					text: `[Background task ${task.id}: ${status}]\n${BACKGROUND_USAGE_NOTICE}${includeMetadata && metadata ? `\nTask metadata: ${JSON.stringify(metadata)}` : ""}${result ? `\n\n${result.content[0].text}` : "\nAccepted for background execution; this is not a final task result."}`,
 				},
 			],
 			details: {
 				taskId: task.id,
 				status,
-				...(result ? { result: result.details, usage: result.usage } : {}),
-				...(!result && task.usage ? { usage: task.usage } : {}),
+				...(result
+					? {
+							result: structuredClone(result.details),
+							usage: metadata?.usage ?? structuredClone(result.usage),
+						}
+					: {}),
+				...(!result && (metadata || task.usage)
+					? { usage: metadata?.usage ?? structuredClone(task.usage) }
+					: {}),
 				accounting: BACKGROUND_USAGE_NOTICE,
+				...(metadata ? { task: metadata } : {}),
 				...(task.deliveryError ? { deliveryError: task.deliveryError } : {}),
 			},
 			isError: result?.isError ?? false,
@@ -229,6 +245,7 @@ export class BackgroundTasks {
 					task.deliveryError =
 						error instanceof Error ? error.message : String(error);
 				}
+				task.record?.delivered(task.deliveryError);
 			}
 			// Queue clearing and async compaction handlers need not emit another settled event.
 			if ([...this.tasks.values()].some((task) => task.pendingDelivery))

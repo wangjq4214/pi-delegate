@@ -19,7 +19,11 @@ import {
 	type RpcExtensionUIResponse,
 	type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
-import { BACKGROUND_MESSAGE, BackgroundTasks } from "./background.ts";
+import {
+	BACKGROUND_MESSAGE,
+	BACKGROUND_USAGE_NOTICE,
+	BackgroundTasks,
+} from "./background.ts";
 import {
 	type ConfigurationDetails,
 	captureConfiguration,
@@ -51,6 +55,8 @@ import { type RpcDiagnostics, RpcProcess } from "./rpc.ts";
 import { Admission, concurrencyLimit } from "./scheduling.ts";
 import { AgentStatus, type StatusObserver } from "./status.ts";
 import { type SteeringControl, TaskSteering } from "./steering.ts";
+import { registerTaskPanel } from "./task-panel.ts";
+import { type TaskRecord, TaskRecords } from "./tasks.ts";
 import { entriesUsage, sumUsage, UsageLedger } from "./usage.ts";
 
 export function resolveCli(): string {
@@ -73,6 +79,8 @@ export interface DelegationOptions {
 	context?: string;
 	pressure?: PressureOverrides;
 	status?: StatusObserver;
+	taskRecord?: TaskRecord;
+	onCwd?: (cwd: string) => void;
 	onSteeringControl?: (control: SteeringControl) => void;
 	onPhase?: (phase: "queued" | "initializing" | "running") => void;
 	onUsage?: (usage: Usage) => void;
@@ -100,6 +108,7 @@ export type StartupStage =
 export interface DelegationDetails
 	extends Omit<Awaited<ReturnType<typeof formatDelegationOutput>>, "text"> {
 	status: DelegationStatus;
+	taskId?: string;
 	stopReason?: AssistantMessage["stopReason"];
 	sessionId?: string;
 	error?: string;
@@ -206,6 +215,7 @@ export async function runDelegation(
 			);
 			rpc.child.once("spawn", () => {
 				details.cwd = options.cwd;
+				options.onCwd?.(options.cwd);
 				startupStage = "initialize";
 			});
 			await rpc.request("prompt", { message: `/${INIT_COMMAND}` });
@@ -480,10 +490,21 @@ export function registerDelegate(
 ): void {
 	const active = new Map<AbortController, Promise<unknown>>();
 	const status = new AgentStatus();
+	const updateStatus = (update: () => void): void => {
+		try {
+			update();
+		} catch (error) {
+			console.error("pi-delegate Agents view update failed", error);
+		}
+	};
+	const records = new TaskRecords();
+	records.subscribe(status.update);
 	const admission = new Admission(concurrencyLimit(), (capacity) =>
-		status.capacity(capacity),
+		updateStatus(() => status.capacity(capacity)),
 	);
-	const ledger = new UsageLedger((total) => status.total(total));
+	const ledger = new UsageLedger((total) =>
+		updateStatus(() => status.total(total)),
+	);
 	const observedRun: typeof runDelegation = async (options) => {
 		const task = {};
 		let latest = sumUsage([]);
@@ -506,12 +527,14 @@ export function registerDelegate(
 			options.signal?.throwIfAborted();
 			const result = await run({ ...options, onPhase: phase, onUsage: report });
 			report(result.usage);
+			const identified = options.taskRecord?.complete(result) ?? result;
 			options.status?.finish(result.details.status);
-			return result;
+			return identified;
 		} catch (error) {
 			const result = failedResult(error, options.signal?.aborted, {}, latest);
+			const identified = options.taskRecord?.complete(result) ?? result;
 			options.status?.finish(result.details.status);
-			return result;
+			return identified;
 		} finally {
 			release?.();
 		}
@@ -575,7 +598,7 @@ export function registerDelegate(
 			name: DELEGATE_TOOL,
 			label: "Delegate",
 			description:
-				"Run a self-contained task in a fresh subagent with inherited tools except delegation. The parent conversation is not copied; supply necessary context. By default the subagent shares the parent working directory; optional cwd selects another existing directory, not a sandbox. Coordinate file edits. By default, wait for the result. With background:true, return a taskId and deliver completion automatically; use delegate_status, delegate_steer, or delegate_cancel to manage the task. Large results include a full-output file path.",
+				"Run a self-contained task in a fresh subagent with inherited tools except delegation. The parent conversation is not copied; supply necessary context. By default the subagent shares the parent working directory; optional cwd selects another existing directory, not a sandbox. Coordinate file edits. By default, wait for the result. With background:true, return a taskId and deliver completion automatically; use delegate_list to discover tasks and delegate_status for details. delegate_steer/delegate_cancel manage background tasks only. Large results include a full-output file path.",
 			parameters,
 			prepareArguments(args) {
 				if (args === null || typeof args !== "object" || Array.isArray(args))
@@ -617,6 +640,7 @@ export function registerDelegate(
 				const combined = signal
 					? AbortSignal.any([signal, controller.signal])
 					: controller.signal;
+				let record: TaskRecord | undefined;
 				try {
 					combined.throwIfAborted();
 					const cwdError = (
@@ -657,6 +681,16 @@ export function registerDelegate(
 						process.argv.slice(2),
 						cwd,
 					);
+					record = records.accept({
+						task: params.task,
+						title: params.title,
+						mode: params.background ? "background" : "synchronous",
+						cwd,
+						configuration: requestedConfiguration,
+						pressure: policy,
+					});
+					const progress = record.progress;
+					updateStatus(() => status.show(progress));
 					const options: DelegationOptions = {
 						...inherited,
 						requestedConfiguration,
@@ -665,7 +699,10 @@ export function registerDelegate(
 						context: params.context,
 						pressure: policy,
 						signal: combined,
-						status: status.add(params.task, params.title),
+						status: record.progress,
+						taskRecord: record,
+						onCwd: record.spawned,
+						onSteeringControl: record.controlled,
 					};
 					if (params.background) return background.start(options, ctx);
 					const operation = observedRun({
@@ -680,12 +717,103 @@ export function registerDelegate(
 					active.set(controller, operation);
 					return await operation;
 				} catch (error) {
-					return failedResult(error, combined.aborted);
+					const result = failedResult(error, combined.aborted);
+					return record?.complete(result) ?? result;
 				} finally {
 					// Dialogs belong to this invocation, including when the child fails.
 					// Do not abort the execution signal and turn a completed result into cancellation.
 					uiController.abort();
 					active.delete(controller);
+				}
+			},
+		}),
+	);
+	const query = (taskId: string) => {
+		const record = records.get(taskId);
+		if (!record)
+			return {
+				content: [
+					{ type: "text" as const, text: `Unknown delegated task: ${taskId}` },
+				],
+				details: { taskId, status: "failed" as const },
+				isError: true,
+			};
+		const backgroundMode = record.input.mode === "background";
+		if (backgroundMode) {
+			const view = background.query(taskId);
+			if (view.details.task) return view;
+		}
+		const result = record.result;
+		const task = record.details();
+		const accounting = backgroundMode
+			? BACKGROUND_USAGE_NOTICE
+			: "Synchronous usage is accounted through the initiating delegate result; queries do not charge it again.";
+		return {
+			content: [
+				{
+					type: "text" as const,
+					text: `[${backgroundMode ? "Background" : "Synchronous"} task ${taskId}: ${task.status}]\n${accounting}\nTask metadata: ${JSON.stringify(task)}\n${result?.content[0].text ?? "No final result available."}`,
+				},
+			],
+			details: {
+				taskId,
+				status: task.status,
+				task,
+				...(result ? { result: structuredClone(result.details) } : {}),
+				usage: structuredClone(record.progress.usageValue),
+				accounting,
+				...(task.delivery.error ? { deliveryError: task.delivery.error } : {}),
+			},
+			isError: result?.isError ?? false,
+		};
+	};
+	pi.registerTool(
+		defineTool({
+			name: "delegate_list",
+			label: "List delegated tasks",
+			description:
+				"Discover synchronous and background tasks in the current session/branch without remembered task IDs. Returns bounded summaries, not results; use delegate_status for details. Observing tasks does not charge usage again.",
+			parameters: Type.Object({
+				group: Type.Optional(
+					Type.Union([
+						Type.Literal("all"),
+						Type.Literal("active"),
+						Type.Literal("finished"),
+					]),
+				),
+				offset: Type.Optional(
+					Type.Integer({
+						minimum: 0,
+						description:
+							"Live-list offset; defaults to 0. Ordering can change as tasks finish.",
+					}),
+				),
+				limit: Type.Optional(
+					Type.Integer({
+						minimum: 1,
+						maximum: 100,
+						description: "Maximum summaries; defaults to 20.",
+					}),
+				),
+			}),
+			async execute(_id, params) {
+				try {
+					const page = records.list(params);
+					return {
+						content: [{ type: "text", text: JSON.stringify(page) }],
+						details: page,
+					};
+				} catch (error) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: error instanceof Error ? error.message : String(error),
+							},
+						],
+						details: undefined,
+						isError: true,
+					};
 				}
 			},
 		}),
@@ -697,18 +825,30 @@ export function registerDelegate(
 				label: cancel ? "Cancel delegated task" : "Delegated task status",
 				description: cancel
 					? "Cancel a background task and wait for cleanup. Already-finished tasks return their existing result. Does not cancel the parent turn or undo changes already made."
-					: "Get a background task's current status, available result, and separate usage without waiting for completion. Completion is delivered automatically; repeated polling is unnecessary. Results remain queryable if the completion message was cleared.",
+					: "Get a synchronous or background task's current status, metadata, available result, and usage without waiting for completion. Background completion is delivered automatically; repeated polling is unnecessary. Results remain queryable if the completion message was cleared.",
 				parameters: Type.Object({
 					taskId: Type.String({
 						minLength: 1,
 						description:
-							"Exact taskId returned by delegate with background:true in the current session/branch runtime.",
+							"Exact taskId returned by delegate or discovered by delegate_list in the current session/branch runtime.",
 					}),
 				}),
 				async execute(_id, params) {
-					return cancel
-						? await background.cancel(params.taskId)
-						: background.query(params.taskId);
+					if (!cancel) return query(params.taskId);
+					const record = records.get(params.taskId);
+					if (record?.input.mode === "synchronous")
+						return {
+							content: [
+								{
+									type: "text",
+									text: "Synchronous tasks are read-only; cancel the initiating call instead.",
+								},
+							],
+							details: { taskId: params.taskId },
+							isError: true,
+						};
+					if (record?.result) return query(params.taskId);
+					return background.cancel(params.taskId);
 				},
 			}),
 		);
@@ -723,7 +863,7 @@ export function registerDelegate(
 				taskId: Type.String({
 					minLength: 1,
 					description:
-						"Exact taskId returned by delegate with background:true in the current session/branch runtime.",
+						"Exact taskId returned by delegate with background:true or discovered by delegate_list for a background task in the current session/branch runtime.",
 				}),
 				message: Type.String({
 					description:
@@ -731,17 +871,40 @@ export function registerDelegate(
 				}),
 			}),
 			async execute(_id, params) {
+				if (records.get(params.taskId)?.input.mode === "synchronous")
+					return {
+						content: [
+							{
+								type: "text",
+								text: "Synchronous tasks are read-only; manual steering is background-only.",
+							},
+						],
+						details: {
+							taskId: params.taskId,
+							status: "failed" as const,
+							error: "Synchronous tasks are read-only",
+						},
+						isError: true,
+					};
 				return background.steer(params.taskId, params.message);
 			},
 		}),
 	);
-	pi.on("session_start", (_event, ctx) => status.bind(ctx));
+	registerTaskPanel(pi, records, {
+		cancel: (taskId) => background.cancel(taskId),
+		steer: (taskId, message) => background.steer(taskId, message),
+	});
+	pi.on("session_start", (_event, ctx) => {
+		records.invalidate(true);
+		updateStatus(() => status.bind(ctx));
+	});
 	pi.on("agent_settled", () => background.scheduleDelivery());
 	pi.on("session_compact", () => background.scheduleDelivery());
 	pi.on("session_compact_failed", () => background.scheduleDelivery());
 	pi.on("session_before_tree", async (event) => {
 		if (event.preparation.targetId !== event.preparation.oldLeafId) {
-			status.clear();
+			updateStatus(() => status.clear());
+			records.invalidate();
 			await background.invalidate();
 		}
 	});
@@ -749,12 +912,14 @@ export function registerDelegate(
 		// A prompt may accept new work while before-tree handlers/summarization await.
 		// Commit invalidation prevents that source-branch work reaching the new leaf.
 		if (event.newLeafId !== event.oldLeafId) {
-			status.clear();
+			updateStatus(() => status.clear());
+			records.invalidate();
 			await background.invalidate();
 		}
 	});
 	pi.on("session_shutdown", async () => {
-		status.close();
+		updateStatus(() => status.close());
+		records.invalidate();
 		ledger.close();
 		for (const controller of active.keys()) controller.abort();
 		await Promise.allSettled([...active.values(), background.invalidate(true)]);

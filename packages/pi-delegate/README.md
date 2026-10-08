@@ -11,7 +11,7 @@ pi-delegate is a TypeScript extension for Pi. It launches one-off subagents over
 - **Fresh subagents:** each task runs in a new session; delegation tools are available only to the parent agent.
 - **Tool inheritance:** reconstruct the parent's tools and extensions, preserving activation and discoverability.
 - **Synchronous and background execution:** wait for a result or continue working while a session-owned task runs.
-- **Task management:** receive model-visible completion messages, query background results, and cancel tasks explicitly.
+- **Task management:** discover synchronous/background tasks, inspect retained results, and manage background work in a floating `/delegates` TUI panel or through tools.
 - **Runtime steering:** add context, narrow scope, or request a report from an active background child without restarting it.
 - **Soft pressure and status UI:** configure task-local finish reminders and monitor subagents above the TUI input.
 
@@ -87,9 +87,12 @@ By default, the call waits for the child's final outcome. To continue working wh
 | Tool | Purpose |
 | --- | --- |
 | `delegate` | Start a fresh synchronous or background subagent. |
-| `delegate_status` | Query a background task by its returned `taskId`. |
+| `delegate_list` | Discover bounded task summaries in the current session/branch. |
+| `delegate_status` | Inspect a synchronous or background task by exact `taskId`. |
 | `delegate_cancel` | Cancel a background task and wait for resource cleanup. |
 | `delegate_steer` | Submit plain-text instructions to an active background task by `taskId`. |
+
+In TUI mode, `/delegates` opens one floating list → details → confirmation/instruction panel. Synchronous IDs are read-only: independent cancellation and steering remain background-only. Records/results survive five-second compact-row expiry, but not scope invalidation; the panel does not require pi-open-tui.
 
 See the [usage guide](docs/usage.md) for parameters, result states, pressure settings, and the status UI.
 

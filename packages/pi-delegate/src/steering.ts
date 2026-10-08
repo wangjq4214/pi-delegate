@@ -7,6 +7,7 @@ export type SteeringReceipt =
 /** The task owner receives no process, transport, or lifecycle authority. */
 export interface SteeringControl {
 	steer(message: string): Promise<SteeringReceipt>;
+	state?(): "not_ready" | "ready" | "closed";
 }
 
 /** Runner-owned readiness, closure and the one task-local RPC submission boundary. */
@@ -16,6 +17,12 @@ export class TaskSteering {
 	private closed = false;
 	private tail: Promise<unknown> = Promise.resolve();
 	readonly control: SteeringControl = {
+		state: () =>
+			this.closed
+				? "closed"
+				: this.started && this.confirmed
+					? "ready"
+					: "not_ready",
 		steer: async (message) => {
 			if (this.closed)
 				return { status: "closed", error: "Task execution control is closed" };

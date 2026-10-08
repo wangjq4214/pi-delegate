@@ -11,7 +11,7 @@ pi-delegate 是一个 Pi TypeScript 扩展，通过 RPC 启动一次性子 agent
 - **全新的子 agent**：每个任务使用新会话；委派工具仅对主 agent 可用。
 - **工具继承**：重新初始化主 agent 的工具和扩展，保留启用状态与可发现性。
 - **同步与后台执行**：等待结果，或在会话所属任务运行期间继续其他工作。
-- **任务管理**：接收模型可见的完成消息，查询后台结果，并显式取消任务。
+- **任务管理**：发现同步／后台任务、查看保留的结果，通过浮动 `/delegates` TUI 面板或工具管理后台任务。
 - **运行时 steering**：向活跃后台子 agent 补充背景、缩小范围或请求报告，无需取消并重启。
 - **软催促与状态 UI**：配置任务级收尾提醒，在 TUI 输入框上方查看子 agent 状态。
 
@@ -87,9 +87,12 @@ pi install /absolute/path/to/checkout/packages/pi-delegate
 | 工具 | 用途 |
 | --- | --- |
 | `delegate` | 启动全新的同步或后台子 agent。 |
-| `delegate_status` | 使用返回的 `taskId` 查询后台任务。 |
+| `delegate_list` | 返回当前会话／分支内的有界任务摘要。 |
+| `delegate_status` | 使用精确 `taskId` 查看同步或后台任务详情。 |
 | `delegate_cancel` | 取消后台任务并等待资源清理。 |
 | `delegate_steer` | 使用 `taskId` 向活跃后台任务提交纯文本指令。 |
+
+在 TUI 模式中，`/delegates` 打开单个浮动面板，依次浏览列表、详情、取消确认／指令输入。同步任务 ID 仅供查询，独立取消与 steering 仍只适用于后台任务。记录／结果不会随五秒状态行消失而删除，但会随所属作用域失效；无需安装 pi-open-tui。
 
 参数、结果状态、催促配置和状态 UI 的详细说明请参阅[使用指南](docs/usage.md)。
 

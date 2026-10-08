@@ -6,16 +6,17 @@ This guide describes the model-callable tools provided by pi-delegate. Load the 
 
 ## Tools
 
-The parent agent receives four tools:
+The parent agent receives five tools:
 
 | Tool | Purpose |
 | --- | --- |
 | `delegate` | Start a fresh subagent and wait for its outcome, or accept a background task. |
-| `delegate_status` | Retrieve a background task's state and available result. |
+| `delegate_list` | Discover bounded synchronous/background summaries in the current session/branch. |
+| `delegate_status` | Retrieve either mode's metadata, observed progress, and available result. |
 | `delegate_cancel` | Cancel a background task and wait for execution-resource cleanup. |
 | `delegate_steer` | Submit additional plain-text instructions to an active background task. |
 
-Children do not register any of these tools. Apart from an internal child-initialization command, the extension does not register user commands.
+Children do not register any of these tools or the parent-only `/delegates` task-panel command. Apart from these parent capabilities, there is only an internal child-initialization command.
 
 ## Starting a task
 
@@ -26,7 +27,7 @@ Children do not register any of these tools. Apart from an internal child-initia
 | `task` | Yes | Task text. Empty or whitespace-only text is rejected. |
 | `context` | No | Supplementary context. The parent's complete conversation is not copied. |
 | `cwd` | No | Existing child startup directory; relative to the parent's invocation cwd. Omitted uses parent cwd. |
-| `title` | No | Short TUI display title. Defaults to the shortened first line of `task`. |
+| `title` | No | Short TUI display title. Defaults to the first line of `task`; summaries may shorten it, but details retain the full sanitized supplied title. |
 | `background` | No | Set to `true` to return a background task ID instead of waiting. Defaults to synchronous execution. |
 | `model` | No | Exact configured `{ "provider": "...", "id": "..." }` identity; omitted inherits the current parent model. |
 | `thinkingLevel` | No | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`; omitted independently inherits the current parent level. |
@@ -78,6 +79,8 @@ Terminal synchronous results expose `details.configuration.requested` and, when 
 
 The call waits for capacity, then remains pending through child execution and cleanup. See [startup concurrency configuration](runtime.md#concurrency-scheduling). Cancelling the initiating call cancels its child. Each invocation creates a new process and a fresh in-memory session; previous child conversations are not reused.
 
+An accepted synchronous task has an exact query ID, discoverable while the initiating call is pending through `delegate_list` and returned as `details.taskId` in its final result. Querying does not shorten the initiating call, change its cancellation ownership, deliver a background completion message, or charge usage again. Independent `delegate_cancel` and `delegate_steer` calls against a synchronous ID are explicitly rejected.
+
 ### Background execution
 
 Background mode is supported only in long-lived TUI and RPC parent sessions. Requests from one-shot print or JSON mode fail explicitly.
@@ -101,34 +104,44 @@ When the child reaches a terminal outcome, the extension sends a model-visible `
 
 This is not merely a UI notification. Delivery is not a durable acknowledgement that the model consumed the result, and exactly-once model processing is not guaranteed.
 
-## Querying and cancelling background tasks
+## Discovering tasks and unified details
 
-Use the ID returned by the background call:
+Call `delegate_list` without remembered IDs:
 
 ```json
-{ "taskId": "<taskId returned by delegate>" }
+{ "group": "all", "offset": 0, "limit": 20 }
 ```
 
-Pass this object to `delegate_status` to query, or to `delegate_cancel` to cancel.
+`group` is `all` (default), `active`, or `finished`; `offset` defaults to 0; `limit` defaults to 20 and accepts integers from 1 to 100. The response contains `tasks`, `total`, and `nextOffset` when another page exists. Active tasks appear first in acceptance order; finished tasks appear newest first. Offsets describe a live list, not a frozen snapshot, so retain exact task IDs rather than treating row positions as identity when ordering changes.
 
-- Queries return the current state and any available output. A running state is not a final answer.
-- Terminal results remain queryable in their originating session/branch scope, even if a completion message was cleared or not processed.
-- `delegate_cancel` waits for child-process and initialization-resource cleanup. Cancelling an already finished task preserves its result.
-- Failed and cancelled task queries have `isError: true`. Unknown or invalidated IDs fail explicitly.
-- Exit, session replacement/forking, extension reload, and branch-changing `/tree` navigation invalidate task IDs. See [task ownership](runtime.md#task-ownership-and-cleanup).
+Each bounded summary contains `taskId`, its non-reused session-local numeric `label`, title, execution `mode`, status/phase, execution elapsed seconds, completed turns, current activity, `resultAvailable`, `cancelling`, and applicable controls. Listing does not include task/context bodies, transcripts, result bodies, thinking content or tool arguments. Empty scopes and filters return an empty list.
 
-### Background result fields
+Pass an exact discovered ID to `delegate_status`:
+
+```json
+{ "taskId": "<exact taskId>" }
+```
+
+Both modes return metadata in the model-visible text and `details.task`: summary identity/progress; selected and confirmed effective startup cwd; requested and confirmed effective model/thinking; current tools (including concurrent/nested tools); resolved pressure policy and highest RPC-accepted stage; available usage; completion-delivery observation; and control availability/reasons. Missing effective fields are unconfirmed, not success. Cwd is startup configuration, not a continuously observed directory or sandbox. Elapsed time excludes queue/initialization, and tool calls do not add turns.
 
 | Field | Meaning |
 | --- | --- |
-| `details.taskId` | Background task identifier. |
-| `details.status` | `queued`, `initializing`, `running`, or one of the four terminal outcomes below. |
-| `details.result` | Available child-result metadata, including session/stop reason, errors, truncation, and full-output path when present. |
-| `details.usage` | Available child token and cost usage. |
-| `details.accounting` | Reminder that background usage is separate from Pi's parent-session totals. |
-| `details.deliveryError` | Completion-delivery error, when one was observed. |
+| `details.taskId`, `details.status` | Exact identity and current phase or terminal outcome. |
+| `details.task` | Unified scope-local task metadata and observations. |
+| `details.result` | Available final metadata: outcome, session/stop reason, errors, truncation and full-output path. |
+| `details.usage` | Available child token/cost usage; failure/cancellation values can be partial. |
+| `details.accounting` | Mode-specific accounting reminder. |
+| `details.deliveryError` | Background completion-delivery error, if observed. |
 
-Background usage is reported separately and is **not automatically included in Pi's parent-session totals**. Query and cancellation tools do not return top-level usage, preventing duplicate accounting. Synchronous usage reporting is unchanged.
+Available output follows the existing [preview and full-file rules](#large-output). No final result is invented while a task is active. Failed/cancelled queries have `isError: true`; unknown or invalidated IDs fail explicitly. A completion-delivery failure does not change execution status or remove the retained result. `submitted` only means the host message call returned successfully, not that a model consumed it.
+
+All records/results remain discoverable through the originating session/branch scope, independent of five-second compact-row expiry or completion-message clearing. There is no TTL/count eviction or cross-session persistence. Exit, session replacement/forking, reload, and branch-changing navigation invalidate IDs; records are not moved to another session or branch. Paging limits responses, not retention.
+
+Background usage is separate from Pi's parent-session totals. Synchronous usage is reported through the initiating result. Listing, querying, panel viewing and manual controls never return top-level task usage or charge it again.
+
+## Cancelling background tasks
+
+Pass the exact background ID to `delegate_cancel`. It waits for owned child-process and initialization-resource cleanup; queued/initializing work is cancellable even before steering is ready. Cancelling an already finished task preserves its existing result. It does not cancel the parent turn, restart terminal work, remove the selected workspace, or undo file changes/external effects. Synchronous IDs are read-only; cancel the initiating synchronous call instead.
 
 ## Steering an active background task
 
@@ -160,7 +173,7 @@ Every receipt includes `details.taskId`; unsuccessful receipts include `details.
 
 Manual instructions and automatic pressure share one task-local submission boundary that waits for the preceding RPC outcome. This is not a priority policy or a model-consumption guarantee. After an uncertain timeout, the earlier host preprocessing may still run. Slash-leading caller text is prefixed as instruction text, while trusted host input handling and host steering mode remain intact.
 
-Controls close on `agent_settled` (not low-level `agent_end`), cancellation, ownership invalidation and cleanup—even if public status still says `running` during result collection. Settlement can race an already-submitted handler: even a late successful receipt may be unconsumed and cannot reopen the task. Ordinary parent-turn completion/cancellation leaves accepted background work and its active control intact. Public synchronous steering handles, TUI steering panels and enforced filesystem permissions are not provided.
+Controls close on `agent_settled` (not low-level `agent_end`), cancellation, ownership invalidation and cleanup—even if public status still says `running` during result collection. Settlement can race an already-submitted handler: even a late successful receipt may be unconsumed and cannot reopen the task. Ordinary parent-turn completion/cancellation leaves accepted background work and its active control intact. Synchronous task IDs remain read-only; enforced filesystem permissions are not provided.
 
 ## Terminal outcomes
 
@@ -222,6 +235,18 @@ RPC acceptance or queuing does not prove model consumption or compliance. Inheri
 
 Pressure is advisory: even after both stages, the extension does not automatically kill the child, disable tools, or change the task's outcome. There is no guaranteed maximum runtime or turn count. Explicit cancellation and normal cleanup still apply.
 
+## Floating task panel
+
+Run `/delegates` in TUI mode. This opens a single theme-aware native Pi overlay, without requiring or importing pi-open-tui. It uses the same records, exact identities, observations and background controls as the tools; closing the panel is not task cancellation.
+
+- **List:** All / Active / Finished filters, live status/results and stable exact-ID selection. `↑/↓` selects, `Tab` / `Shift+Tab` changes filter, `Enter` opens details, and `Esc` / `q` closes.
+- **Details:** Overview / Result tabs (`Tab`); `↑/↓` and `PgUp/PgDn` scroll metadata or available output. Long results retain their full-output path. `Esc` / `q` returns to the list.
+- **Background controls:** `c` opens an exact-task cancellation confirmation, including the no-rollback warning; `Enter` confirms. `s` opens plain-text instruction composition only when the original task is steer-ready; `Enter` submits and `Esc` discards. Unicode and literal `q` are input text in composition. Synchronous tasks show a read-only reason, not enabled actions.
+- **Receipts:** in-flight operations stay responsive; their status/receipt is shown without pretending that queued/handled steering was consumed. Uncertain operations are not automatically retried. If readiness or execution changes during confirmation/composition, the action rechecks availability before dispatch.
+- **Lifecycle:** live redraws preserve the task identity rather than reselecting by row index. Theme/resize changes reflow content; very short terminals show resize guidance. Closing disposes only panel resources and restores host focus. Scope invalidation closes the panel and suppresses stale callbacks.
+
+Outside TUI mode, use `delegate_list` / `delegate_status`; the command reports that the overlay requires TUI. Automated component/native-overlay evidence is not a full real-terminal keyboard, fullscreen or IME acceptance claim; see [testing boundaries](development.md#testing).
+
 ## TUI status display
 
 In TUI mode, a compact list above the input shows synchronous and background children, not the parent.
@@ -234,13 +259,13 @@ Each child has:
 - `pressure: none / warning / urgent`.
 - A separate `│  model: provider/id · thinking: level` row showing confirmed startup configuration; before confirmation it says `unconfirmed`. The `│` aligns with the activity connector and `model` aligns with activity text. Thinking metadata does not imply observed thinking activity.
 - An aligned `│  ↑... ↓... R... W... · $...` usage row; see [usage accounting and estimate limits](runtime.md#delegated-usage-visibility).
-- A subordinate line with only current observed activity, such as `thinking…` or `toolcall · read`.
+- A subordinate line with only current observed activity, such as `thinking…` or `toolcall · read`. With concurrent tools, the most recent name is followed by `(+N)` for the others; details list all current names.
 
 The heading shows occupied/maximum capacity and queued count, followed by a separately labelled Delegated total. The list does not display thinking content, tool arguments, results, or roles. Queued and initializing phases are explicit and excluded from time/turn counts; elapsed execution time continues during provider/tool waits.
 
 Pressure advances only after the child's RPC accepts that stage's steering request; it does not indicate consumption or compliance.
 
-Terminal outcomes remain visible for 5 seconds and are then removed from the UI only. Background results stay queryable while their scope remains valid. Branch changes clear task rows/callbacks but retain cumulative delegated usage. Session replacement/reload and shutdown end the owning total.
+Terminal outcomes remain visible for 5 seconds and are then removed from the UI only. Both modes' records/results stay discoverable and queryable while their scope remains valid. Branch changes clear task rows/callbacks but retain cumulative delegated usage. Session replacement/reload and shutdown end the owning total.
 
 The Agents area has 2-column horizontal insets when space permits and a 1-line gap above and below, counting Pi's existing widget spacing rather than doubling it. Insets shrink on narrow terminals before consuming space needed for identity and summary metadata.
 
@@ -252,4 +277,4 @@ Colors follow Pi's active theme, including theme switches and host-supported cus
 
 Narrow terminals preserve space for the numeric label, time, turns, and pressure where possible, shortening the title first. Extremely narrow output is truncated to terminal width. RPC, print, and JSON execution do not depend on this component.
 
-The numeric UI label does not replace the background `taskId` used for queries, steering and cancellation.
+The numeric UI label does not replace the exact `taskId` used for queries, steering and cancellation.

@@ -405,7 +405,7 @@ test("real Pi RPC: actual tree navigation invalidates pending work and does not 
 		await host.prompt(`STATUS ${id}`); // Destination branch stays usable; former task is unknown.
 		const query = tool(await host.messages(), "delegate_status");
 		expect(query.isError).toBe(true);
-		expect(textOf(query)).toContain(`Unknown background task: ${id}`);
+		expect(textOf(query)).toContain(`Unknown delegated task: ${id}`);
 		expect(completions(await host.messages())).toHaveLength(0);
 	});
 }, 30_000);

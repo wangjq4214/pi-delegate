@@ -352,7 +352,7 @@ test("child registration excludes delegate entirely, not just its activation", (
 				on: () => () => {},
 			} as unknown as ExtensionAPI);
 			expect(tools).toEqual(child ? [] : DELEGATION_TOOLS);
-			expect(commands).toEqual(child ? ["pi-delegate-init"] : []);
+			expect(commands).toEqual(child ? ["pi-delegate-init"] : ["delegates"]);
 		}
 	} finally {
 		if (previous === undefined) delete process.env[CHILD_ENV];

@@ -5,13 +5,18 @@ import type {
 	ThemeColor,
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { TaskConfiguration } from "./configuration.ts";
 import type { DelegationStatus } from "./delegate.ts";
 import type { PressureClock } from "./pressure.ts";
-
+import {
+	type AcceptedPressure,
+	type StatusObserver,
+	safeText,
+	TaskProgress,
+	taskClock,
+} from "./progress.ts";
 import type { Capacity } from "./scheduling.ts";
-import { formatUsage, sumUsage } from "./usage.ts";
-export type AcceptedPressure = "none" | "warning" | "urgent";
+import { formatUsage } from "./usage.ts";
+
 const pressureColors: Record<AcceptedPressure, ThemeColor> = {
 	none: "dim",
 	warning: "warning",
@@ -23,49 +28,12 @@ const outcomeColors: Record<DelegationStatus, ThemeColor> = {
 	failed: "error",
 	cancelled: "muted",
 };
-export interface StatusObserver {
-	observe(record: Record<string, unknown>): void;
-	accepted(stage: Exclude<AcceptedPressure, "none">): void;
-	configured?(configuration: TaskConfiguration): void;
-	phase?(phase: "queued" | "initializing" | "running"): void;
-	usage?(usage: Usage): void;
-	finish(status: DelegationStatus): void;
-}
-interface Row {
-	id: number;
-	title: string;
-	startedAt?: number;
-	stoppedAt?: number;
-	terminalAt?: number;
-	turns: number;
-	pressure: AcceptedPressure;
-	activity: string;
-	tools: Map<string, string>;
-	status?: DelegationStatus;
-	configuration?: TaskConfiguration;
-	usage: Usage;
-}
-const clock: PressureClock = {
-	now: () => performance.now() / 1000,
-	schedule: (callback, ms) => {
-		const timer = setTimeout(callback, ms);
-		return () => clearTimeout(timer);
-	},
-};
-// Only one line of display metadata; control/ANSI sequences cannot manipulate the terminal.
-function clean(text: string): string {
-	return (
-		text
-			// biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately remove terminal escape sequences.
-			.replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
-			.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ")
-			.trim()
-	);
-}
+
+export type { AcceptedPressure, StatusObserver } from "./progress.ts";
 
 /** Visual owner only: handles are invalid after scope changes; results live elsewhere. */
 export class AgentStatus {
-	private rows = new Map<number, Row>();
+	private rows = new Map<number, TaskProgress>();
 	private next = 0;
 	private generation = 0;
 	private ui?: ExtensionContext["ui"];
@@ -74,7 +42,7 @@ export class AgentStatus {
 
 	private pool?: Capacity;
 	private delegated?: Usage;
-	constructor(private time: PressureClock = clock) {}
+	constructor(private time: PressureClock = taskClock) {}
 
 	capacity(capacity: Capacity): void {
 		this.pool = capacity;
@@ -132,111 +100,30 @@ export class AgentStatus {
 
 	add(task: string, title?: string): StatusObserver | undefined {
 		if (!this.ui) return undefined;
-		const row: Row = {
-			id: ++this.next,
-			title: truncateToWidth(
-				clean((title?.trim() || task).split(/\r?\n/)[0] ?? ""),
+		const generation = this.generation;
+		const row = new TaskProgress(
+			++this.next,
+			truncateToWidth(
+				safeText((title?.trim() || task).split(/\r?\n/)[0] ?? ""),
 				60,
 			),
-			turns: 0,
-			pressure: "none",
-			activity: "initializing…",
-			tools: new Map(),
-			usage: sumUsage([]),
-		};
-		const generation = this.generation;
-		const valid = () =>
-			generation === this.generation && this.rows.get(row.id) === row;
+			this.time,
+			() => generation === this.generation && this.rows.get(row.id) === row,
+			this.refresh,
+		);
+		this.show(row);
+		return row;
+	}
+
+	/** Display a shared record without taking ownership of its lifetime. */
+	show(row: TaskProgress): void {
+		if (!this.ui) return;
+		this.next = Math.max(this.next, row.id);
 		this.rows.set(row.id, row);
 		this.mount();
 		this.refresh();
-		return {
-			phase: (phase) => {
-				if (!valid() || row.status || row.startedAt !== undefined) return;
-				row.activity = phase === "queued" ? "queued" : `${phase}…`;
-				this.refresh();
-			},
-			usage: (usage) => {
-				if (!valid()) return;
-				row.usage = structuredClone(usage);
-				this.refresh();
-			},
-			configured: (configuration) => {
-				if (!valid() || row.status) return;
-				row.configuration = structuredClone(configuration);
-				this.refresh();
-			},
-			observe: (record) => {
-				if (!valid() || row.status || row.stoppedAt !== undefined) return;
-				if (record.type === "agent_start" && row.startedAt === undefined) {
-					row.startedAt = this.time.now();
-					row.activity = "running…";
-				}
-				if (row.startedAt === undefined) return;
-				switch (record.type) {
-					case "message_update": {
-						const event = record.assistantMessageEvent as
-							| { type?: string }
-							| undefined;
-						if (
-							event?.type === "thinking_start" ||
-							event?.type === "thinking_delta"
-						)
-							row.activity = "thinking…";
-						else if (
-							event?.type === "thinking_end" ||
-							event?.type === "text_start" ||
-							event?.type === "text_delta" ||
-							event?.type === "toolcall_start"
-						)
-							row.activity = "running…";
-						break;
-					}
-					case "message_start":
-					case "message_end":
-						row.activity = "running…";
-						break;
-					case "tool_execution_start":
-						if (
-							typeof record.toolCallId === "string" &&
-							typeof record.toolName === "string"
-						)
-							row.tools.set(record.toolCallId, clean(record.toolName));
-						row.activity = "running…";
-						break;
-					case "tool_execution_end":
-						if (typeof record.toolCallId === "string")
-							row.tools.delete(record.toolCallId);
-						row.activity = "running…";
-						break;
-					case "turn_end":
-						row.turns++;
-						row.tools.clear();
-						row.activity = "running…";
-						break;
-					case "agent_settled":
-					case "rpc_failure":
-						row.stoppedAt = this.time.now();
-						row.tools.clear();
-						row.activity = "finishing…";
-				}
-				this.refresh();
-			},
-			accepted: (stage) => {
-				if (!valid() || row.status) return;
-				if (row.pressure !== "urgent") row.pressure = stage;
-				this.refresh();
-			},
-			finish: (status) => {
-				if (!valid() || row.status) return;
-				row.status = status;
-				row.stoppedAt ??= this.time.now();
-				row.terminalAt = this.time.now();
-				row.tools.clear();
-				this.refresh();
-			},
-		};
 	}
+	update = (): void => this.refresh();
 
 	render(width: number, theme?: Pick<Theme, "fg">): string[] {
 		if ((!this.rows.size && !this.delegated) || width <= 0) return [];
@@ -305,16 +192,19 @@ export class AgentStatus {
 						"muted",
 						"  │  " +
 							(configuration
-								? `model: ${clean(configuration.model.provider)}/${clean(configuration.model.id)} · thinking: ${clean(configuration.thinkingLevel)}`
+								? `model: ${safeText(configuration.model.provider)}/${safeText(configuration.model.id)} · thinking: ${safeText(configuration.thinkingLevel)}`
 								: "model: unconfirmed · thinking: unconfirmed"),
 					),
 					"…",
 				),
 			);
-			lines.push(line(fg("muted", `  │  ${formatUsage(row.usage)}`), "…"));
+			lines.push(line(fg("muted", `  │  ${formatUsage(row.usageValue)}`), "…"));
 			const tool = [...row.tools.values()].at(-1);
 			const activity =
-				row.status ?? (tool ? `toolcall · ${tool}` : row.activity);
+				row.status ??
+				(tool
+					? `toolcall · ${tool}${row.tools.size > 1 ? ` (+${row.tools.size - 1})` : ""}`
+					: row.activity);
 			const color = row.status
 				? outcomeColors[row.status]
 				: !tool &&

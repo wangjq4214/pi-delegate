@@ -10,10 +10,12 @@ Unchecked items below are unimplemented capability candidates, listed in suggest
 
 ### 1. Task listing and details
 
-- [ ] Expose a capability such as `delegate_list` to list queued, active, and terminal tasks in the current session/branch scope, without requiring the caller to remember each `taskId`.
-- [ ] Provide consistent task details: title, `taskId`, cwd, model, elapsed time, turns, current tool, pressure, usage, and available result. Distinguish requested configuration from confirmed effective configuration.
-- [ ] Establish an explicit relationship between TUI numeric labels and `taskId`; provide a TUI task panel for inspecting results, cancelling work, and sending additional instructions.
-- [ ] Keep execution outcome distinct from completion-message delivery failure. Task discovery and result access should not depend on the short-lived terminal status row.
+Implemented in the current source: `delegate_list`, unified `delegate_status`, read-only synchronous IDs and the native `/delegates` floating panel. Automated RPC/component/native-overlay checks cover this increment; real regular/fullscreen terminal and IME acceptance remains pending. See [verification boundaries](development.md#testing).
+
+- [x] Expose a capability such as `delegate_list` to list queued, active, and terminal tasks in the current session/branch scope, without requiring the caller to remember each `taskId`.
+- [x] Provide consistent task details: title, `taskId`, cwd, model, elapsed time, turns, current tool, pressure, usage, and available result. Distinguish requested configuration from confirmed effective configuration.
+- [x] Establish an explicit relationship between TUI numeric labels and `taskId`; provide a TUI task panel for inspecting results, cancelling work, and sending additional instructions.
+- [x] Keep execution outcome distinct from completion-message delivery failure. Task discovery and result access should not depend on the short-lived terminal status row.
 
 ### 2. Reviewable, traceable result handoff
 
@@ -40,7 +42,7 @@ Unchecked items below are unimplemented capability candidates, listed in suggest
 - [ ] On a limit-triggered stop, record the reason, retain available output and usage, and complete owned execution-resource cleanup. Cancellation does not roll back file changes or external side effects.
 - [ ] Evaluate token/cost policies later. Delayed or missing usage and estimated pricing prevent a promise of an exact supplier-billing ceiling.
 
-The recommended next increment is **task listing/details plus a lightweight result handoff template**: make work manageable and its output reviewable before adding more execution controls.
+The recommended next increment is **a lightweight result handoff template**: make work manageable and its output reviewable before adding more execution controls.
 
 ## Delivered foundations
 

@@ -220,7 +220,7 @@ async function withRuntime(
 				await host.session.waitForIdle();
 				const q = tool(host.session, "delegate_status");
 				expect(q.isError).toBe(true);
-				expect(textOf(q)).toContain(`Unknown background task: ${id}`);
+				expect(textOf(q)).toContain(`Unknown delegated task: ${id}`);
 			},
 		});
 		expect(errors).toEqual([]);

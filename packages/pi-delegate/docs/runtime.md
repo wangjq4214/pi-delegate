@@ -53,13 +53,15 @@ MCP reconnects using the same configuration. Parent connections, caches, arbitra
 
 After initialization, the extension checks inherited tool availability, schema, exposure, namespace, and activation state. Tools that cannot be reconstructed fail explicitly: they are not silently omitted, and execution does not fall back to parent proxies.
 
-Model/thinking inheritance is a plain invocation snapshot with independent optional overrides. The runner uses exact RPC `set_model` (not fuzzy CLI model patterns), then `set_thinking_level` and `get_state` after tool initialization and before original-task submission. Pi adjusts thinking capabilities and checks child-local auth configuration. Results distinguish requested and confirmed effective startup values; the visual-only Agents list consumes confirmed data. Model selection/readback failures never execute the task on a fallback model. No resolved credentials are copied, and no task overrides are persisted to user/project defaults.
+Model/thinking inheritance is a plain invocation snapshot with independent optional overrides. The runner uses exact RPC `set_model` (not fuzzy CLI model patterns), then `set_thinking_level` and `get_state` after tool initialization and before original-task submission. Pi adjusts thinking capabilities and checks child-local auth configuration. Results distinguish requested and confirmed effective startup values; shared scope-local records, query tools and Agents/panel views consume confirmed data. Model selection/readback failures never execute the task on a fallback model. No resolved credentials are copied, and no task overrides are persisted to user/project defaults.
 
 Keep configuration files stable during child startup. Unobservable host-private flags and arbitrary runtime state are outside the inheritance contract.
 
 ## Parent-only delegation
 
-The child loads this extension, but does not register `delegate`, `delegate_status`, `delegate_cancel`, or `delegate_steer`. These capabilities are unavailable through direct model declarations, tool search, and nested `codemode` calls.
+The child loads this extension, but does not register `delegate`, `delegate_list`, `delegate_status`, `delegate_cancel`, or `delegate_steer`. These capabilities are unavailable through direct model declarations, tool search, and nested `codemode` calls.
+
+The parent additionally registers `/delegates` for the floating task panel; it is not reconstructed as a child command. Numeric task labels are presentation correlations, not alternative control IDs.
 
 This is a tool-registration boundary, not an operating-system sandbox. A child with shell access still has process-level capabilities and can launch other processes.
 
@@ -68,6 +70,14 @@ This is a tool-registration boundary, not an operating-system sandbox. A child w
 ### Synchronous tasks
 
 The initiating delegation call owns the child. Cancelling that call or shutting down the parent session terminates the child and cleans up owned initialization resources.
+
+Synchronous tasks have scope-local read-only query IDs and retained results. The record does not own a second controller, extend the call's lifetime or send completion notifications. Task-addressed cancellation/steering against these IDs rejects without aborting the initiating call.
+
+### Shared observations and records
+
+The non-visual task record is accepted after validation and feeds list/query tools, the compact Agents view and the floating overlay from the same observation reducer. It correlates exact taskId with a session-local increasing label, stores selected versus confirmed startup information, and retains available results until existing scope invalidation. It does not launch children, control RPC, own completion delivery or replace the usage ledger.
+
+The five-second terminal-row timer removes only presentation rows. Paging limits each response, not the retained task set; there is no TTL/count eviction or cross-session persistence. Navigation clears records and closes the old panel while generation guards suppress late observations/results. Existing execution cleanup, cumulative/late usage reconciliation and external workspace/full-output-file lifetimes remain independent. Closing or viewing an overlay neither cancels work nor triggers parent inference.
 
 ### Background tasks
 
@@ -105,7 +115,7 @@ Full-output files are separate result artifacts and intentionally survive this c
 
 ## Runtime steering control
 
-The background task owner resolves scope-local IDs and receives only a narrow `steer(message)` capability. The execution runner continues to own the process, transport, readiness observations and cleanup. Manual steering and pressure await RPC outcomes through the same task-local serial submission boundary; stdin write serialization alone would not order asynchronous Pi input handlers.
+The background task owner resolves scope-local IDs and receives only a narrow `steer(message)` capability and read-only readiness/closure observation. The execution runner continues to own the process, transport, readiness observations and cleanup. Manual steering and pressure await RPC outcomes through the same task-local serial submission boundary; stdin write serialization alone would not order asynchronous Pi input handlers.
 
 Readiness begins only after initialization and original-task start. Cancellation/invalidation disables controls synchronously, and `agent_settled` closes control before result collection/cleanup completes. Low-level `agent_end` may precede continuation and does not close it. Pending local submissions recheck closure before sending; an already-submitted host handler can finish after settlement without reopening the control or triggering a replacement run.
 
@@ -116,6 +126,8 @@ Manual text uses non-slash-prefixed raw RPC `steer`, preserving trusted handlers
 Background outcomes remain available for task queries independently of the host's completion-message queue. The extension delivers pending outcomes when the originating parent can process them, using a model-visible follow-up message and idle turn triggering.
 
 The message API does not provide a durable acknowledgement of model consumption. Delivery does not promise exactly-once inference; querying the task is the recovery path if a completion message is cleared or not processed.
+
+An observed completion-message exception is reported separately from execution status. It neither rewrites a successful task as failed nor removes listing/details/result access. The record's `submitted` state is only successful host submission, never evidence of parent-model consumption.
 
 ## Child UI requests
 
@@ -145,6 +157,6 @@ Tools and environment inherited by a child may carry substantial authority. Excl
 
 The implementation is validated with Pi 1.0.0. That evidence does not establish compatibility with every Pi version.
 
-Tests exercise real Pi RPC processes, inheritance and MCP reconstruction, lifecycle boundaries, and deterministic local model providers. TUI runtime integration is covered, but full terminal rendering and keyboard/picker end-to-end behavior are not claimed. Tests requiring external model credentials are not part of the current verification.
+Tests exercise real Pi RPC processes, inheritance and MCP reconstruction, lifecycle boundaries, and deterministic local model providers. Task-center component and native custom-overlay/focus integration are covered, but real regular/fullscreen terminal rendering, keyboard/picker E2E and IME operation are not claimed. Tests requiring external model credentials are not part of the current verification.
 
 See the [development guide](development.md#testing) for verification commands and test boundaries.

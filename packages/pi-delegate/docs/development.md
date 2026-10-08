@@ -83,12 +83,14 @@ The test suite includes:
 - Background completion delivery, cancellation, session replacement/reload, and branch-navigation boundaries.
 - Pressure timing/turn semantics and TUI status behavior.
 - Background runtime steering readiness/closure, manual-pressure serialization, trusted handlers, slash safety, both host modes, real control timeout, provider-input boundaries, and child discovery/nested/codemode exclusion.
+- Headless synchronous/background discovery, exact-ID/label correlation, bounded paging/filtering, retained results after visual expiry, delivery/execution separation and stale scope callbacks.
+- Task-panel filters/selection, result scrolling, cancellation confirmation/cleanup responsiveness, Unicode/plain-text instruction composition, terminal-control sanitization, resize/theme behavior and native overlay editor-focus restoration.
 - Real Pi processes with deterministic local model providers and MCP fixtures.
 - Hook behavior in isolated temporary Git repositories.
 
 Hook tests create commits only in temporary repositories and do not change this project's index or history. Tests do not include model-call end-to-end scenarios requiring external credentials.
 
-TUI tests exercise the real runtime APIs and status component, not a complete terminal rendering/keyboard/picker end-to-end workflow. Host compatibility beyond Pi 1.0.0 is not currently verified.
+TUI tests exercise real runtime/status APIs, task-panel keyboard/render/scroll logic and Pi's native custom-overlay focus/disposal adapter with an injected terminal driver. They are not a complete real regular/fullscreen terminal rendering, keyboard/picker or IME end-to-end workflow. Host compatibility beyond Pi 1.0.0 is not currently verified.
 
 Biome does not check Markdown formatting. For documentation-only changes, inspect the rendered structure, verify relative links and examples, keep the README translations aligned, and run `git diff --check`.
 
@@ -120,7 +122,7 @@ README.zh-CN.md                   Workspace overview (Chinese)
 packages/pi-delegate/
   README.md, README.zh-CN.md      Published extension overviews
   docs/                          Usage, runtime, development, roadmap
-  src/                           Unchanged extension runtime and status UI
+  src/                           Execution, shared task observations/records, compact status and floating panel
   tests/                         Delegate tests and local fixtures
   skills/                        Bundled delegate-worktree skill
   package.json                   Published Pi package manifest

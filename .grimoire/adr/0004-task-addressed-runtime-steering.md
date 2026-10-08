@@ -1,7 +1,8 @@
 # Task-addressed runtime steering within background ownership
 
-**Status:** Completed
+**Status:** Superseded
 **Date:** 2026-10-04
+**Superseded by:** [0016-unified-scope-local-task-discovery](./0016-unified-scope-local-task-discovery.md), only for the exclusion of public synchronous task handles. Background-only steering, runner ownership, readiness, receipt, sequencing and lifecycle decisions remain applicable.
 
 ## Context
 
