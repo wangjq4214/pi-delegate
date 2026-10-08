@@ -7,7 +7,7 @@
 	"engines": {
 		"node": ">=22.19.0"
 	},
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"description": "A polished TUI for Pi coding agent: Starship-style footer, rounded editor with model metadata, and prompt-box user messages.",
 	"type": "module",
 	"repository": {
