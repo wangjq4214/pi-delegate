@@ -12,7 +12,7 @@ import {
 import { type Component, Container, Markdown, Spacer, ScrollView, VStack, Text, TuiMainScreen, TuiAltScreen, sliceByColumn, stripTerminalSequences, visibleWidth, type Terminal } from "@earendil-works/pi-tui";
 import { LEGACY_DEFAULT_CONFIG as DEFAULT_CONFIG, DEFAULT_CONFIG as NEW_DEFAULT_CONFIG, DEFAULT_USER_BORDER } from "../src/config.ts";
 import { codemodeCalls, selectChildren, ToolPresentation } from "../src/tool-presentation.ts";
-import { toolPolicy, compactContent, defaultOutputLines, renderCallSummary, renderChildActivity, expansionHint } from "../src/tool-presentation-policy.ts";
+import { toolPolicy, compactContent, defaultOutputLines, renderCallSummary, renderChildActivity, withoutResultNotices, expansionHint } from "../src/tool-presentation-policy.ts";
 import openTui from "../src/index.ts";
 import { createReadTool, createWriteTool } from "@earendil-works/pi-coding-agent";
 import { installUserMessageLayout } from "../src/user-message-layout.ts";
@@ -296,7 +296,87 @@ for (const mode of ["regular", "fullscreen"] as const) {
 			assert.match(frame(card), /failure-tail/);
 		}
 	});
+	test(`${mode}: compact result notices fold through expansion without hiding errors or mutating results`, async (t) => {
+		const f = await fixture(t, mode);
+		const specialized: ToolRenderers = {
+			renderResult: (value) => new Text(value.content.filter((part) => part.type === "text").map((part) => part.text).join("\n")
+				+ (value.details?.fullOutputPath ? `\nCUSTOM-PATH: ${value.details.fullOutputPath}` : ""), 0, 0),
+		};
+		const cases = [
+			{ name: "read", args: { path: "file.txt" }, base: undefined },
+			{ name: "bash", args: { command: "some-command" }, base: undefined },
+			{ name: "edit", args: { path: "file.txt", edits: [{ oldText: "old", newText: "new" }] }, base: undefined },
+			{ name: "future_tool", args: {}, base: undefined },
+			{ name: "mcp__specialized", args: {}, base: specialized },
+			{ name: "codemode", args: { code: "return 'body';" }, base: undefined },
+		];
+		const nativeContent = (text: string) => text.split("\n").map((line) => line.replace(/^\| ?/, "").trim()).filter(Boolean).join("\n");
+		const notices = /Output truncated|Host truncation|Showing 1-3|text-notice|tail-notice|metadata-only|CUSTOM-PATH/;
+		for (const { name, args, base } of cases) for (const state of ["ok", "partial", "error"] as const) {
+			f.config.toolMessageLayout = "normal";
+			const value = result("[Output truncated: Full output saved to: /tmp/text-notice.txt]\n"
+				+ (state === "error" ? "permission denied\n" : "BODY-START\n")
+				+ "body\n".repeat(10) + "BODY-END\n[Showing 1-3 of 9]\n[Full output written to: /tmp/tail-notice.txt]", {
+					truncation: { truncated: true }, matchLimitReached: 3, resultLimitReached: 4,
+					entryLimitReached: 5, linesTruncated: 6, fullOutputPath: "/tmp/中文/metadata-only.txt",
+					...(name === "codemode" ? { calls: [{ id: "child", name: "read", args: "file.txt", status: "error", error: "child permission denied" }] } : {}),
+				}, state === "error");
+			const snapshot = JSON.stringify(value);
+			const card = f.component(name, `${name}-${state}`, args, base);
+			card.updateResult(value, state === "partial");
+			card.setExpanded(true);
+			f.config.toolPresentation = false;
+			const native = nativeContent(frame(card, 500));
+			f.config.enabled = false;
+			const disabledExtension = frame(card, 500);
+			f.config.enabled = true; f.config.toolPresentation = true;
+			card.setExpanded(false);
+			const normal = frame(card, 500);
+			f.config.toolMessageLayout = "compact";
+			for (const width of [40, 500]) assert.doesNotMatch(frame(card, width), notices, `${name}/${state}: notices stay folded`);
+			if (state === "error") assert.match(frame(card, 500), /permission denied/, `${name}: actual error remains visible`);
+			if (name === "codemode") assert.match(frame(card, 500), /child permission denied/, "child errors are not result notices");
+			card.setExpanded(true);
+			const expanded = frame(card, 500);
+			assert.match(expanded, /text-notice\.txt/);
+			assert.match(expanded, /tail-notice\.txt/);
+			assert.match(expanded, /metadata-only\.txt/, `${name}/${state}: metadata-only file access is recoverable`);
+			for (const key of ["matchLimitReached", "resultLimitReached", "entryLimitReached", "linesTruncated"]) assert.ok(expanded.includes(key));
+			card.setExpanded(false);
+			assert.doesNotMatch(frame(card, 500), notices, "collapse folds notices again");
+			f.config.toolMessageLayout = "normal";
+			assert.equal(frame(card, 500), normal, "normal layout is unchanged after expand/collapse");
+			f.config.toolMessageLayout = "compact";
+			f.config.toolPresentation = false;
+			card.setExpanded(true);
+			const disabled = frame(card, 500);
+			f.config.enabled = false;
+			assert.equal(nativeContent(disabled), native, "disabled enhancement retains native result behavior");
+			assert.equal(frame(card, 500), disabledExtension, "disabled extension retains its original shell and native result behavior");
+			f.config.enabled = true; f.config.toolPresentation = true;
+			assert.equal(JSON.stringify(value), snapshot, "folding never edits host/model-facing content or metadata");
+		}
+	});
 }
+
+test("folding notices preserves arbitrary output, other metadata and images", () => {
+	const image = { type: "image" as const, data: "fixture", mimeType: "image/png" };
+	const text = "warning: application fallback\n\u001b[33m[Output truncated: host notice]\u001b[0m\npermission denied";
+	const value = {
+		...result(text, {
+			truncation: { truncated: true }, fullOutputPath: "/tmp/full.txt", linesTruncated: 1,
+			diff: "retained diff", calls: [], custom: { retained: true },
+		}, true),
+		content: [{ type: "text" as const, text }, image],
+	};
+	const snapshot = structuredClone(value);
+	const folded = withoutResultNotices(value);
+	assert.deepEqual(folded.content, [{ type: "text", text: "warning: application fallback\npermission denied" }, image]);
+	assert.deepEqual(folded.details, { diff: "retained diff", calls: [], custom: { retained: true } });
+	assert.equal(folded.isError, true);
+	assert.equal(folded.content[1], image, "image ownership is unchanged");
+	assert.deepEqual(value, snapshot, "original notices remain available for expansion");
+});
 
 test("host error evidence, tail notices/paths, edit diff and image controls survive", async (t) => {
 	const f = await fixture(t);
@@ -304,9 +384,12 @@ test("host error evidence, tail notices/paths, edit diff and image controls surv
 	f.config.messageLayout = "compact";
 	read.updateResult(result("error is just a word\n" + "many\n".repeat(15) + "[Output truncated: Full output saved to: /tmp/full-tail.txt]", { truncation: { truncated: true }, fullOutputPath: "/tmp/中文/full-output.txt" }));
 	assert.match(frame(read), /\+ ok/);
+	assert.doesNotMatch(frame(read), /Output truncated|full-tail\.txt|full-output\.txt/);
+	read.setExpanded(true);
 	assert.match(frame(read), /Output truncated by host/);
 	assert.match(frame(read), /full-tail\.txt/);
 	assert.match(frame(read), /full-output\.txt/);
+	read.setExpanded(false);
 	read.updateResult(result("permission denied\nfull error tail", undefined, true));
 	assert.match(frame(read), /x error read/);
 	assert.match(frame(read), /permission denied/);
@@ -356,7 +439,7 @@ test("codemode prioritizes ordered child activity, retains independent parent ou
 	f.config.messageLayout = "compact";
 	assert.doesNotMatch(frame(card), /count: 2|parent-end/);
 	assert.match(frame(card), /child permission denied/);
-	assert.match(frame(card), /cancelled/); assert.match(frame(card), /parent-output.txt/);
+	assert.match(frame(card), /cancelled/); assert.doesNotMatch(frame(card), /parent-output.txt/);
 	card.setExpanded(true);
 	const expanded = frame(card);
 	assert.match(expanded, /script-end/); assert.match(expanded, /parent-end/);

@@ -168,17 +168,32 @@ export function defaultOutputLines(result: Result, expanded: boolean): string[] 
 	if (output.length > OUTPUT_LINES) lines.push("More output — expand for details");
 	return lines;
 }
+const LIMIT_NOTICE_KEYS = ["matchLimitReached", "resultLimitReached", "entryLimitReached", "linesTruncated"];
+const TEXT_NOTICE = /^\[(?:Output truncated|Truncated:|First line exceeds|Showing |Full output|.*(?:truncated|full output (?:saved|written)))/i;
+
+/** A presentation-only copy: native/custom previews must not reintroduce folded notices. */
+export function withoutResultNotices(result: Result): Result {
+	const details = record(result.details) ? { ...result.details } : result.details;
+	if (record(details)) for (const key of ["truncation", "fullOutputPath", ...LIMIT_NOTICE_KEYS]) delete details[key];
+	return {
+		...result, details,
+		content: result.content.map((part) => part.type === "text"
+			? { ...part, text: part.text.split("\n").filter((line) => !TEXT_NOTICE.test(clean(line).trimStart())).join("\n") }
+			: part),
+	};
+}
+
 export function renderNotices(result: Result, theme: Theme, width: number): string[] {
 	const details = record(result.details) ? result.details : {};
 	const lines: string[] = [];
 	if (record(details.truncation) && details.truncation.truncated === true) lines.push("Output truncated by host");
-	for (const key of ["matchLimitReached", "resultLimitReached", "entryLimitReached", "linesTruncated"]) {
+	for (const key of LIMIT_NOTICE_KEYS) {
 		if (details[key]) lines.push(`Host truncation: ${key} = ${details[key]}`);
 	}
 	if (typeof details.fullOutputPath === "string") lines.push(`Full output: ${clean(details.fullOutputPath)}`);
 	// Known native notices may be in a tail rather than structured details (read/grep/bash).
 	for (const line of textOutput(result).split("\n")) {
-		if (/^\[(?:Output truncated|Truncated:|First line exceeds|Showing |Full output|.*(?:truncated|full output (?:saved|written)))/i.test(line)) lines.push(clean(line));
+		if (TEXT_NOTICE.test(line)) lines.push(clean(line));
 	}
 	// Paths/notices wrap rather than ellipsize: a hidden tail must not hide file access.
 	return [...new Set(lines)].flatMap((line) => wrapTextWithAnsi(theme.fg("warning", line), Math.max(1, width)));

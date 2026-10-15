@@ -6,7 +6,7 @@ import { MessageRail, ToolBoxFrame, borderFrameOptions } from "./message-layout.
 import {
 	type Result, type Status, argumentsText, clean, finite, toolPolicy, statusColor,
 	renderCallSummary, renderChildActivity, compactContent, compactDiffLines, defaultOutputLines,
-	renderNotices, expansionHint, truncateSummary, CHILD_SUMMARY_NOTE,
+	renderNotices, withoutResultNotices, expansionHint, truncateSummary, CHILD_SUMMARY_NOTE,
 } from "./tool-presentation-policy.ts";
 
 // Keep the existing helper exports available to consumers.
@@ -228,7 +228,8 @@ export class ToolPresentation {
 						invalidate() {},
 						render: (width) => {
 							return renderCallSummary({
-								name, args, special, result: state.result,
+								name, args, special, result: state.result && getToolMessageLayout(this.getConfig()) === "compact" && !context.expanded
+									? withoutResultNotices(state.result) : state.result,
 								isPartial: context.isPartial, isError: context.isError, status: this.status(context),
 								elapsedMs: this.elapsed(context, state),
 								hideOutput: getToolMessageLayout(this.getConfig()) === "compact" && !context.expanded && !context.isError,
@@ -251,30 +252,34 @@ export class ToolPresentation {
 						const note = this.enhanced() && calls ? new Text(theme.fg("muted", CHILD_SUMMARY_NOTE), 0, 0) : undefined;
 						const raw = this.enhanced() && options.expanded && !special && base.renderResult
 							? [defaultResult(result, options, theme, context)] : [];
-						return [...(note ? [note] : []), ...raw, renderResult(result, options, theme, context, state)];
+						const notices: Component[] = this.enhanced() && options.expanded && getToolMessageLayout(this.getConfig()) === "compact"
+							? [{ invalidate() {}, render: (width) => renderNotices(result, theme, width) }] : [];
+						return [...(note ? [note] : []), ...raw, renderResult(result, options, theme, context, state), ...notices];
 					}
-					const hideOutput = getToolMessageLayout(this.getConfig()) === "compact" && !options.isPartial && !context.isError;
+					const compact = getToolMessageLayout(this.getConfig()) === "compact";
+					const displayed = compact ? withoutResultNotices(result) : result;
+					const hideOutput = compact && !options.isPartial && !context.isError;
 					const body: Component[] = [];
 					// Preserve a third-party renderer's own compact presentation and actual controls.
-					if (!hideOutput && !special && base.renderResult) body.push(renderResult(result, options, theme, context, state));
+					if (!hideOutput && !special && base.renderResult) body.push(renderResult(displayed, options, theme, context, state));
 					const preview: Component = {
 						invalidate() {},
 						render: (width) => {
 							const lines = renderChildActivity(calls, theme, this.getConfig().icons.mode, width);
 							const content = hideOutput ? { kind: "output" as const, lines: [] }
-								: compactContent(name, special, result, options.isPartial, context.isError, calls);
+								: compactContent(name, special, displayed, options.isPartial, context.isError, calls);
 							if (content.kind === "diff") {
 								const diff = new Text(host.renderDiff(content.diff), 0, 0).render(width);
 								lines.push(...compactDiffLines(diff, theme));
 							} else if (content.kind === "native-edit") {
-								lines.push(...renderResult(result, options, theme, context, state).render(width));
+								lines.push(...renderResult(displayed, options, theme, context, state).render(width));
 							} else {
 								lines.push(...content.lines.map((line) => theme.fg(context.isError ? "error" : "toolOutput", line)));
 							}
 							if (!base.renderResult && (!context.showImages || !getCapabilities().images)) {
 								for (const part of result.content) if (part.type === "image") lines.push(imageFallback(part.mimeType));
 							}
-							lines.push(...renderNotices(result, theme, width));
+							if (!compact) lines.push(...renderNotices(result, theme, width));
 							lines.push(theme.fg("dim", expansionHint(calls, host.keyHint("app.tools.expand", "to expand"))));
 							return lines.map((line) => truncateSummary(line, width));
 						},
