@@ -156,10 +156,10 @@ for (const setting of ["icons", "thinkingPeek"] as const) {
 			} else {
 				settings.component.handleInput("\x1b[B");
 				settings.component.handleInput("\x1b[B");
-				assert.match(selectedLine(settings.component), /Thinking peek/);
+				assert.match(selectedLine(settings.component), /Thinking titles/);
 			}
 
-			const values = setting === "icons" ? ["nerd", "unicode", "ascii", "auto"] : [2, 0, 1];
+			const values = setting === "icons" ? ["nerd", "unicode", "ascii", "auto"] : [0, 1, 0, 1];
 			for (const value of values) {
 				settings.component.handleInput("\r");
 				const expectedIcons = setting === "icons" ? { ...icons, mode: value } : icons;
@@ -533,21 +533,23 @@ test("normalizes invalid settings values", () => {
 	}
 });
 
-test("cycles the thinking peek line count from General settings", async () => {
-	const config = structuredClone(DEFAULT_CONFIG);
-	const settings = await openSettings(config);
-	// Enabled → Language → Thinking peek
-	settings.component.handleInput("\x1b[B");
-	settings.component.handleInput("\x1b[B");
-	assert.match(selectedLine(settings.component), /Thinking peek/);
-	assert.match(selectedLine(settings.component), /1 line/);
-	settings.component.handleInput("\r");
-	assert.equal(settings.getConfig().thinkingPeek.lines, 2);
-	settings.component.handleInput("\r");
-	assert.equal(settings.getConfig().thinkingPeek.lines, 0);
-	settings.component.handleInput("\r");
-	assert.equal(settings.getConfig().thinkingPeek.lines, 1);
-	settings.component.handleInput("q");
+test("thinking titles expose only On/Off, including legacy one/two-line values", async () => {
+	for (const legacy of [0, 1, 2] as const) {
+		const config = structuredClone(DEFAULT_CONFIG);
+		config.thinkingPeek.lines = legacy;
+		const settings = await openSettings(config);
+		settings.component.handleInput("\x1b[B");
+		settings.component.handleInput("\x1b[B");
+		assert.match(selectedLine(settings.component), /Thinking titles/);
+		assert.match(selectedLine(settings.component), legacy ? /On/ : /Off/);
+		assert.doesNotMatch(selectedLine(settings.component), /1 line|2 lines/);
+		settings.component.handleInput("\r");
+		assert.equal(settings.getConfig().thinkingPeek.lines, legacy ? 0 : 1);
+		settings.component.handleInput("\r");
+		assert.equal(settings.getConfig().thinkingPeek.lines, legacy ? 1 : 0);
+		settings.component.handleInput("q");
+		await settings.waitForClose();
+	}
 });
 
 test("Workline settings are independent, localized and persist normalized defaults", async () => {

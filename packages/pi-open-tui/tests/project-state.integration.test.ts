@@ -8,6 +8,7 @@ import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-c
 import type { Component } from "@earendil-works/pi-tui";
 import { LEGACY_DEFAULT_CONFIG as DEFAULT_CONFIG } from "../src/config.ts";
 import openTui from "../src/index.ts";
+import { LatestRefresh } from "../src/refresh.ts";
 
 function fixture(t: TestContext, options: { peek?: boolean; project?: boolean } = {}) {
 	const root = mkdtempSync(join(tmpdir(), "open-tui-project-state-"));
@@ -29,6 +30,7 @@ function fixture(t: TestContext, options: { peek?: boolean; project?: boolean } 
 	let command: ((args: string, ctx: ExtensionContext) => Promise<void>) | undefined;
 	let footer: (Component & { dispose?: () => void }) | undefined;
 	let editorMounted = false;
+	let editorFactory: ((...args: any[]) => unknown) | undefined;
 	let settings: (Component & { handleInput(data: string): void }) | undefined;
 	let onBranchChange: (() => void) | undefined;
 	let renders = 0;
@@ -63,6 +65,7 @@ function fixture(t: TestContext, options: { peek?: boolean; project?: boolean } 
 			},
 			setEditorComponent(factory?: any) {
 				editorMounted = !!factory;
+				editorFactory = factory;
 				factory?.(tui, { borderColor: (text: string) => text }, { matches: () => false });
 			},
 			custom(factory: any) {
@@ -94,6 +97,7 @@ function fixture(t: TestContext, options: { peek?: boolean; project?: boolean } 
 		output: () => footer?.render(200).join("\n") ?? "",
 		branchChanged: () => onBranchChange?.(),
 		editorMounted: () => editorMounted,
+		rebuildEditor: () => editorFactory?.(tui, { borderColor: (text: string) => text }, { matches: () => false }),
 		openSettings: () => command!("", ctx),
 		settings: () => settings!,
 		renders: () => renders,
@@ -176,14 +180,92 @@ test("incompatible thinking tree warns once, recovers, and session reload cancel
 	assert.equal(f.warnings.length, 1);
 	assert.match(f.warnings[0]!, /thinking peek unavailable/);
 	f.tui.children.push(f.hidden);
-	await update("recovered");
+	await update("## recovered");
 	assert.match(f.hidden.label, /recovered/);
 	await f.emit("agent_end", { messages: [] });
 	await f.emit("agent_settled");
 	await f.emit("session_start");
 	await f.emit("agent_start");
 	await f.emit("message_start", { message: { role: "assistant" } });
-	await update("new session");
+	await update("## new session");
 	t.mock.timers.tick(1_500);
 	assert.match(f.hidden.label, /new session/, "an old settlement timeout cannot clear the new session label");
+});
+
+test("entry point coalesces Workline/thinking refresh, stops on disable/settlement and rebinds a frozen label after editor replacement", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	let now = 0;
+	t.mock.method(performance, "now", () => now);
+	const f = fixture(t, { peek: true });
+	f.tui.children.push(f.hidden);
+	const set = globalThis.setTimeout;
+	let wakes = 0;
+	let scheduled = 0;
+	t.mock.method(globalThis, "setTimeout", (callback: () => void, delay: number) => {
+		scheduled++;
+		return set(() => { wakes++; callback(); }, delay);
+	});
+	await f.emit("session_start");
+	await f.emit("agent_start");
+	await f.emit("message_start", { message: { role: "assistant" } });
+	const message = { role: "assistant", stopReason: "stop", content: [{ type: "thinking", thinking: "## Current" }] };
+	await f.emit("message_update", { message, assistantMessageEvent: { type: "thinking_delta", delta: "## Current" } });
+	assert.equal(scheduled, 1, "the entry point injects the same scheduler into both consumers");
+	const renders = f.renders();
+	now = 250; t.mock.timers.tick(250);
+	assert.equal(wakes, 1);
+	assert.equal(f.renders() - renders, 1, "one editor render request for both due updates");
+	assert.match(f.hidden.label, /0\.3s/);
+	const close = f.openSettings();
+	f.settings().handleInput(" "); // Disable globally; the overlay is still open.
+	const stopped = wakes;
+	now = 1250; t.mock.timers.tick(1000);
+	assert.equal(wakes, stopped, "disabled presentation stops its periodic source immediately");
+	f.settings().handleInput(" ");
+	f.settings().handleInput("q"); await close;
+	await f.emit("message_update", { message, assistantMessageEvent: { type: "thinking_delta", delta: "## Current" } });
+	now = 1500; t.mock.timers.tick(250);
+	assert.equal(wakes, stopped + 1, "re-enable creates one source, not duplicate consumer loops");
+	await f.emit("message_end", { message });
+	await f.emit("agent_settled");
+	const frozen = f.hidden.label;
+	const replacement = { ...f.hidden, label: "Thinking..." };
+	f.tui.children.push(replacement);
+	f.rebuildEditor();
+	assert.equal(replacement.label, frozen, "a new native label target gets the frozen summary despite unchanged text/width");
+	const finalWakes = wakes;
+	now = 10000; t.mock.timers.tick(8500);
+	assert.equal(wakes, finalWakes, "a retained summary is static and needs no periodic demand");
+});
+
+test("animation ticks do not request Git/runtime snapshots; settlement keeps event-driven refresh", async (t) => {
+	const f = fixture(t, { project: true, peek: true });
+	f.git("init", "-b", "main");
+	writeFileSync(join(f.cwd, "app.csproj"), "");
+	const reads: Promise<unknown>[] = [];
+	const requestSnapshot = LatestRefresh.prototype.request;
+	const requests = t.mock.method(LatestRefresh.prototype, "request", function (this: LatestRefresh<unknown>, read: () => Promise<unknown>) {
+		return requestSnapshot.call(this, () => {
+			const result = read();
+			reads.push(result.catch(() => undefined));
+			return result;
+		});
+	});
+	await f.emit("session_start");
+	await waitFor(() => f.output().includes("main") && f.output().includes("dotnet"));
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	let now = 0;
+	t.mock.method(performance, "now", () => now);
+	f.tui.children.push(f.hidden);
+	await f.emit("agent_start");
+	await f.emit("message_start", { message: { role: "assistant" } });
+	await f.emit("message_update", { message: { role: "assistant", content: [{ type: "thinking", thinking: "## Work" }] }, assistantMessageEvent: { type: "thinking_delta", delta: "## Work" } });
+	const before = requests.mock.callCount();
+	for (let i = 0; i < 4; i++) { now += 250; t.mock.timers.tick(250); }
+	assert.equal(requests.mock.callCount(), before, "UI ticks cannot become external snapshot polling");
+	await f.emit("agent_settled");
+	assert.equal(requests.mock.callCount(), before + 2, "settlement still requests both project snapshots");
+	// Snapshot publication is asynchronous; wait for child-process handles before
+	// the fixture removes its Windows working directory.
+	await Promise.all(reads);
 });

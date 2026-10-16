@@ -1,6 +1,7 @@
 import * as host from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, Theme, ThemeColor, ToolRenderers, ToolRendererResolver } from "@earendil-works/pi-coding-agent";
 import { type Component, Box, Container, Spacer, Text, getCapabilities, imageFallback } from "@earendil-works/pi-tui";
+import { UiRefresh } from "./ui-refresh.ts";
 import { getToolMessageLayout, type OpenTuiConfig } from "./config.ts";
 import { MessageRail, ToolBoxFrame, borderFrameOptions } from "./message-layout.ts";
 import {
@@ -53,7 +54,7 @@ interface LiveCall { started: number; invalidate?: () => void; finishNative?: ()
 /** Session-scoped evidence only. Results and child records remain owned by the host's parent result. */
 export class ToolPresentation {
 	private readonly live = new Map<string, LiveCall>();
-	private timer: ReturnType<typeof setInterval> | undefined;
+	private unsubscribe: (() => void) | undefined;
 	private epoch = 0;
 	private interactive = false;
 	readonly available: boolean;
@@ -61,10 +62,12 @@ export class ToolPresentation {
 
 	private readonly getConfig: () => OpenTuiConfig;
 	private readonly now: () => number;
+	private readonly refresh: UiRefresh;
 
-	constructor(getConfig: () => OpenTuiConfig, pi: ExtensionAPI, now = () => performance.now()) {
+	constructor(getConfig: () => OpenTuiConfig, pi: ExtensionAPI, now = () => performance.now(), refresh = new UiRefresh()) {
 		this.getConfig = getConfig;
 		this.now = now;
+		this.refresh = refresh;
 		this.available = typeof pi.registerToolRenderer === "function";
 		if (!this.available) return;
 		const native = nativeRenderers();
@@ -93,18 +96,25 @@ export class ToolPresentation {
 	start(id: string, parentId?: string): void {
 		if (!this.available || !this.interactive || parentId) return;
 		this.live.set(id, { started: this.now() });
-		if (!this.timer) {
-			this.timer = setInterval(() => {
-				if (this.enhanced()) for (const call of this.live.values()) call.invalidate?.();
-			}, 500);
-			this.timer.unref?.();
-		}
+		this.configChanged();
 	}
 	end(id: string): void {
 		this.live.get(id)?.finishNative?.();
-		this.live.delete(id); if (this.live.size === 0) this.stopTimer();
+		this.live.delete(id);
+		this.configChanged();
 	}
-	private stopTimer(): void { if (this.timer) clearInterval(this.timer); this.timer = undefined; }
+	private stopTimer(): void { this.unsubscribe?.(); this.unsubscribe = undefined; }
+
+	configChanged(): void {
+		const needed = this.enhanced() && this.interactive && Array.from(this.live.values()).some((call) => call.invalidate);
+		if (!needed) this.stopTimer();
+		else if (!this.unsubscribe) this.unsubscribe = this.refresh.subscribe(500, () => {
+			if (!this.enhanced()) { this.stopTimer(); return; }
+			// Public host invalidation also marks cached components dirty. Keep it;
+			// the host coalesces its own frame requests, and we deduplicate channels.
+			for (const call of this.live.values()) if (call.invalidate) this.refresh.requestRender(call.invalidate);
+		});
+	}
 	private enhanced(): boolean { const config = this.getConfig(); return config.enabled && config.toolPresentation; }
 
 	private card(context: ToolRenderContext): CardState {
@@ -220,7 +230,7 @@ export class ToolPresentation {
 			renderCall: (args, theme, context) => {
 				const state = this.card(context);
 				const live = state.epoch === this.epoch ? this.live.get(context.toolCallId) : undefined;
-				if (live) live.invalidate = context.invalidate;
+				if (live) { live.invalidate = context.invalidate; this.configChanged(); }
 				return this.frame(new ToolContainer(() => {
 					if (!this.enhanced()) return [renderCall(args, theme, context, state)];
 					const special = toolPolicy(name, args, recognized, state.result).special;

@@ -1,6 +1,7 @@
 import type { Theme, ToolRenderers, CodemodeToolDetails } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { resolveGlyphs, type IconMode } from "./icons.ts";
+import { formatDuration } from "./utils.ts";
 
 export type Result = Parameters<NonNullable<ToolRenderers["renderResult"]>>[0];
 type Child = CodemodeToolDetails["calls"][number];
@@ -21,7 +22,7 @@ export function clean(text: string): string {
 	return text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
 }
 function duration(ms: number | undefined): string {
-	return ms === undefined ? "" : ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
+	return ms === undefined ? "" : formatDuration(ms, "tool");
 }
 export function textOutput(result: Result): string {
 	return result.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");

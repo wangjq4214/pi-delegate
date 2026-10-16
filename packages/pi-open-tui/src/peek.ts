@@ -1,58 +1,58 @@
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { SettingsLanguage } from "./config.ts";
 import type { IconGlyphs } from "./icons.ts";
-import { sanitizeStatus } from "./utils.ts";
+import { formatDuration, sanitizeStatus, stripAnsi } from "./utils.ts";
+import { fallbackSpinner, workingSpinner } from "./spinner.ts";
 
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const MAX_PEEK_LINES = 2;
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+export const MAX_THINKING_TITLES = 4;
 
 export type PeekPhase = "idle" | "thinking" | "done";
-
+export type ThinkingOutcome = "completed" | "interrupted" | "failed" | "ended";
 export interface PeekState {
 	phase: PeekPhase;
-	tail: string;
+	titles: string[];
+	elapsedMs?: number;
+	outcome?: ThinkingOutcome;
+}
+export interface PeekMessageParts { thinking: string; text: string }
+
+function cleanTitle(text: string): string {
+	return sanitizeStatus(text.replace(/`/g, "").replace(/\*\*(.*?)\*\*/g, "$1"));
 }
 
-export interface PeekMessageParts {
-	thinking: string;
-	text: string;
+/** Parse cumulative source, not deltas: a partial heading replaces itself instead of adding token nodes. */
+export function extractThinkingTitles(thinking: string): string[] {
+	const titles: string[] = [];
+	let fence: { char: string; length: number } | undefined;
+	for (const line of stripAnsi(thinking).split("\n")) {
+		const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+		if (fence) {
+			if (marker && marker[1]![0] === fence.char && marker[1]!.length >= fence.length && !marker[2]!.trim()) fence = undefined;
+			continue;
+		}
+		if (marker) {
+			fence = { char: marker[1]![0]!, length: marker[1]!.length };
+			continue;
+		}
+		// Indented/quoted examples are not reasoning headings.
+		if (/^(?: {4}|\t|\s*>)/.test(line)) continue;
+		const raw = line.trim();
+		const heading = /^#{1,6}[ \t]+(.+)$/.exec(raw);
+		const step = /^(?:Step|Phase|步骤|阶段)\s*[\d一二三四五六七八九十]+(?:\s*[:：.、)\]]\s*.+|\s+.+)?$/i.test(raw);
+		const bold = /^\*\*([^\s*](?:.*[^\s*])?)\*\*$/.exec(raw);
+		const boldTitle = bold && !bold[1]!.includes("**") ? cleanTitle(bold[1]!) : "";
+		const title = heading ? cleanTitle(heading[1]!.replace(/\s+#+\s*$/, "")) : step ? cleanTitle(raw) : boldTitle;
+		if (!title || titles.at(-1) === title) continue;
+		titles.push(title);
+		if (titles.length > MAX_THINKING_TITLES) titles.shift();
+	}
+	return titles;
 }
 
-function stringValue(value: unknown): string | undefined {
-	return typeof value === "string" ? value : undefined;
-}
-
-const normalizePeekLineCount = (lineCount: number): number => Math.max(1, Math.min(MAX_PEEK_LINES, Math.floor(lineCount)));
-
-/**
- * Pure phase machine for one assistant-message update.
- *
- * Thinking text is cumulative: once the answer starts, later updates still
- * carry the full thinking block alongside new text. To keep the spinner honest:
- * - idle + thinking        -> thinking (spinner starts)
- * - idle + thinking + text -> done    (already answered, never spin)
- * - thinking + text        -> done    (answer started: stop spinner)
- * - done + thinking        -> done    (never restart the spinner)
- * - any + text only        -> idle stays idle (plain answer, nothing to peek)
- */
-export function reducePeek(prev: PeekState, parts: PeekMessageParts): PeekState {
-	const tail = parts.thinking ? peekTail(parts.thinking, MAX_PEEK_LINES) : prev.tail;
-	let phase = prev.phase;
-	if (parts.thinking && phase === "idle") phase = "thinking";
-	if (parts.text && phase === "thinking") phase = "done";
-	return { phase, tail };
-}
-
-/** Fresh peek state (no task running yet). */
 export function createPeekState(): PeekState {
-	return { phase: "idle", tail: "" };
+	return { phase: "idle", titles: [] };
 }
 
-/**
- * Collect the running thinking text and answer text from an assistant
- * message's content parts. Thinking arrives token-by-token, so re-calling
- * this on every `message_update` yields the cumulative text.
- */
 export function collectPeekParts(content: unknown): PeekMessageParts {
 	let thinking = "";
 	let text = "";
@@ -61,108 +61,56 @@ export function collectPeekParts(content: unknown): PeekMessageParts {
 		if (!rawPart || typeof rawPart !== "object") continue;
 		const part = rawPart as { type?: unknown; thinking?: unknown; text?: unknown };
 		if (part.type === "thinking") {
-			thinking += stringValue(part.thinking) ?? stringValue(part.text) ?? "";
-		} else if (part.type === "text") {
-			text += stringValue(part.text) ?? "";
-		}
+			thinking += typeof part.thinking === "string" ? part.thinking : typeof part.text === "string" ? part.text : "";
+		} else if (part.type === "text" && typeof part.text === "string") text += part.text;
 	}
 	return { thinking, text };
 }
 
-/**
- * Extract the last non-empty logical lines of the thinking text, whitespace-
- * normalized. NOT width-bounded: clipping to the terminal happens at render
- * time in buildPeekLabel/clipTail, so wide terminals get to see more of it.
- */
-export function peekTail(fullThinking: string, lineCount = 1): string {
-	if (!fullThinking) return "";
-	const count = normalizePeekLineCount(lineCount);
-	const lines: string[] = [];
-	let end = fullThinking.length;
-	while (end > 0 && lines.length < count) {
-		const start = fullThinking.lastIndexOf("\n", end - 1) + 1;
-		const line = fullThinking.slice(start, end).replace(/\s+/g, " ").trim();
-		if (line) lines.push(line);
-		end = start - 1;
-	}
-	return lines.reverse().join("\n");
+export function reducePeek(prev: PeekState, parts: PeekMessageParts, elapsedMs?: number): PeekState {
+	if (prev.phase === "done") return prev;
+	let phase: PeekPhase = prev.phase;
+	if (parts.thinking && phase === "idle") phase = "thinking";
+	if (parts.text && phase === "thinking") phase = "done";
+	return {
+		phase,
+		titles: parts.thinking ? extractThinkingTitles(parts.thinking) : prev.titles,
+		elapsedMs: elapsedMs ?? prev.elapsedMs,
+		outcome: phase === "done" ? "completed" : undefined,
+	};
 }
 
-/**
- * Clip a tail string to `budget` visible columns, keeping the END (it is a
- * tail view) and prefixing "…" when clipped. Walk backwards over complete
- * graphemes so measurement is limited to the visible suffix.
- */
-export function clipTail(text: string, budget: number): string {
-	if (!text || budget <= 0) return "";
-	const limit = budget - 1; // reserve one column for the ellipsis
-	let w = 0;
-	let end = text.length;
-	let clippedStart = end;
-	const segments = graphemeSegmenter.segment(text);
-	while (end > 0) {
-		const part = segments.containing(end - 1)!;
-		w += visibleWidth(part.segment);
-		if (w > budget) return "…" + text.slice(clippedStart);
-		end = part.index;
-		if (w <= limit) clippedStart = end;
-	}
-	return text;
+/** Fixed metadata wins over titles. Even a CJK title cannot push the timer off-screen. */
+function statusLine(prefix: string, title: string, time: string, width: number): string {
+	const suffix = time ? ` · ${time}` : "";
+	const budget = width - visibleWidth(prefix + suffix) - 1;
+	const clipped = budget > 0 ? truncateToWidth(sanitizeStatus(title), budget, "…") : "";
+	return truncateToWidth(`${prefix}${clipped ? ` ${clipped}` : ""}${suffix}`, width, "…");
 }
 
-/**
- * Build the label Pi renders in its hidden-thinking block. `width` is a
- * conservative budget that keeps each native Text row within the terminal.
- * In two-line mode, an overflowing latest logical line uses both rows for
- * its continuation instead of retaining the previous logical line.
- */
 export function buildPeekLabel(
 	state: PeekState,
 	frame: number,
 	glyphs: IconGlyphs,
 	width: number,
-	lineCount = 1,
+	language: SettingsLanguage = "en",
+	nativeSpinner?: string,
 ): string {
 	const w = Math.max(1, Math.floor(width));
-	const prefix = `${glyphs.thinking} think`;
-	const count = normalizePeekLineCount(lineCount);
-	const fit = (line: string): string => truncateToWidth(line, w, "…");
-	switch (state.phase) {
-		case "thinking": {
-			const spin = SPINNER_FRAMES[frame % SPINNER_FRAMES.length] ?? "";
-			// Thinking text is model output (untrusted): strip terminal control
-			// sequences before placing it in Pi's native label.
-			const marker = `${prefix} ${spin}`;
-			const markerWidth = visibleWidth(`${marker} `);
-			const contentWidth = Math.max(0, w - markerWidth);
-			const thoughtIndent = " ".repeat(markerWidth);
-			const safeLines = state.tail
-				.split("\n")
-				.map((tail) => sanitizeStatus(tail))
-				.filter(Boolean)
-				.slice(-count);
-			const latest = safeLines.at(-1) ?? "";
-			const lineWithMarker = (tail: string): string => fit(tail ? `${marker} ${tail}` : marker);
-			if (count >= 2) {
-				const window = clipTail(latest, contentWidth * count);
-				const latestWrapped = wrapTextWithAnsi(window, Math.max(1, contentWidth));
-				if (latestWrapped.length > 1) {
-					// Word wrapping may add short rows; always retain the newest content.
-					const first = latestWrapped.at(-2) ?? "";
-					const second = latestWrapped.at(-1) ?? "";
-					return `${lineWithMarker(first)}\n${fit(`${thoughtIndent}${second}`)}`;
-				}
-			}
-			const firstTail = clipTail(count >= 2 ? safeLines[0] ?? "" : latest, contentWidth);
-			if (count < 2 || safeLines.length < 2) return lineWithMarker(firstTail);
-			// Align the latest line with the first line's thinking text, not with
-			// the status marker.
-			const secondTail = clipTail(latest, contentWidth);
-			return `${lineWithMarker(firstTail)}\n${fit(secondTail ? `${thoughtIndent}${secondTail}` : thoughtIndent)}`;
-		}
-		case "done":
-			return fit(`${prefix} ${glyphs.done}`);
-		default:
-			return fit(`${prefix} ·`);
+	const ascii = glyphs.thinking === "~";
+	const spin = nativeSpinner === undefined ? fallbackSpinner(frame, ascii) : workingSpinner(nativeSpinner, ascii);
+	const time = state.elapsedMs !== undefined ? formatDuration(state.elapsedMs, "precise") : "";
+	const titles = state.titles.map(cleanTitle).filter(Boolean).slice(-MAX_THINKING_TITLES);
+	if (state.phase === "done") {
+		const mark = { completed: glyphs.done, interrupted: glyphs.interrupted, failed: glyphs.failed, ended: glyphs.ended }[state.outcome ?? "ended"];
+		return statusLine(`${glyphs.thinking} ${mark}`, titles.at(-1) ?? "", time, w);
 	}
+	const label = language === "zh" ? "思考" : "Thinking";
+	const root = statusLine(`${glyphs.thinking}${titles.length || !spin ? "" : ` ${spin}`}`, label, time, w);
+	if (state.phase !== "thinking") return root;
+	return [root, ...titles.map((title, index) => {
+		const latest = index === titles.length - 1;
+		const branch = ascii ? latest ? "`-" : "+-" : latest ? "└─" : "├─";
+		return truncateToWidth(`${branch} ${latest && spin ? `${spin} ` : ""}${title}`, w, "…");
+	})].join("\n");
 }

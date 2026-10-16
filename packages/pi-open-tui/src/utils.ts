@@ -86,8 +86,12 @@ export function formatInputBreakdown(uncached: number, cacheRead: number): strin
 		: total;
 }
 
-export function formatDuration(ms: number): string {
-	const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+/** Shared elapsed formatting; precision is a presentation policy, not a different measurement. */
+export function formatDuration(ms: number, precision: "seconds" | "precise" | "tool" = "seconds"): string {
+	const elapsed = Math.max(0, ms);
+	if (precision === "tool" && elapsed < 1000) return `${Math.round(elapsed)}ms`;
+	if (precision !== "seconds" && elapsed < 60_000) return `${(elapsed / 1000).toFixed(1)}s`;
+	const totalSeconds = Math.floor(elapsed / 1000);
 	if (totalSeconds < 60) return `${totalSeconds}s`;
 	const s = totalSeconds % 60;
 	const totalMinutes = Math.floor(totalSeconds / 60);

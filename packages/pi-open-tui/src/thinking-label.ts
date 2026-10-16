@@ -20,12 +20,12 @@ export class ThinkingLabelTarget {
 		this.target = undefined;
 	}
 
-	set(label: string): boolean {
+	set(label: string, requestRender = true): boolean {
 		try {
 			this.target ??= this.findLatest();
 			if (!this.target) return false;
 			this.target.setHiddenThinkingLabel(label);
-			this.tui.requestRender();
+			if (requestRender) this.tui.requestRender();
 			return true;
 		} catch {
 			this.reset();

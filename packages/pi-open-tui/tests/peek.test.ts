@@ -1,209 +1,169 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import {
-	buildPeekLabel,
-	clipTail,
-	collectPeekParts,
-	createPeekState,
-	peekTail,
-	reducePeek,
-} from "../src/peek.ts";
-import type { IconGlyphs } from "../src/icons.ts";
-import { sanitizeStatus } from "../src/utils.ts";
+import { resolveGlyphs } from "../src/icons.ts";
+import { buildPeekLabel, collectPeekParts, createPeekState, extractThinkingTitles, reducePeek, type PeekState } from "../src/peek.ts";
+import { formatDuration, stripAnsi } from "../src/utils.ts";
 
-const glyphs = { thinking: "~", done: "+" } as IconGlyphs;
+const glyphs = resolveGlyphs("ascii");
+const plain = (value: string) => stripAnsi(value);
 
-test("collectPeekParts joins thinking and answer text, ignoring other parts", () => {
-	const parts = collectPeekParts([
-		{ type: "thinking", thinking: "alpha" },
-		{ type: "text", text: "answer" },
-		{ type: "toolCall", id: "x", name: "read", arguments: {} },
-		{ type: "thinking", thinking: " beta" },
+test("collectPeekParts joins real thinking/text, supports text fallback, and ignores malformed parts", () => {
+	assert.deepEqual(collectPeekParts([
+		{ type: "thinking", thinking: "one" }, { type: "thinking", text: "two" },
+		{ type: "text", text: "answer" }, { type: "toolCall", name: "bash" }, null, "bad", {},
+		{ type: "thinking", thinking: 7 }, { type: "text", text: false },
+	]), { thinking: "onetwo", text: "answer" });
+	for (const value of [undefined, null, "bad", {}]) assert.deepEqual(collectPeekParts(value), { thinking: "", text: "" });
+});
+
+test("explicit headings and step titles produce only the latest four chronological nodes", () => {
+	const source = "# Start\nordinary body\n## Analyze\nStep 3: compare\n阶段四：检查\n### Verify";
+	assert.deepEqual(extractThinkingTitles(source), ["Analyze", "Step 3: compare", "阶段四：检查", "Verify"]);
+	assert.deepEqual(extractThinkingTitles("Phase 1\n步骤二\n###### Final ###"), ["Phase 1", "步骤二", "Final"]);
+});
+
+test("screenshot-style whole-line bold titles need no keywords, numbering or heading marker", () => {
+	const source = "**Analyzing voting dynamics**\nI need to explain the outcomes.\n\n**Exploring voting thresholds**\nOrdinary body";
+	assert.deepEqual(extractThinkingTitles(source), ["Analyzing voting dynamics", "Exploring voting thresholds"]);
+	assert.deepEqual(extractThinkingTitles("**投票边界**\n  **Z**  \n**`peek.ts`**"), ["投票边界", "Z", "peek.ts"]);
+	assert.deepEqual(extractThinkingTitles("# A\n**B**\nStep 3: C\n**D**\n**E**"), ["B", "Step 3: C", "D", "E"]);
+});
+
+test("partial bold, malformed strong markers, and quoted/code examples are not titles", () => {
+	const source = [
+		"I am **checking votes** now.", "**First** and **second**", "**not closed", "not opened**",
+		"****", "** **", "** leading space**", "**trailing space **", "***italic***",
+		"> **quoted**", "    **indented**", "\t**tab code**", "```md", "**fenced**", "```",
+		"~~~", "**tilde fence**", "~~~", "**Real**",
+	].join("\n");
+	assert.deepEqual(extractThinkingTitles(source), ["Real"]);
+});
+
+test("chunked bold titles are recognized only when closed, stay deduplicated and bounded", () => {
+	const source = "**Start**\nbody\n**Verify boundaries**";
+	for (let n = 1; n <= source.length; n++) {
+		const part = source.slice(0, n);
+		const titles = extractThinkingTitles(part);
+		assert.deepEqual(titles, n < "**Start**".length ? [] : n < source.length ? ["Start"] : ["Start", "Verify boundaries"]);
+		assert.deepEqual(extractThinkingTitles(part), titles);
+	}
+	assert.deepEqual(extractThinkingTitles("**A**\n**A**\n**B**\n**C**\n**D**\n**E**"), ["B", "C", "D", "E"]);
+});
+
+test("guide words, ordinary prose, quoted/indented examples and code fences are not milestones", () => {
+	const source = [
+		"Planning: a sentence", "Analyzing the input", "分析约束条件", "检查代码", "Step 2oops",
+		"> ## quoted", "    ## indented", "\t## also code", "```md", "## code heading", "Step 2: code", "```",
+		"~~~", "## tilde code", "~~~", "## Real", "````md", "```", "## still code", "````", "### After",
+	].join("\n");
+	assert.deepEqual(extractThinkingTitles(source), ["Real", "After"]);
+	assert.deepEqual(extractThinkingTitles("```md\n## unfinished fence"), []);
+	assert.deepEqual(extractThinkingTitles("### \n"), []);
+});
+
+test("cumulative streams and title growth do not append a new node on every token", () => {
+	for (const tail of ["V", "Ve", "Verify", "Verify boundaries"]) {
+		const source = `# Start\n## ${tail}`;
+		assert.deepEqual(extractThinkingTitles(source), ["Start", tail]);
+		assert.deepEqual(extractThinkingTitles(source), ["Start", tail]);
+	}
+	assert.deepEqual(extractThinkingTitles("# A\nbody\n# A\n# B\n# A"), ["A", "B", "A"]);
+});
+
+test("display titles are sanitized without truncating Unicode source identity to 40 code units", () => {
+	const title = "分析👩‍💻e\u0301".repeat(30);
+	assert.deepEqual(extractThinkingTitles(`## ${title}`), [title]);
+	assert.deepEqual(extractThinkingTitles("## \x1b]0;injected\x07**Inspect** `peek.ts`\x1b[31m\x1b[0m"), ["Inspect peek.ts"]);
+});
+
+test("phase reduction starts on real thinking, freezes on answer text, and never restarts", () => {
+	const idle = createPeekState();
+	assert.equal(reducePeek(idle, { thinking: "", text: "plain" }).phase, "idle");
+	const thinking = reducePeek(idle, { thinking: "## Start\nbody", text: "" }, 1400);
+	assert.deepEqual(thinking, { phase: "thinking", titles: ["Start"], elapsedMs: 1400, outcome: undefined });
+	const done = reducePeek(thinking, { thinking: "## Verify", text: "answer" }, 2200);
+	assert.deepEqual(done, { phase: "done", titles: ["Verify"], elapsedMs: 2200, outcome: "completed" });
+	assert.equal(reducePeek(done, { thinking: "## Late", text: "" }, 9000), done);
+	assert.equal(reducePeek(idle, { thinking: "short thought", text: "answer" }).phase, "done");
+});
+
+test("title tree uses one root and at most four nodes, never raw reasoning or per-node success", () => {
+	const state: PeekState = { phase: "thinking", titles: ["A", "B", "C", "D", "E"], elapsedMs: 14200 };
+	assert.deepEqual(buildPeekLabel(state, 1, glyphs, 80).split("\n"), [
+		"~ Thinking · 14.2s", "+- B", "+- C", "+- D", "`- / E",
 	]);
-	assert.deepEqual(parts, { thinking: "alpha beta", text: "answer" });
+	assert.equal(buildPeekLabel({ phase: "thinking", titles: [], elapsedMs: 4900 }, 0, glyphs, 80), "~ | Thinking · 4.9s");
+	assert.equal(buildPeekLabel({ phase: "thinking", titles: ["分析约束"], elapsedMs: 4900 }, 7, resolveGlyphs("unicode"), 80, "zh"), "💡 思考 · 4.9s\n└─ ⠧ 分析约束");
 });
 
-test("collectPeekParts tolerates non-array content", () => {
-	assert.deepEqual(collectPeekParts(undefined), { thinking: "", text: "" });
-	assert.deepEqual(collectPeekParts("nope"), { thinking: "", text: "" });
-});
-
-test("collectPeekParts ignores non-string fields without coercing or throwing", () => {
-	assert.deepEqual(
-		collectPeekParts([
-			{ type: "thinking", thinking: Symbol("invalid"), text: "fallback" },
-			{ type: "thinking", thinking: { invalid: true }, text: " next" },
-			{ type: "text", text: { invalid: true } },
-			{ type: "text", text: Symbol("invalid") },
-		]),
-		{ thinking: "fallback next", text: "" },
-	);
-});
-
-test("peekTail shows the last logical line only", () => {
-	assert.equal(peekTail("first line\nsecond line here"), "second line here");
-});
-
-test("peekTail keeps the last two logical lines when requested", () => {
-	assert.equal(peekTail("first\nsecond\n\nthird", 2), "second\nthird");
-});
-
-test("peekTail trims and collapses whitespace", () => {
-	assert.equal(peekTail("  padded   text  \n"), "padded text");
-	assert.equal(peekTail("   "), "");
-	assert.equal(peekTail(""), "");
-});
-
-test("peekTail keeps the full tail; width bounding is clipTail's job", () => {
-	assert.equal(peekTail("x".repeat(500)).length, 500);
-});
-
-test("clipTail keeps the end of long text within budget", () => {
-	const tail = clipTail("x".repeat(500), 10);
-	assert.equal(tail, "…" + "x".repeat(9));
-});
-
-test("clipTail truncates wide CJK text by visible width, not code points", () => {
-	const tail = clipTail("思".repeat(100), 10);
-	// budget 10 → 1 col for "…" + 4 wide chars (8 cols) = 9 visible columns
-	assert.equal(tail, "…" + "思".repeat(4));
-	assert.ok(visibleWidth(tail) <= 10);
-});
-
-test("clipTail returns text that already fits untouched", () => {
-	assert.equal(clipTail("short", 10), "short");
-	assert.equal(clipTail("思思", 4), "思思");
-	assert.equal(clipTail("\u200babc", 3), "\u200babc");
-	assert.equal(clipTail("\u200b思", 2), "\u200b思");
-});
-
-test("clipTail handles degenerate budgets", () => {
-	assert.equal(clipTail("abc", 0), "");
-	assert.equal(clipTail("abc", -5), "");
-	assert.equal(clipTail("", 5), "");
-	assert.equal(clipTail("abcdef", 1), "…");
-});
-
-test("clipTail preserves complete graphemes at the tail boundary", () => {
-	for (const grapheme of ["😀", "👩‍💻", "e\u0301"]) {
-		const tail = clipTail(grapheme.repeat(50), 5);
-		assert.equal(tail, "…" + grapheme.repeat(Math.floor(4 / visibleWidth(grapheme))));
-		assert.ok(visibleWidth(tail) <= 5);
+test("native spinner overrides fallback frames, preserves custom/empty indicators and stays sanitized", () => {
+	const state: PeekState = { phase: "thinking", titles: ["Verify"], elapsedMs: 1000 };
+	for (const frame of [0, 1, 999]) {
+		assert.ok(buildPeekLabel(state, frame, resolveGlyphs("unicode"), 80, "en", "\x1b[31m⠴\x1b[0m").endsWith("⠴ Verify"));
+		assert.ok(buildPeekLabel(state, frame, glyphs, 80, "en", "\x1b[31m⠴\x1b[0m").endsWith("- Verify"));
+		assert.ok(buildPeekLabel(state, frame, glyphs, 80, "en", "custom").endsWith("custom Verify"));
+	}
+	assert.equal(buildPeekLabel({ ...state, titles: [] }, 0, glyphs, 80, "en", ""), "~ Thinking · 1.0s");
+	assert.ok(buildPeekLabel(state, 0, glyphs, 80, "en", "").endsWith("`- Verify"));
+	for (const width of [1, 8, 30]) {
+		const label = buildPeekLabel(state, 0, glyphs, width, "en", "\x1b]0;unsafe\x07\x1b[2J👩‍💻e\u0301".repeat(20));
+		assert.ok(!label.replace(/\x1b\[0m/g, "").includes("\x1b"));
+		assert.ok(label.split("\n").every((row) => visibleWidth(row) <= width));
 	}
 });
 
-test("buildPeekLabel renders each phase", () => {
-	const state = createPeekState();
-	assert.equal(buildPeekLabel(state, 0, glyphs, 80), "~ think ·");
-
-	state.phase = "thinking";
-	state.tail = "deriving";
-	assert.equal(buildPeekLabel(state, 1, glyphs, 80), "~ think ⠙ deriving");
-
-	state.phase = "done";
-	assert.equal(buildPeekLabel(state, 2, glyphs, 80), "~ think +");
+test("terminal summaries are single-row, title-before-time, and outcome-specific in every icon mode", () => {
+	for (const mode of ["nerd", "unicode", "ascii"] as const) {
+		const icons = resolveGlyphs(mode);
+		for (const outcome of ["completed", "interrupted", "failed", "ended"] as const) {
+			const mark = { completed: icons.done, interrupted: icons.interrupted, failed: icons.failed, ended: icons.ended }[outcome];
+			const state: PeekState = { phase: "done", titles: ["old", "Verify"], elapsedMs: 68000, outcome };
+			assert.equal(buildPeekLabel(state, 3, icons, 80), `${icons.thinking} ${mark} Verify · 1m 8s`);
+			assert.equal(buildPeekLabel({ ...state, titles: [] }, 3, icons, 80), `${icons.thinking} ${mark} · 1m 8s`);
+		}
+		assert.equal(buildPeekLabel({ phase: "done", titles: [] }, 0, icons, 80), `${icons.thinking} ${icons.ended}`);
+	}
 });
 
-test("buildPeekLabel aligns the latest thought with the previous thought", () => {
-	const label = buildPeekLabel(
-		{ phase: "thinking", tail: "previous thought\nlatest thought" },
-		0,
-		glyphs,
-		80,
-		2,
-	);
-	const [previous, latest] = label.split("\n");
-	assert.ok(previous !== undefined && latest !== undefined);
-	assert.equal(previous.indexOf("previous thought"), latest.indexOf("latest thought"));
-});
-
-test("buildPeekLabel wraps an overflowing latest thought instead of keeping the previous one", () => {
-	const label = buildPeekLabel(
-		{ phase: "thinking", tail: "previous thought\nabcdefghijklmnopqrstuvwxyz" },
-		0,
-		glyphs,
-		30,
-		2,
-	);
-	const [first, second] = label.split("\n");
-	assert.ok(first !== undefined && second !== undefined);
-	assert.ok(!label.includes("previous thought"));
-	assert.match(first, /~ think ⠋ abcdefghijklmnopqrst/);
-	assert.match(second, /uvwxyz$/);
-	assert.equal(first.indexOf("abcdefghijklmnopqrst"), second.indexOf("uvwxyz"));
-});
-
-test("buildPeekLabel follows new deltas after a long thought fills both rows", () => {
-	for (const thought of ["word ".repeat(200), "思考".repeat(500), "x".repeat(1000)]) {
-		const before = buildPeekLabel({ phase: "thinking", tail: thought }, 0, glyphs, 30, 2);
-		for (const delta of ["NEW", "NEW_DELTA"]) {
-			const after = buildPeekLabel({ phase: "thinking", tail: thought + delta }, 0, glyphs, 30, 2);
-			assert.notEqual(after, before);
-			assert.ok(after.endsWith(delta), "the latest delta must be visible with a fixed spinner frame");
-			const rows = after.split("\n");
-			assert.equal(rows.length, 2);
-			assert.ok(rows.every((row) => visibleWidth(row) <= 30));
+test("long CJK titles never displace state and measured time, including 80-column regression", () => {
+	for (const mode of ["nerd", "unicode", "ascii"] as const) {
+		const icons = resolveGlyphs(mode);
+		for (const width of [16, 30, 77, 80, 200]) {
+			const state: PeekState = { phase: "done", outcome: "completed", titles: ["分析".repeat(40)], elapsedMs: 68000 };
+			const line = plain(buildPeekLabel(state, 0, icons, width));
+			assert.ok(line.startsWith(`${icons.thinking} ${icons.done}`));
+			assert.ok(line.endsWith("1m 8s"));
+			assert.ok(visibleWidth(line) <= width);
+			const running = buildPeekLabel({ ...state, phase: "thinking" }, 0, icons, width);
+			assert.ok(plain(running.split("\n")[0]!).endsWith("1m 8s"));
 		}
 	}
 });
 
-test("buildPeekLabel never exceeds the label width, even on narrow terminals", () => {
-	const state = { phase: "thinking" as const, tail: "思".repeat(200) };
-	for (const width of [80, 40, 8, 200]) {
-		assert.ok(visibleWidth(buildPeekLabel(state, 0, glyphs, width)) <= width);
+test("all rows remain bounded for tiny widths, graphemes, emoji, control sequences and all modes", () => {
+	for (const mode of ["nerd", "unicode", "ascii"] as const) {
+		for (const width of [1, 2, 3, 8, 30, 77, 200]) {
+			for (const phase of ["thinking", "done"] as const) {
+				const title = "\x1b]0;bad\x07\x1b[31m思考👩‍💻e\u0301\x1b[2J".repeat(20);
+				const rows = buildPeekLabel({ phase, titles: [title, title, title, title], elapsedMs: 14200 }, 2, resolveGlyphs(mode), width).split("\n");
+				assert.ok(rows.length <= (phase === "done" ? 1 : 5));
+				assert.ok(rows.every((row) => visibleWidth(row) <= width));
+				assert.ok(!rows.join("").includes("\x1b]"));
+				assert.ok(!rows.join("").includes("\x1b[2J"));
+			}
+		}
 	}
-	for (const line of buildPeekLabel({ phase: "thinking", tail: "前一行\n最新一行" }, 0, glyphs, 40, 2).split("\n")) {
-		assert.ok(visibleWidth(line) <= 40);
+});
+
+test("shared duration formatting keeps explicit precision policies and long durations consistent", () => {
+	assert.equal(formatDuration(14200), "14s");
+	assert.equal(formatDuration(14200, "precise"), "14.2s");
+	assert.equal(formatDuration(80, "tool"), "80ms");
+	assert.equal(formatDuration(14200, "tool"), "14.2s");
+	for (const policy of ["seconds", "precise", "tool"] as const) {
+		assert.equal(formatDuration(68000, policy), "1m 8s");
+		assert.equal(formatDuration(3661000, policy), "1h 1m 1s");
 	}
-});
-
-test("buildPeekLabel fills wide terminals instead of a fixed cap", () => {
-	const state = { phase: "thinking" as const, tail: "x".repeat(500) };
-	const line = buildPeekLabel(state, 0, glyphs, 200);
-	assert.ok(visibleWidth(line) > 92, "wide terminals must see more than the old 92-col cap");
-});
-
-test("reducePeek: spinner starts on thinking, stops when answer text arrives", () => {
-	const idle = createPeekState();
-	const t = reducePeek(idle, { thinking: "reasoning", text: "" });
-	assert.equal(t.phase, "thinking");
-	assert.equal(t.tail, "reasoning");
-
-	const done = reducePeek(t, { thinking: "reasoning more", text: "answer" });
-	assert.equal(done.phase, "done");
-
-	// Cumulative thinking keeps arriving after the answer starts: stay done.
-	const after = reducePeek(done, { thinking: "reasoning more", text: "answer more" });
-	assert.equal(after.phase, "done");
-	assert.equal(after.tail, "reasoning more");
-});
-
-test("reducePeek keeps two thinking lines for the double-line label", () => {
-	const next = reducePeek(createPeekState(), { thinking: "previous\nlatest", text: "" });
-	assert.equal(next.phase, "thinking");
-	assert.equal(next.tail, "previous\nlatest");
-});
-
-test("reducePeek: a mixed thinking+text first update never spins", () => {
-	const next = reducePeek(createPeekState(), { thinking: "short", text: "hi" });
-	assert.equal(next.phase, "done");
-});
-
-test("reducePeek: text-only updates stay idle", () => {
-	const next = reducePeek(createPeekState(), { thinking: "", text: "plain answer" });
-	assert.equal(next.phase, "idle");
-});
-
-test("buildPeekLabel neutralizes terminal control sequences in thinking text", () => {
-	const dirty = "\x1b]0;pwned\x07\x1b[31mred\x1b[0m\x1b[2J\x1b[?25l tail";
-	const line = buildPeekLabel({ phase: "thinking", tail: dirty }, 0, glyphs, 80);
-	assert.equal(line, "~ think ⠋ red tail");
-	assert.ok(!line.includes("\x1b[31m"), "injected SGR must be removed");
-	assert.ok(!line.includes("\x1b]"), "injected OSC must be removed");
-	assert.ok(!line.includes("\x1b"), "no raw control sequences may remain");
-});
-
-test("sanitizeStatus preserves text around unsupported CSI sequences", () => {
-	assert.equal(sanitizeStatus("\x1b[?25lvisible\x1b[31m text"), "visible text");
+	assert.equal(formatDuration(-1, "precise"), "0.0s");
 });

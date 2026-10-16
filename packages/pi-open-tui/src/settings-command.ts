@@ -11,7 +11,7 @@ import {
 	Text,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { getUserBoxBorder, getUserMessageLayout, getToolMessageLayout, type CursorStyle, type IconMode, type OpenTuiConfig, type SettingsLanguage, type ThinkingPeekLines, type ToolBoxBorderConfig, type ToolBoxBorderStyle, type UserBoxBorderConfig } from "./config.ts";
+import { getUserBoxBorder, getUserMessageLayout, getToolMessageLayout, type CursorStyle, type IconMode, type OpenTuiConfig, type SettingsLanguage, type ToolBoxBorderConfig, type ToolBoxBorderStyle, type UserBoxBorderConfig } from "./config.ts";
 import { resolveBorderGlyphs } from "./message-layout.ts";
 
 interface SettingItem {
@@ -38,7 +38,7 @@ const COPY = {
 		labels: {
 			enabled: "Enabled",
 			inlineFooter: "Inline footer",
-			thinkingPeek: "Thinking peek",
+			thinkingPeek: "Thinking titles",
 			toolPresentation: "Enhanced presentation",
 			language: "Language",
 			cursorStyle: "Cursor style",
@@ -77,7 +77,6 @@ const COPY = {
 		values: {
 			on: "On",
 			off: "Off",
-			thinkingPeek: { off: "Off", one: "1 line", two: "2 lines" },
 			languages: { en: "English", zh: "简体中文" },
 			cursorStyles: { block: "Block", bar: "Bar", underline: "Underline" },
 			editorBorderStyles: { surround: "Surround", minimal: "Minimal" },
@@ -100,7 +99,7 @@ const COPY = {
 		labels: {
 			enabled: "启用",
 			inlineFooter: "内联底栏",
-			thinkingPeek: "思考预览",
+			thinkingPeek: "思考标题",
 			toolPresentation: "增强展示",
 			language: "语言",
 			cursorStyle: "光标样式",
@@ -139,7 +138,6 @@ const COPY = {
 		values: {
 			on: "开启",
 			off: "关闭",
-			thinkingPeek: { off: "关闭", one: "单行", two: "双行" },
 			languages: { en: "English", zh: "简体中文" },
 			cursorStyles: { block: "块", bar: "竖线", underline: "下划线" },
 			editorBorderStyles: { surround: "环绕", minimal: "简洁" },
@@ -152,11 +150,6 @@ const COPY = {
 } as const;
 
 type SettingsCopy = (typeof COPY)[SettingsLanguage];
-
-function formatThinkingPeekLines(lines: ThinkingPeekLines, copy: SettingsCopy): string {
-	const values = [copy.values.thinkingPeek.off, copy.values.thinkingPeek.one, copy.values.thinkingPeek.two];
-	return values[lines] ?? values[0];
-}
 
 function toggleSetting(config: OpenTuiConfig, key: keyof OpenTuiConfig["footerSegments"]): OpenTuiConfig {
 	return {
@@ -198,7 +191,7 @@ function toggleTelemetry(config: OpenTuiConfig, key: keyof OpenTuiConfig["teleme
 }
 
 function cycleThinkingPeek(config: OpenTuiConfig): OpenTuiConfig {
-	const next = ([1, 2, 0] as const)[config.thinkingPeek.lines] ?? 0;
+	const next = config.thinkingPeek.lines > 0 ? 0 : 1;
 	return {
 		...config,
 		thinkingPeek: { ...config.thinkingPeek, lines: next },
@@ -210,7 +203,7 @@ function buildFeaturesItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 	return [
 		{ id: "enabled", label: copy.labels.enabled, currentValue: flag(config.enabled) },
 		{ id: "settingsLanguage", label: copy.labels.language, currentValue: copy.values.languages[config.settingsLanguage] },
-		{ id: "thinkingPeek", label: copy.labels.thinkingPeek, currentValue: formatThinkingPeekLines(config.thinkingPeek.lines, copy) },
+		{ id: "thinkingPeek", label: copy.labels.thinkingPeek, currentValue: flag(config.thinkingPeek.lines > 0) },
 		{ id: "inlineFooter", label: copy.labels.inlineFooter, currentValue: flag(config.inlineFooter) },
 	];
 }

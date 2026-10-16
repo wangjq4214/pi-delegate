@@ -25,6 +25,30 @@ const editorTheme = {
 	},
 } as EditorTheme;
 
+test("working spinner sampling is read-only, tolerates old hosts and excludes special statuses", () => {
+	const editor = new OpenTuiEditor(tui, editorTheme, { matches: () => false } as unknown as KeybindingsManager);
+	assert.equal(editor.getWorkingSpinner(), undefined);
+	editor.setWorkingStatusIndicator({ kind: "working", renderInBorder: () => "work", renderSpinnerInBorder: () => "⠹" });
+	assert.equal(editor.getWorkingSpinner(), "⠹");
+	editor.setWorkingStatusIndicator({ kind: "retry", renderInBorder: () => "retry", renderSpinnerInBorder: () => { assert.fail("special status must not be sampled"); } });
+	assert.equal(editor.getWorkingSpinner(), undefined);
+	editor.setWorkingStatusIndicator({ renderInBorder: () => "", renderSpinnerInBorder: () => { throw new Error("older host"); } });
+	assert.equal(editor.getWorkingSpinner(), undefined);
+});
+
+test("custom ASCII host spinner frames preserve literal replacement characters and static/empty indicators", () => {
+	const config = structuredClone(DEFAULT_CONFIG);
+	config.icons.mode = "ascii";
+	config.workline.marquee = false;
+	const renderer = createWorklineRenderer(() => ({ workingSince: 0, lastRun: undefined }), () => config,
+		() => ({ fg: (_color: string, text: string) => text } as Theme), () => 1000);
+	for (const frame of ["$\'", "$`", "$&", "", "static"]) {
+		const native = { kind: "working", renderInBorder: () => `${frame}${frame ? " " : ""}working`, renderSpinnerInBorder: () => frame };
+		assert.equal(renderer.render(80, native), `${frame}${frame ? " " : ""}working 1s`);
+		assert.equal(renderer.render(80, native, true), frame ? `${frame} 1s` : "1s");
+	}
+});
+
 test("minimal borders preserve inset, content and live switching", () => {
 	const editor = new OpenTuiEditor(tui, editorTheme, { matches: () => false } as unknown as KeybindingsManager);
 	editor.setText("abcdef");

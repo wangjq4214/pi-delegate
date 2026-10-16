@@ -18,6 +18,7 @@ import {
 } from "./state.ts";
 import { ToolPresentation } from "./tool-presentation.ts";
 import { PeekController } from "./peek-controller.ts";
+import { UiRefresh } from "./ui-refresh.ts";
 
 type PendingUiChange = "install" | "uninstall";
 
@@ -43,7 +44,8 @@ export default function (pi: ExtensionAPI) {
 	let worklineTelemetry: TurnTelemetry | undefined;
 
 	let config: OpenTuiConfig = structuredClone(DEFAULT_CONFIG);
-	const toolPresentation = new ToolPresentation(() => config, pi);
+	const refresh = new UiRefresh();
+	const toolPresentation = new ToolPresentation(() => config, pi, undefined, refresh);
 	let toolPresentationWarningShown = false;
 	const notifyToolPresentationCapability = (ctx: ExtensionContext) => {
 		if (!isTuiContext(ctx) || !config.enabled || !config.toolPresentation || toolPresentation.available || toolPresentationWarningShown) return;
@@ -55,11 +57,12 @@ export default function (pi: ExtensionAPI) {
 	let active = false;
 	let lastCtx: ExtensionContext | undefined;
 	let requestFooterRender: (() => void) | undefined;
-	let workingTimer: ReturnType<typeof setInterval> | undefined;
+	let stopWorklineRefresh: (() => void) | undefined;
 	let cleanupFooter: (() => void) | undefined;
 	let editor: ReturnType<typeof installEditor> | undefined;
 	let pendingUiChange: PendingUiChange | undefined;
 
+	const renderUi = () => editor?.requestRender();
 	const peekController = new PeekController({
 		getConfig: () => config,
 		getEditor: () => editor,
@@ -67,6 +70,8 @@ export default function (pi: ExtensionAPI) {
 		isActive: () => active,
 		isTuiContext,
 		lifecycle: sessionLifecycle,
+		refresh,
+		requestRender: renderUi,
 	});
 
 	const gitRefresh = new LatestRefresh<typeof state.git>((git) => {
@@ -118,14 +123,17 @@ export default function (pi: ExtensionAPI) {
 						? "open-tui：当前宿主不支持紧凑用户／技能消息布局；保留原生消息"
 						: "open-tui: compact User/skill message layout unavailable on this host; retaining native messages", "warning"),
 				},
+				(targetChanged) => peekController.refreshLayout(targetChanged),
 			);
 			active = true;
+			if (state.workingSince !== undefined) startWorkingTimer();
 		}
 	};
 
 	const uninstallUi = (ctx: ExtensionContext) => {
 		if (!isTuiContext(ctx)) return;
 		if (active) {
+			stopWorkingTimer();
 			cleanupFooter?.();
 			editor?.cleanup();
 			cleanupFooter = undefined;
@@ -172,24 +180,19 @@ export default function (pi: ExtensionAPI) {
 
 	const startWorkingTimer = () => {
 		stopWorkingTimer();
-		const tick = () => {
-			if (!sessionLifecycle.isCurrent() || !active) return;
-			editor?.requestRender();
-		};
-		tick();
-		workingTimer = setInterval(tick, 250);
-		workingTimer.unref?.();
+		if (!sessionLifecycle.isCurrent() || !active || !config.enabled || state.workingSince === undefined) return;
+		refresh.requestRender(renderUi);
+		stopWorklineRefresh = refresh.subscribe(250, () => refresh.requestRender(renderUi));
 	};
 
 	const stopWorkingTimer = () => {
-		if (workingTimer) {
-			clearInterval(workingTimer);
-			workingTimer = undefined;
-		}
+		stopWorklineRefresh?.();
+		stopWorklineRefresh = undefined;
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
 		sessionLifecycle.start();
+		refresh.reset();
 		pendingUiChange = undefined;
 		peekController.startSession();
 		lastCtx = ctx;
@@ -216,6 +219,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async (_event, ctx) => {
 		sessionLifecycle.shutdown();
+		refresh.reset();
 		toolPresentation.shutdown();
 		gitRefresh.invalidate();
 		runtimeRefresh.invalidate();
@@ -328,6 +332,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_tree", (_event, ctx) => {
 		if (!sessionLifecycle.isCurrent()) return;
+		refresh.reset();
 		stopWorkingTimer();
 		toolPresentation.reset();
 		runOutcome.reset();
@@ -355,6 +360,8 @@ export default function (pi: ExtensionAPI) {
 					: `open-tui: settings applied for this session only; save failed: ${detail}`, "warning");
 			}
 			config = newConfig;
+			toolPresentation.configChanged();
+			startWorkingTimer();
 			editor?.requestRender();
 			peekController.configChanged(previousPeekLines, lastCtx);
 			if (cursorStyleChanged && active && editor) {

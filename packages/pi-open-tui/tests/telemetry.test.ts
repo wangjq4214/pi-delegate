@@ -531,7 +531,7 @@ test("open-tui keeps a bounded peek scoped to the current assistant", async () =
 	const globalLabelUpdates: Array<string | undefined> = [];
 	let mountedEditor: OpenTuiEditor | undefined;
 	let renderRequests = 0;
-	const thought = "x".repeat(200);
+	const thought = "## " + "x".repeat(200);
 	const assistant = {
 		role: "assistant",
 		content: [{ type: "thinking", thinking: thought }],
@@ -608,39 +608,43 @@ test("open-tui keeps a bounded peek scoped to the current assistant", async () =
 		assert.equal(getThinkingLabel(thinkingComponents[0]!), "Thinking...");
 		assert.equal(
 			new ScrollView(new Text(currentLabel, 1, 0), { scrollbar: "always" }).render(effectiveWidth).length,
-			1,
-			"the peek row must fit the narrowed fullscreen transcript",
+			2,
+			"the root and clipped title fit without additional body wrapping",
 		);
-		assistant.content[0]!.thinking += "y";
+		assistant.content[0]!.thinking += "\n## New title";
 		await emit("message_update", {
 			type: "message_update",
 			message: assistant,
-			assistantMessageEvent: { type: "thinking_delta", delta: "y" },
+			assistantMessageEvent: { type: "thinking_delta", delta: "\n## New title" },
 		});
 		const streamedLabel = getThinkingLabel(thinkingComponents[1]!);
-		assert.notEqual(streamedLabel, currentLabel, "each thinking delta must update the label immediately");
+		assert.notEqual(streamedLabel, currentLabel, "new titles update the label immediately");
 
 		await emit("agent_settled", { type: "agent_settled", aborted: false });
-		// A custom/continuation task can spend time preparing before its assistant
-		// message_start. Its start must still invalidate the previous settle timer.
+		assert.equal(getThinkingLabel(thinkingComponents[1]!).split("\n").length, 1);
 		await emit("agent_start", { type: "agent_start" });
+		const next = { role: "assistant", content: [{ type: "thinking", thinking: "## Current task" }] };
+		await emit("message_start", { type: "message_start", message: next });
+		await emit("message_update", { type: "message_update", message: next, assistantMessageEvent: { type: "thinking_delta", delta: "## Current task" } });
+		const runningLabel = getThinkingLabel(thinkingComponents[1]!);
 		const updatesAfterNewTaskStart = globalLabelUpdates.length;
 		const requestsBeforeTick = renderRequests;
 		await new Promise((resolve) => setTimeout(resolve, 350));
-
-		assert.ok(renderRequests > requestsBeforeTick, "working timer requests a render even without stream deltas");
+		assert.ok(renderRequests > requestsBeforeTick, "shared refresh renders without stream deltas");
+		const tickedLabel = getThinkingLabel(thinkingComponents[1]!);
+		assert.notEqual(tickedLabel, runningLabel, "animation/time advance without deltas");
+		assert.match(tickedLabel, /Current task$/);
+		assert.equal(getThinkingLabel(thinkingComponents[0]!), "Thinking...", "only the current assistant gets the tree");
 		await emit("agent_end", { type: "agent_end", messages: [] });
 		assert.doesNotMatch(stripAnsi(mountedEditor.render(85)[0]!), /done|ended/);
 		assert.match(stripAnsi(mountedEditor.render(85)[0]!), /working/);
 		await emit("agent_settled", { type: "agent_settled", aborted: false });
 		assert.match(stripAnsi(mountedEditor.render(85)[0]!), /ended/);
+		assert.equal(getThinkingLabel(thinkingComponents[1]!).split("\n").length, 1);
 		await emit("agent_start", { type: "agent_start" });
 		assert.doesNotMatch(stripAnsi(mountedEditor.render(85)[0]!), /done/);
-		assert.ok(
-			globalLabelUpdates.slice(updatesAfterNewTaskStart).every((label) => label !== undefined),
-			"a stale settle timer must not clear the new task's label",
-		);
-		assert.equal(getThinkingLabel(thinkingComponents[1]!), streamedLabel, "the label must not animate without a delta");
+		assert.ok(globalLabelUpdates.slice(updatesAfterNewTaskStart).every((label) => label !== undefined),
+			"settlement cannot later clear a replacement task's label");
 	} finally {
 		if (previousColumns) Object.defineProperty(process.stdout, "columns", previousColumns);
 		else Reflect.deleteProperty(process.stdout, "columns");

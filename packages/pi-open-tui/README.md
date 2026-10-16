@@ -11,7 +11,7 @@ A polished terminal interface for the [Pi](https://pi.dev) coding agent. It brin
 - **Framed editor** with block, bar, and underline cursor styles
 - **Project awareness** for 50+ runtimes and detailed Git states, including ahead/behind, staged, modified, untracked, stashed, and detached HEAD
 - **Turn telemetry** for TPS, time to first token (TTFT), duration, stalls, tokens, and list-price rate
-- **Thinking peek**: an inline ticker replaces Pi's hidden `Thinking...` label with the tail of the model's reasoning while it works
+- **Thinking peek**: a bounded title tree in Pi's collapsed thinking label, with a spinner matching Workline and a retained duration summary
 - **Compact tools and codemode activity** with expandable native details, reliable statuses and observed child-call progress
 - **Interactive settings** through `/open-tui`, available in English and Simplified Chinese
 
@@ -152,7 +152,7 @@ Key options:
 | `footerSegments` | Boolean flags | Shows or hides individual footer data |
 | `footerSegments.capitalizeProviderName` | Boolean | Capitalizes the first character of the provider name in the footer; set it to `false` to keep the provider's original casing |
 | `telemetry` | Boolean flags | Enables telemetry and its individual measurements |
-| `thinkingPeek.lines` | `0`, `1`, `2` | Off, one-line, or two-line hidden thinking preview |
+| `thinkingPeek.lines` | Legacy storage: `0`, `1`, `2` | Off (`0`) / On (`1` or `2`); title-only tree, latest four titles |
 | `toolBoxBorder` | Enabled, style, status/static color, four edge enabled/char controls | Tools frame; disabled by default. Saved default: `double`, `status`, top/left on, bottom/right off. Fixed colors use theme tokens such as `muted` or `accent` |
 
 In **Tools**, the first three rows are **Enhanced presentation**, **Compression**, and **Border style**. The first two are independent On/Off switches; Border style cycles Off, Single, Bold, Double, Dashed and Custom. Off hides all subsequent border controls without erasing their stored choices. **User / Skill** has one **Enabled** switch combining layout and frame activation: Off restores native User/Skill presentation and hides every other setting; On exposes the saved style, colors and edges. Existing compact rails count as enabled without a startup rewrite; explicit User styling edits activate that group’s configured frame. Both groups retain independent four-edge/symbol controls. Fixed-color inputs appear only in fixed mode; stored colors can also affect compact rails, with legacy dormant Tool colors preserved until an explicit Tool presentation edit. Symbol/color inputs use Enter to save, Esc to cancel and empty to reset; symbols must occupy one visible column. Right edges remain optional and off by default.
@@ -224,21 +224,28 @@ The `$ / M` value is the model's list-price rate from `usage.cost.total`, not th
 
 ## Thinking peek
 
-When Pi's **Hide thinking** setting is enabled, pi-open-tui shows a compact ticker in the native hidden thinking block's `Thinking...` position. The `/open-tui` setting offers three modes: **Off**, **1 line**, and **2 lines**.
+When Pi's **Hide thinking** setting is enabled, Open TUI replaces the collapsed `Thinking...` label with a **title-only tree**. **General → Thinking titles** in `/open-tui` is simply **On / Off**.
 
-- while the model is reasoning, the current thinking tail streams by with a spinner (`~ think ⠋ …`);
-- when the answer starts, it settles on a check mark (`~ think ✓`);
-- in 2-line mode, the previous and latest thinking lines share the same text indentation; if the latest line overflows, both rows follow its newest tail as tokens arrive instead of retaining the previous line;
-- after the task settles, the native `Thinking...` label is restored.
+- One status root shows thinking and measured elapsed time; up to the **latest four titles** appear below it, oldest first (**five rows total** at most). A new title evicts the oldest; consecutive duplicate titles do not add nodes. There is no extra overflow row and no raw reasoning-body preview.
+- Titles come only from explicit Markdown headings, step/phase titles or standalone whole-line bold titles such as `**Analyzing voting dynamics**` in actual thinking. No keywords or numbering are needed for bold titles. Ordinary prose, partial inline bold and quoted/code examples are not treated as progress, and no model-generated summary is requested. If no title exists, show status/time only; non-reasoning models keep native behavior.
+- The active title has a spinner. Earlier titles are not checked off: a title transition is not proof of task completion. Each assistant message starts a fresh tree; it is not a cross-tool task plan.
+- Think samples the normal Workline spinner through its native renderer during the editor lifecycle, matching the host's actual animation speed (including custom speeds), not just a refresh constant. Both use the same ASCII phase fallback for the standard spinner; explicit custom host frames are preserved. There is no new animation timer or host timer patch. Elapsed measurements remain independent; missing/special native indicators retain the existing fallback.
+- When thinking ends, collapse to a single latest-title/frozen-duration summary, for example `💡 ✓ Verify boundaries · 18.4s`. Cancellation, failure and uncertain endings use distinct interrupted/failed/neutral marks based on reliable message evidence, never an unconditional success check. The mark describes this thinking segment, not successful task acceptance. The summary stays on its own message when later user/assistant messages arrive, even if the final answer has no thinking. Each new message still starts a fresh tree/timer. Disabling the feature or explicit session/UI teardown restores native labels.
+- Truncate titles by display-column width, preserving status and elapsed time first. Native expansion still exposes the full original reasoning, including content omitted from the tree.
 
 ```text
-~ think ⠋ previous thought
-          latest thought
+💡 Thinking · 14.2s
+├─ Analyze constraints
+├─ Compare approaches
+├─ Check compatibility
+└─ ⠹ Verify boundaries
 ```
 
-The ticker appears only once the model actually streams reasoning, so non-reasoning models never show it. Pi's own Hide thinking toggle controls visibility; changing it takes effect immediately. Each row is truncated by *visible* width, so CJK-wide thinking text cannot overflow. Configure it from **General → Thinking peek** in `/open-tui`, or via `thinkingPeek.lines` in `open-tui.json`.
+Examples use portable Unicode icons; Nerd Font mode and ASCII icons/connectors follow the existing icon setting. There is no one/two-line selection or configurable title-count budget. For compatibility, `thinkingPeek.lines` remains the storage key: `0` means Off, `1` and `2` both mean On. Panel edits save `0`/`1` and retain unrelated/unknown preferences. Existing enabled/disabled choices and the enabled default are preserved, without a startup rewrite.
 
-Thinking peek uses an isolated host-component compatibility bridge. If the host tree or terminal width is unavailable/incompatible, it falls back to the native label and warns once per session instead of interrupting event handling. Only the pinned development host is covered by lifecycle tests; other host versions still need verification.
+Workline, enhanced-tool elapsed display and thinking animation share one demand-driven UI scheduler. Due updates are aligned and render requests are coalesced; no dynamic consumers means no periodic wakeups. Consumers keep independent measurements and appropriate cadences. This does not poll Git/runtime data on animation ticks or take over native/third-party timers. Reduced redundant refresh work is an implementation goal, not a measured CPU-performance guarantee.
+
+Thinking labels use an isolated host-component compatibility bridge. Missing/incompatible components or viewport information retain the native label and warn once per session. Only the pinned development host is covered by automated integration tests; live terminal/font/IME and other host-version compatibility still need separate verification.
 
 ## Development
 

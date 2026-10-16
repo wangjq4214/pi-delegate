@@ -274,7 +274,7 @@ export class TurnTelemetryTracker {
 }
 
 function formatTurnDuration(ms: number): string {
-	return ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : formatDuration(ms);
+	return formatDuration(ms, "precise");
 }
 
 export function formatTurnTelemetry(

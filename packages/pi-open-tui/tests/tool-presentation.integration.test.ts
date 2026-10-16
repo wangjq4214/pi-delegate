@@ -17,6 +17,11 @@ import openTui from "../src/index.ts";
 import { createReadTool, createWriteTool } from "@earendil-works/pi-coding-agent";
 import { installUserMessageLayout } from "../src/user-message-layout.ts";
 import { MessageRail, ToolBoxFrame, resolveBorderGlyphs, borderFrameOptions } from "../src/message-layout.ts";
+import { UiRefresh } from "../src/ui-refresh.ts";
+import { PeekController } from "../src/peek-controller.ts";
+import { SessionLifecycle } from "../src/session-lifecycle.ts";
+import { ThinkingLabelTarget } from "../src/thinking-label.ts";
+import { createWorklineRenderer } from "../src/workline.ts";
 
 // Actual upgraded host registration, resolver chain and ToolExecutionComponent, with controlled
 // results and an in-memory terminal. No provider, real terminal/font or IME visual claims.
@@ -35,6 +40,7 @@ async function fixture(t: test.TestContext, mode: "regular" | "fullscreen" = "re
 	let presentation!: ToolPresentation;
 	let api!: ExtensionAPI;
 	let now = 100;
+	const refresh = new UiRefresh(() => now);
 	const read = createReadToolDefinition(cwd);
 	const bash = createBashToolDefinition(cwd);
 	const edit = createEditToolDefinition(cwd);
@@ -48,7 +54,7 @@ async function fixture(t: test.TestContext, mode: "regular" | "fullscreen" = "re
 		cwd, agentDir: cwd, settingsManager: SettingsManager.inMemory(), noExtensions: true, noSkills: true,
 		noPromptTemplates: true, noThemes: true, noContextFiles: true,
 		extensionFactories: [
-			(pi) => { api = pi; presentation = new ToolPresentation(() => config, pi, () => now); },
+			(pi) => { api = pi; presentation = new ToolPresentation(() => config, pi, () => now, refresh); },
 			(pi) => { pi.registerToolRenderer((name, next) => name === "special" ? specialized : next()); },
 			(pi) => { createCodemodeExtension()({ ...pi, registerTool(tool: ToolDefinition) { codemode = tool; pi.registerTool(tool); } } as unknown as ExtensionAPI); },
 		],
@@ -69,12 +75,12 @@ async function fixture(t: test.TestContext, mode: "regular" | "fullscreen" = "re
 	};
 	const tui = mode === "regular" ? new TuiMainScreen(terminal) : new TuiAltScreen(terminal);
 	presentation.startSession(true);
-	t.after(async () => { presentation.shutdown(); tui.stop(); await rm(cwd, { recursive: true, force: true }); });
+	t.after(async () => { presentation.shutdown(); refresh.reset(); tui.stop(); await rm(cwd, { recursive: true, force: true }); });
 	const component = (name: string, id: string, args: unknown, base: ToolRenderers | undefined = runner.getToolDefinition(name) ?? ({ read, bash, edit, write, grep, find, ls, codemode } as Record<string, ToolRenderers>)[name]) => {
 		const renderers = runner.resolveToolRenderers(name, () => base);
 		return new ToolExecutionComponent(name, id, args, { outputPad: 0 }, renderers, tui, cwd);
 	};
-	return { cwd, config, presentation, component, runner, api, read, codemode, tui, terminal, writes: () => writes, advance(ms: number) { now += ms; } };
+	return { cwd, refresh, now: () => now, config, presentation, component, runner, api, read, codemode, tui, terminal, writes: () => writes, advance(ms: number) { now += ms; } };
 }
 function result(text: string, details: unknown = undefined, isError = false, durationMs?: number) {
 	return { content: [{ type: "text" as const, text }], details, isError, durationMs };
@@ -675,6 +681,76 @@ test("live clocks are event-evidenced, isolated and forgotten on session/branch 
 	assert.doesNotMatch(frame(a), /0ms|2\.0s|Took/);
 	f.presentation.shutdown(); f.presentation.start("inactive");
 	assert.doesNotMatch(frame(f.component("read", "inactive", { path: "inactive" })), /\d+(?:ms|s)/);
+});
+test("shared refresh drives actual tool invalidation, thinking and Workline without mixing clocks or retaining idle demand", async (t) => {
+	const f = await fixture(t);
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	// Keep host scheduling out of the extension-source count. Actual components,
+	// public invalidation and cached render output are still exercised below.
+	t.mock.method(f.tui, "requestRender", () => {});
+	const set = globalThis.setTimeout;
+	const clear = globalThis.clearTimeout;
+	const active = new Set<ReturnType<typeof setTimeout>>();
+	let wakeups = 0;
+	let maxTimers = 0;
+	t.mock.method(globalThis, "setTimeout", (callback: () => void, delay: number) => {
+		const timer = set(() => { active.delete(timer); wakeups++; callback(); }, delay);
+		active.add(timer); maxTimers = Math.max(maxTimers, active.size);
+		return timer;
+	});
+	t.mock.method(globalThis, "clearTimeout", (timer: ReturnType<typeof setTimeout>) => { active.delete(timer); clear(timer); });
+	const advance = (ms: number) => { f.advance(ms); t.mock.timers.tick(ms); };
+	let uiRenders = 0;
+	const renderUi = () => { uiRenders++; f.tui.requestRender(); };
+	const state = { workingSince: f.now() as number | undefined, lastRun: undefined };
+	const workline = createWorklineRenderer(() => state, () => f.config, () => hostTheme.theme, f.now);
+	const stopWorkline = f.refresh.subscribe(250, () => f.refresh.requestRender(renderUi));
+	const lifecycle = new SessionLifecycle(); lifecycle.start();
+	const message = { role: "assistant", stopReason: "stop", content: [{ type: "thinking", thinking: "## Verify" }] };
+	const thinking = new AssistantMessageComponent(message, true);
+	f.tui.addChild(thinking);
+	const bridge = new ThinkingLabelTarget(f.tui);
+	const ctx = { ui: { setHiddenThinkingLabel: () => thinking.setHiddenThinkingLabel("Thinking..."), notify: (text: string) => assert.fail(text) } } as unknown as ExtensionContext;
+	const editor = { getViewportWidth: () => 100, setLatestHiddenThinkingLabel: (text: string, render?: boolean) => bridge.set(text, render), resetHiddenThinkingLabelTarget: () => bridge.reset() };
+	const controller = new PeekController({
+		getConfig: () => f.config, getEditor: () => editor, getContext: () => ctx,
+		isActive: () => true, isTuiContext: () => true, lifecycle,
+		refresh: f.refresh, requestRender: renderUi, now: f.now,
+	});
+	t.after(() => { controller.resetAndClear(ctx); stopWorkline(); });
+	controller.messageUpdate(message, ctx);
+	f.presentation.start("clock-a");
+	const a = f.component("read", "clock-a", { path: "a" }); a.markExecutionStarted(); frame(a);
+	advance(100);
+	f.presentation.start("clock-b");
+	const b = f.component("read", "clock-b", { path: "b" }); b.markExecutionStarted(); frame(b);
+	const before = uiRenders;
+	advance(150); advance(250);
+	assert.match(frame(a), /500ms/);
+	assert.match(frame(b), /400ms/);
+	assert.match(stripTerminalSequences(thinking.render(100).join("\n")), /0\.5s/);
+	assert.match(stripTerminalSequences(workline.render(100)), /working 0s/);
+	advance(250); advance(250);
+	assert.equal(wakeups, 4);
+	assert.equal(maxTimers, 1);
+	assert.equal(uiRenders - before, 4, "Workline/thinking use one shared render channel per round");
+	assert.match(frame(a), /1\.0s/);
+	assert.match(frame(b), /900ms/);
+	f.config.thinkingPeek.lines = 0; controller.configChanged(1, ctx);
+	f.config.toolPresentation = false; f.presentation.configChanged();
+	const afterDisable = uiRenders;
+	advance(250);
+	assert.equal(uiRenders, afterDisable + 1, "Workline survives other features disabling");
+	f.config.toolPresentation = true; f.presentation.configChanged();
+	advance(250);
+	assert.match(frame(b), /1\.4s/);
+	f.presentation.start("unmounted"); // No rendered component: no periodic UI demand.
+	f.presentation.end("clock-a"); f.presentation.end("clock-b");
+	stopWorkline();
+	assert.equal(active.size, 0);
+	const stopped = wakeups;
+	advance(5000);
+	assert.equal(wakeups, stopped, "no extension-owned idle periodic wakeups remain");
 });
 
 test("pure preview policy keeps parent output, child evidence and expansion limits independent", () => {

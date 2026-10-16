@@ -238,6 +238,14 @@ export class OpenTuiEditor extends CustomEditor {
 		this.tui.requestRender();
 	}
 
+	/** Sample the public native renderer, never its timer/frame internals. */
+	getWorkingSpinner(): string | undefined {
+		const indicator = this.embeddedWorkingStatusIndicator;
+		if (!indicator || (indicator.kind && indicator.kind !== "working")) return undefined;
+		try { return indicator.renderSpinnerInBorder(16); }
+		catch { return undefined; }
+	}
+
 	setBorderStyle(borderStyle: EditorBorderStyle): void {
 		this.borderStyle = borderStyle;
 		this.tui.requestRender();
@@ -340,6 +348,7 @@ export function installEditor(
 	borderStyle: EditorBorderStyle = "surround",
 	workline?: WorklineRenderer,
 	userLayout?: { getConfig(): OpenTuiConfig; unavailable(): void },
+	refreshThinkingLabel?: (targetChanged?: boolean) => void,
 ) {
 	let activeTui: TUI | undefined;
 	let activeEditor: OpenTuiEditor | undefined;
@@ -372,13 +381,14 @@ export function installEditor(
 		release();
 		activeTui = tui;
 		thinkingLabel = new ThinkingLabelTarget(tui);
+		refreshThinkingLabel?.(true);
 		previousHardwareCursor = tui.getShowHardwareCursor();
 		hostAdapters = installHostAdapters(tui, warnCursorOutput, userLayout && {
 			...userLayout, getTheme: () => ctx.ui.theme,
 		});
 		try {
 			activeEditor = new OpenTuiEditor(tui, editorTheme, keybindings, currentCursorStyle, inlineFooter, currentBorderStyle, workline,
-				() => hostAdapters?.refresh());
+				() => { hostAdapters?.refresh(); refreshThinkingLabel?.(); });
 			return activeEditor;
 		} catch (error) {
 			release();
@@ -394,8 +404,11 @@ export function installEditor(
 			const columns = activeTui?.terminal?.columns;
 			return typeof columns === "number" && Number.isFinite(columns) ? Math.max(1, Math.floor(columns)) : undefined;
 		},
-		setLatestHiddenThinkingLabel(label: string): boolean {
-			return thinkingLabel?.set(label) ?? false;
+		getWorkingSpinner(): string | undefined {
+			return activeEditor?.getWorkingSpinner();
+		},
+		setLatestHiddenThinkingLabel(label: string, requestRender = true): boolean {
+			return thinkingLabel?.set(label, requestRender) ?? false;
 		},
 		resetHiddenThinkingLabelTarget(): void {
 			thinkingLabel?.reset();

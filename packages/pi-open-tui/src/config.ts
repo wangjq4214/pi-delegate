@@ -64,6 +64,7 @@ export interface TelemetryConfig {
 }
 
 export interface ThinkingPeekConfig {
+	/** Legacy storage: 0 is Off, 1/2 are On. This is no longer a body-row budget. */
 	lines: ThinkingPeekLines;
 }
 

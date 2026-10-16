@@ -67,6 +67,19 @@ test("valid settings and unknown legacy fields survive load/save", (t) => {
 	assert.deepEqual(loadConfig(), loaded);
 });
 
+test("legacy thinking On/Off interpretation preserves startup bytes and unknown nested preferences", (t) => {
+	const { path } = fixture(t);
+	for (const lines of [0, 1, 2] as const) {
+		const raw = JSON.stringify({ thinkingPeek: { lines, futureStyle: "keep" }, unrelated: { retain: true } }, null, 3) + "\n";
+		writeFileSync(path, raw);
+		const config = loadConfig();
+		assert.equal(config.thinkingPeek.lines > 0, lines !== 0);
+		assert.deepEqual(config.thinkingPeek, { lines, futureStyle: "keep" });
+		assert.equal(readFileSync(path, "utf8"), raw);
+		assert.deepEqual((config as unknown as { unrelated: object }).unrelated, { retain: true });
+	}
+});
+
 test("failed saves are observable and preserve the previous file without temp leftovers", (t) => {
 	const { dir, path } = fixture(t);
 	writeFileSync(path, '{"enabled":false}\n');

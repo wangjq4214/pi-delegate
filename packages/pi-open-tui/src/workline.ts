@@ -6,6 +6,7 @@ import { resolveGlyphs } from "./icons.ts";
 import type { FooterState } from "./state.ts";
 import { formatDuration, stripAnsi } from "./utils.ts";
 import { formatTurnTelemetry, type TurnTelemetry } from "./telemetry.ts";
+import { workingSpinner } from "./spinner.ts";
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
@@ -40,6 +41,11 @@ export function createWorklineRenderer(
 			let label = compact
 				? native?.renderSpinnerInBorder(budget) ?? glyphs.working
 				: native?.renderInBorder(budget) ?? `${glyphs.working} working`;
+			if (native && glyphs.thinking === "~") {
+				const frame = stripAnsi(native.renderSpinnerInBorder(16));
+				const adapted = workingSpinner(frame, true);
+				if (frame && adapted !== frame) label = label.replace(frame, () => adapted);
+			}
 			label = truncateToWidth(label, budget, "");
 			if (config.workline.marquee && !compact) label = sweep(label, theme, timestamp);
 			return truncateToWidth(label ? `${label} ${duration}` : duration, width, "");
