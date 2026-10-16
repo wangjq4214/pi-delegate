@@ -340,6 +340,11 @@ export class TaskPanel {
 								`Task ID: ${task.taskId}`,
 								`Mode: ${task.mode}`,
 								`Status: ${task.status}${task.cancelling ? " (cancelling)" : ""}`,
+								// Reuse the reported failure, including startup diagnostics, without
+								// interpreting runner-specific diagnostic fields in the panel.
+								...(task.status === "failed" && record.result
+									? [`\nFailure:\n${record.result.content[0].text}\n`]
+									: []),
 								`CWD selected: ${task.cwd.selected}`,
 								`CWD effective: ${task.cwd.effective ?? "unconfirmed"}`,
 								`Model requested: ${requested.model.provider}/${requested.model.id} · thinking: ${requested.thinkingLevel}`,

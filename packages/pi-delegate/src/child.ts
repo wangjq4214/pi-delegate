@@ -7,13 +7,23 @@ import {
 	SNAPSHOT_ENV,
 	validateChild,
 } from "./inheritance.ts";
+import {
+	createInitializationProgressReporter,
+	type InitializationProgress,
+} from "./initialization-progress.ts";
 
 export function registerChild(pi: ExtensionAPI): void {
+	const path = process.env[SNAPSHOT_ENV];
+	const report = createInitializationProgressReporter(path);
 	pi.registerCommand(INIT_COMMAND, {
 		description: "Initialize an RPC child (internal to pi-delegate)",
 		handler: async () => {
+			let observed: Pick<
+				InitializationProgress,
+				"expectedTools" | "availableTools" | "missingTools" | "missingToolCount"
+			> = {};
 			try {
-				const path = process.env[SNAPSHOT_ENV];
+				report({ phase: "waiting-tools" });
 				if (!path) throw new Error("Missing child inheritance snapshot");
 				const snapshot = JSON.parse(
 					readFileSync(path, "utf8"),
@@ -28,23 +38,32 @@ export function registerChild(pi: ExtensionAPI): void {
 				// MCP connections start asynchronously on session_start. No task is submitted until
 				// every inherited tool is available. A missing runtime registration fails explicitly.
 				const deadline = Date.now() + 30_000;
-				while (
-					snapshot.tools.some(
-						(tool) =>
-							!pi.getAllTools().some((actual) => actual.name === tool.name),
-					)
-				) {
-					if (Date.now() >= deadline) break;
+				while (true) {
+					const available = new Set(pi.getAllTools().map((tool) => tool.name));
+					const missing = snapshot.tools
+						.filter((tool) => !available.has(tool.name))
+						.map((tool) => tool.name);
+					observed = {
+						expectedTools: snapshot.tools.length,
+						availableTools: available.size,
+						missingTools: missing,
+						missingToolCount: missing.length,
+					};
+					report({ phase: "waiting-tools", ...observed });
+					if (!missing.length || Date.now() >= deadline) break;
 					await new Promise((resolve) => setTimeout(resolve, 50));
 				}
+				// Keep schema, exposure, unexpected-tool and activation checks intact.
+				report({ phase: "validating", ...observed });
 				validateChild(pi, snapshot);
 				pi.appendEntry(INIT_ENTRY, { ok: true });
+				report({ phase: "ready", ...observed });
 			} catch (error) {
-				pi.appendEntry(INIT_ENTRY, {
-					ok: false,
-					error: error instanceof Error ? error.message : String(error),
-				});
+				const message = error instanceof Error ? error.message : String(error);
+				report({ phase: "failed", ...observed, error: message });
+				pi.appendEntry(INIT_ENTRY, { ok: false, error: message });
 			}
 		},
 	});
+	report({ phase: "extension-loaded" });
 }

@@ -1,9 +1,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerChild } from "./child.ts";
-import { registerDelegate } from "./delegate.ts";
 import { CHILD_ENV } from "./inheritance.ts";
 
-export default function extension(pi: ExtensionAPI): void {
-	if (process.env[CHILD_ENV] === "1") registerChild(pi);
-	else registerDelegate(pi);
+export default async function extension(pi: ExtensionAPI): Promise<void> {
+	if (process.env[CHILD_ENV] === "1") {
+		const { registerChild } = await import("./child.ts");
+		registerChild(pi);
+	} else {
+		const { registerDelegate } = await import("./delegate.ts");
+		registerDelegate(pi);
+	}
 }

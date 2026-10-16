@@ -211,6 +211,194 @@ test.serial(
 );
 
 test.serial(
+	"Overview exposes startup failure diagnostics without opening Result",
+	async () => {
+		const s = await setup();
+		try {
+			const record = s.records.accept(taskInput);
+			s.frame();
+			s.panel.handleInput(enter);
+			expect(s.frame()).toContain("Status: queued");
+			expect(s.frame()).not.toContain("Failure:");
+			const result = taskResult("failed");
+			const failureText = [
+				"RPC initialization timed out",
+				"Startup stage: initialize",
+				"Elapsed: 5000ms",
+				"RPC response uncertain; do not retry automatically",
+				"Missing inherited tools: repository_search",
+				"Extension errors: broken-extension.ts",
+				"Child stderr:",
+				"Cannot load native dependency",
+				"Try reinstalling the extension",
+			].join("\n");
+			record.complete({
+				...result,
+				content: [{ type: "text", text: failureText }],
+				details: { ...result.details, error: "RPC initialization timed out" },
+			});
+			const overview = s.frame();
+			expect(overview).toContain("[Overview]");
+			expect(overview).toContain("Status: failed");
+			expect(overview).toContain("Failure:");
+			expect(overview).toContain("RPC initialization timed out");
+			expect(overview).toContain("Startup stage: initialize");
+			const frames = [overview];
+			for (let i = 0; i < 50; i++) {
+				s.panel.handleInput(down);
+				frames.push(s.frame());
+			}
+			for (const line of failureText.split("\n"))
+				expect(frames.join("\n")).toContain(line);
+			expect(frames.at(-1)).toContain("Controls:");
+			s.panel.handleInput(tab);
+			expect(s.frame()).toContain("[Result]");
+			expect(s.frame()).toContain("RPC initialization timed out");
+			s.panel.handleInput(tab);
+			expect(s.frame()).toContain("Failure:");
+			expect(s.calls).toHaveLength(0);
+		} finally {
+			s.dispose();
+		}
+	},
+);
+
+test.serial(
+	"Overview failure stderr scrolls safely through narrow and short viewports",
+	async () => {
+		let height = 14;
+		const s = await setup(() => height);
+		try {
+			const result = taskResult("failed");
+			s.records.accept(taskInput).complete({
+				...result,
+				content: [
+					{
+						type: "text",
+						text: [
+							"Child exited unexpectedly",
+							"Child stderr:",
+							...Array.from({ length: 40 }, (_, i) => `stderr line ${i}`),
+							"END-STDERR",
+						].join("\n"),
+					},
+				],
+			});
+			s.frame();
+			s.panel.handleInput(enter);
+			const capture = (width: number) => {
+				const lines = s.panel.render(width);
+				expect(lines).toHaveLength(height);
+				for (const line of lines)
+					expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+				return lines.map(stripTerminalSequences).join("\n");
+			};
+			for (const h of [9, 14, 24]) {
+				height = h;
+				for (const width of [1, 2, 8, 20, 40, 100]) capture(width);
+			}
+			height = 14;
+			const frames = [capture(32)];
+			for (let i = 0; i < 40; i++) {
+				s.panel.handleInput("\x1b[6~"); // Page Down
+				frames.push(capture(32));
+			}
+			const visited = frames.join("\n");
+			for (let i = 0; i < 40; i++)
+				expect(visited).toContain(`stderr line ${i}`);
+			expect(visited).toContain("END-STDERR");
+			expect(frames.at(-1)).not.toContain("stderr line 0");
+			for (let i = 0; i < 40; i++) {
+				s.panel.handleInput("\x1b[5~"); // Page Up
+				capture(32);
+			}
+			expect(capture(100)).toContain("Child exited unexpectedly");
+			expect(capture(100)).toContain("[Overview]");
+			expect(s.calls).toHaveLength(0);
+		} finally {
+			s.dispose();
+		}
+	},
+);
+
+test.serial(
+	"Overview sanitizes failure terminal controls and preserves diagnostic lines",
+	async () => {
+		const s = await setup(() => 32);
+		try {
+			const result = taskResult("failed");
+			s.records.accept(taskInput).complete({
+				...result,
+				content: [
+					{
+						type: "text",
+						text: [
+							"\x1b[2J\x1b[HStartup failed: bad extension",
+							"\x1b]8;;https://evil.example\x07stderr\x1b]8;;\x07",
+							"\x1b]52;c;YXR0YWNr\x07extension could not load",
+							"\x1b[31mreadable error\x1b[0m",
+							"\r\b\x00\x07\u009b\u202eend diagnostics",
+						].join("\n"),
+					},
+				],
+			});
+			s.frame();
+			s.panel.handleInput(enter);
+			const raw = s.panel.render(100).join("\n");
+			for (const injected of [
+				"\x1b[2J",
+				"\x1b[H",
+				"\x1b]8",
+				"\x1b]52",
+				"https://evil.example",
+				"YXR0YWNr",
+				"\x1b[31m",
+				"\r",
+				"\b",
+				"\x00",
+				"\x07",
+				"\u009b",
+				"\u202e",
+			])
+				expect(raw).not.toContain(injected);
+			const lines = s.panel.render(100).map(stripTerminalSequences);
+			expect(
+				lines.some((line) => line.trim() === "Startup failed: bad extension"),
+			).toBe(true);
+			expect(lines.some((line) => line.trim() === "stderr")).toBe(true);
+			expect(
+				lines.some((line) => line.trim() === "extension could not load"),
+			).toBe(true);
+			expect(lines.some((line) => line.trim() === "readable error")).toBe(true);
+			expect(lines.some((line) => line.trim() === "end diagnostics")).toBe(
+				true,
+			);
+		} finally {
+			s.dispose();
+		}
+	},
+);
+
+test.serial("non-failed results remain exclusive to Result", async () => {
+	for (const status of ["completed", "incomplete", "cancelled"] as const) {
+		const s = await setup(() => 32);
+		try {
+			s.records.accept(taskInput).complete(taskResult(status));
+			s.frame();
+			s.panel.handleInput(enter);
+			expect(s.frame()).toContain(`Status: ${status}`);
+			expect(s.frame()).toContain("CWD selected:");
+			expect(s.frame()).not.toContain("Failure:");
+			expect(s.frame()).not.toContain("available result");
+			s.panel.handleInput(tab);
+			expect(s.frame()).toContain("available result");
+		} finally {
+			s.dispose();
+		}
+	}
+});
+
+test.serial(
 	"instruction composition preserves q/Unicode/cursor focus and truthful receipt",
 	async () => {
 		const s = await setup();

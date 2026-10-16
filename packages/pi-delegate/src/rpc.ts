@@ -12,10 +12,24 @@ interface Pending {
 	timer: ReturnType<typeof setTimeout>;
 }
 
+export interface RpcRequestDiagnostics {
+	command: string;
+	id: string;
+	timeoutMs: number;
+	elapsedMs: number;
+	/** A completed pipe write does not establish host acceptance. */
+	writeState: "queued" | "written";
+}
+
 /** A control response timeout leaves host preprocessing/submission outcome uncertain. */
 export class RpcTimeoutError extends Error {
-	constructor(type: string) {
-		super(`Pi RPC command timed out: ${type}`);
+	constructor(
+		type: string,
+		readonly request?: RpcRequestDiagnostics,
+	) {
+		super(
+			`Pi RPC command timed out: ${type}${request ? ` (no matching response within ${request.timeoutMs} ms; pipe write ${request.writeState})` : ""}`,
+		);
 		this.name = "RpcTimeoutError";
 	}
 }
@@ -27,6 +41,8 @@ export interface RpcDiagnostics {
 	stderrTruncated: boolean;
 	exitCode?: number | null;
 	signal?: NodeJS.Signals | null;
+	lastRecord?: { type: string; command?: string; ageMs: number };
+	extensionErrors?: { extensionPath: string; event: string; error: string }[];
 }
 
 export class RpcProcess {
@@ -43,6 +59,8 @@ export class RpcProcess {
 	private stderrTruncated = false;
 	private collectingDiagnostics = true;
 	private unexpectedExit?: Pick<RpcDiagnostics, "exitCode" | "signal">;
+	private lastRecord?: { type: string; command?: string; at: number };
+	private extensionErrors: NonNullable<RpcDiagnostics["extensionErrors"]> = [];
 
 	constructor(
 		executable: string,
@@ -113,6 +131,20 @@ export class RpcProcess {
 			stderr: this.stderrTail.subarray(start).toString("utf8"),
 			stderrTruncated: this.stderrTruncated,
 			...this.unexpectedExit,
+			...(this.lastRecord
+				? {
+						lastRecord: {
+							type: this.lastRecord.type,
+							...(this.lastRecord.command
+								? { command: this.lastRecord.command }
+								: {}),
+							ageMs: Math.max(0, performance.now() - this.lastRecord.at),
+						},
+					}
+				: {}),
+			...(this.extensionErrors.length
+				? { extensionErrors: structuredClone(this.extensionErrors) }
+				: {}),
 		};
 	}
 
@@ -121,6 +153,8 @@ export class RpcProcess {
 		this.stderrTail = Buffer.alloc(0);
 		this.stderrTruncated = false;
 		this.unexpectedExit = undefined;
+		this.lastRecord = undefined;
+		this.extensionErrors = [];
 	}
 
 	private abort = () => {
@@ -140,7 +174,7 @@ export class RpcProcess {
 			listener({ type: "rpc_failure", error });
 	}
 
-	private write(record: RecordValue): void {
+	private write(record: RecordValue, onWritten?: () => void): void {
 		const line = `${JSON.stringify(record)}\n`;
 		// Serialize writes and await each callback before writing more, honoring pipe backpressure.
 		this.writeTail = this.writeTail
@@ -151,9 +185,13 @@ export class RpcProcess {
 							reject(this.failure);
 							return;
 						}
-						this.child.stdin.write(line, (error) =>
-							error ? reject(error) : resolve(),
-						);
+						this.child.stdin.write(line, (error) => {
+							if (error) reject(error);
+							else {
+								onWritten?.();
+								resolve();
+							}
+						});
 					}),
 			)
 			.catch((error: unknown) => {
@@ -175,6 +213,26 @@ export class RpcProcess {
 		} catch {
 			this.fail(new Error("Invalid JSONL from Pi RPC child"));
 			return;
+		}
+		if (this.collectingDiagnostics) {
+			this.lastRecord = {
+				type: String(record.type ?? "unknown").slice(0, 100),
+				...(typeof record.command === "string"
+					? { command: record.command.slice(0, 100) }
+					: {}),
+				at: performance.now(),
+			};
+			if (record.type === "extension_error") {
+				this.extensionErrors.push({
+					extensionPath: String(record.extensionPath ?? "unknown").slice(
+						0,
+						500,
+					),
+					event: String(record.event ?? "unknown").slice(0, 100),
+					error: String(record.error ?? "unknown").slice(0, 2_000),
+				});
+				if (this.extensionErrors.length > 8) this.extensionErrors.shift();
+			}
 		}
 		if (record.type === "response" && typeof record.id === "string") {
 			const pending = this.pending.get(record.id);
@@ -226,10 +284,20 @@ export class RpcProcess {
 		if (this.closing)
 			return Promise.reject(new Error("RPC child is shutting down"));
 		const id = `delegate-${++this.sequence}`;
+		const began = performance.now();
+		let writeState: RpcRequestDiagnostics["writeState"] = "queued";
 		return new Promise<T>((resolve, reject) => {
 			const timer = setTimeout(() => {
 				this.pending.delete(id);
-				reject(new RpcTimeoutError(type));
+				reject(
+					new RpcTimeoutError(type, {
+						command: type,
+						id,
+						timeoutMs,
+						elapsedMs: Math.max(0, performance.now() - began),
+						writeState,
+					}),
+				);
 			}, timeoutMs);
 			this.pending.set(id, {
 				resolve: (value) => resolve(value as T),
@@ -237,7 +305,9 @@ export class RpcProcess {
 				timer,
 			});
 			try {
-				this.write({ ...fields, type, id });
+				this.write({ ...fields, type, id }, () => {
+					writeState = "written";
+				});
 			} catch (error) {
 				this.fail(error instanceof Error ? error : new Error(String(error)));
 			}

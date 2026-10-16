@@ -25,12 +25,16 @@ import {
 	INIT_ENTRY,
 	SNAPSHOT_ENV,
 } from "./inheritance.ts";
+import {
+	type InitializationProgress,
+	readInitializationProgress,
+} from "./initialization-progress.ts";
 import { ObservedOutput } from "./observed-output.ts";
 import { ObservedUsage } from "./observed-usage.ts";
 import { formatDelegationOutput } from "./output.ts";
 import { resolvePressure, TaskPressure } from "./pressure.ts";
 import { delegationPrompt, validateResultFormat } from "./result-format.ts";
-import { RpcProcess } from "./rpc.ts";
+import { RpcProcess, RpcTimeoutError } from "./rpc.ts";
 import { TaskSteering } from "./steering.ts";
 import { entriesUsage } from "./usage.ts";
 
@@ -39,10 +43,34 @@ export async function runDelegation(
 ): Promise<DelegationResult> {
 	options.onPhase?.("initializing");
 	let directory: string | undefined;
+	let snapshotPath: string | undefined;
+	let initializationProgress: InitializationProgress | undefined;
 	let rpc: RpcProcess | undefined;
 	let settlement: ReturnType<RpcProcess["waitForSettled"]> | undefined;
 	let startupStage: StartupStage | undefined = "prepare";
 	let primaryFailure: { error: unknown } | undefined;
+	const startupBegan = performance.now();
+	let operation = "prepare";
+	let operationBegan = startupBegan;
+	const timings: { operation: string; elapsedMs: number }[] = [];
+	const beginOperation = (next: string) => {
+		const now = performance.now();
+		timings.push({ operation, elapsedMs: Math.max(0, now - operationBegan) });
+		operation = next;
+		operationBegan = now;
+	};
+	const startupTiming = () => {
+		const now = performance.now();
+		return {
+			elapsedMs: Math.max(0, now - startupBegan),
+			operation,
+			timings: [
+				...timings,
+				{ operation, elapsedMs: Math.max(0, now - operationBegan) },
+			],
+		};
+	};
+	let failureTiming: ReturnType<typeof startupTiming> | undefined;
 	const started = () => {
 		startupStage = undefined;
 		rpc?.discardDiagnostics();
@@ -77,7 +105,7 @@ export async function runDelegation(
 			validateCwd(options.cwd);
 			const policy = resolvePressure(options.pressure);
 			directory = await mkdtemp(join(tmpdir(), "pi-delegate-"));
-			const snapshotPath = join(directory, "inheritance.json");
+			snapshotPath = join(directory, "inheritance.json");
 			await writeFile(snapshotPath, JSON.stringify(options.snapshot), {
 				mode: 0o600,
 			});
@@ -85,6 +113,7 @@ export async function runDelegation(
 			// Snapshot creation awaits filesystem work; recheck immediately before spawn.
 			validateCwd(options.cwd);
 			startupStage = "spawn";
+			beginOperation("child startup + initialization handshake");
 			rpc = new RpcProcess(
 				process.versions.bun ? "node" : process.execPath,
 				[options.cliPath ?? resolveCli(), "--mode", "rpc", ...options.args],
@@ -106,6 +135,7 @@ export async function runDelegation(
 				startupStage = "initialize";
 			});
 			await rpc.request("prompt", { message: `/${INIT_COMMAND}` });
+			beginOperation("initialization readback");
 			const { entries } = await rpc.request<{ entries: SessionEntry[] }>(
 				"get_entries",
 			);
@@ -128,13 +158,16 @@ export async function runDelegation(
 			if (details.configuration) {
 				startupStage = "configure";
 				const requested = details.configuration.requested;
+				beginOperation("model selection");
 				await rpc.request("set_model", {
 					provider: requested.model.provider,
 					modelId: requested.model.id,
 				});
+				beginOperation("thinking selection");
 				await rpc.request("set_thinking_level", {
 					level: requested.thinkingLevel,
 				});
+				beginOperation("configuration readback");
 				const state = await rpc.request<{
 					model?: { provider?: string; id?: string };
 					thinkingLevel?: unknown;
@@ -211,6 +244,7 @@ export async function runDelegation(
 				effectiveBudget,
 			);
 			startupStage = "submit";
+			beginOperation("task submission");
 			const accepted = await Promise.race([
 				rpc.request<{ disposition: string }>("prompt", { message }),
 				budgetStopped,
@@ -308,6 +342,7 @@ export async function runDelegation(
 					/* Retain event observations if final entries are unavailable. */
 				}
 			}
+			if (startupStage) failureTiming = startupTiming();
 			primaryFailure = { error };
 			throw error;
 		} finally {
@@ -328,6 +363,9 @@ export async function runDelegation(
 				await rpc?.stop();
 			} finally {
 				unsubscribeEvents?.();
+				if (startupStage && !options.signal?.aborted && snapshotPath)
+					initializationProgress =
+						await readInitializationProgress(snapshotPath);
 				if (directory) await rm(directory, { recursive: true, force: true });
 			}
 		}
@@ -362,9 +400,17 @@ export async function runDelegation(
 			};
 		}
 		if (startupStage && !options.signal?.aborted) {
+			const failure = primaryFailure?.error ?? error;
 			details.startupDiagnostics = {
 				stage: startupStage,
+				...(failureTiming ?? startupTiming()),
 				...(rpc?.diagnostics() ?? { stderr: "", stderrTruncated: false }),
+				...(failure instanceof RpcTimeoutError && failure.request
+					? { timeout: failure.request }
+					: {}),
+				...(initializationProgress
+					? { initialization: initializationProgress }
+					: {}),
 			};
 		}
 		return failedResult(

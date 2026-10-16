@@ -9,11 +9,13 @@ import type {
 	TaskConfiguration,
 } from "./configuration.ts";
 import type { InheritanceSnapshot } from "./inheritance.ts";
+import type { InitializationProgress } from "./initialization-progress.ts";
 import type { formatDelegationOutput } from "./output.ts";
 import type { PressureOverrides } from "./pressure.ts";
 import type { StatusObserver } from "./progress.ts";
 import type { ResultFormat } from "./result-format.ts";
-import type { RpcDiagnostics } from "./rpc.ts";
+import type { RpcDiagnostics, RpcRequestDiagnostics } from "./rpc.ts";
+import { formatStartupDiagnostics } from "./startup-diagnostics.ts";
 import type { SteeringControl } from "./steering.ts";
 import type { TaskRecord } from "./tasks.ts";
 import { sumUsage } from "./usage.ts";
@@ -55,6 +57,16 @@ export type StartupStage =
 	| "configure"
 	| "submit";
 
+export interface StartupDiagnostics extends RpcDiagnostics {
+	stage: StartupStage;
+	/** Wall time observed before cleanup; excludes queue residence. */
+	elapsedMs?: number;
+	operation?: string;
+	timings?: { operation: string; elapsedMs: number }[];
+	timeout?: RpcRequestDiagnostics;
+	initialization?: InitializationProgress;
+}
+
 export interface DelegationDetails
 	extends Omit<Awaited<ReturnType<typeof formatDelegationOutput>>, "text"> {
 	status: DelegationStatus;
@@ -66,7 +78,7 @@ export interface DelegationDetails
 	budgetStop?: BudgetStop;
 	partialOutput?: boolean;
 	usagePartial?: boolean;
-	startupDiagnostics?: RpcDiagnostics & { stage: StartupStage };
+	startupDiagnostics?: StartupDiagnostics;
 	configuration?: ConfigurationDetails;
 	/** Absolute startup directory, present only after the child has spawned. */
 	cwd?: string;
@@ -93,7 +105,7 @@ export function failedResult(
 			: String(error);
 	const diagnostics = cancelled ? undefined : details.startupDiagnostics;
 	const diagnosticText = diagnostics
-		? `\nStartup stage: ${diagnostics.stage}${diagnostics.stderr ? `\n\nChild stderr${diagnostics.stderrTruncated ? " (tail truncated to 16 KiB)" : ""}:\n${diagnostics.stderr}` : ""}`
+		? `\n${formatStartupDiagnostics(diagnostics)}`
 		: "";
 	return {
 		content: [

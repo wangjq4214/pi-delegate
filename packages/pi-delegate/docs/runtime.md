@@ -15,6 +15,8 @@ The child uses the CLI from the installed Pi host package:
 
 RPC control commands have a 40-second response timeout. Inherited-tool initialization waits up to 30 seconds for missing tools to become available. The model task has no default fixed timeout; opt-in [execution budgets](usage.md#optional-execution-budget) can cancel on observed time/turn thresholds, while [soft pressure](usage.md#soft-pressure) is advisory rather than a hard execution budget.
 
+The initialization request's deadline includes child cold startup, extension/session initialization, and the inherited-tool handshake; it is not an additional 40 seconds after the child is ready. Child registration loads only the child initialization branch, not parent task/panel modules. Each tool-wait poll enumerates the registry once and uses a name set; full schema/exposure/activation validation still runs before task submission.
+
 ## Concurrency scheduling
 
 Synchronous and background tasks share a runtime-local FIFO pool, excluding the parent. The default maximum is **4**. Set `PI_DELEGATE_CONCURRENCY` to a positive safe integer before Pi starts; it is read when the extension registers and cannot be adjusted at runtime. Invalid values fail extension registration rather than silently removing the limit.
@@ -106,6 +108,12 @@ Normal completion and failure also release the child process and temporary initi
 Startup failures automatically include a **model-visible diagnostic tail** of child stderr, limited to the last **16 KiB**, alongside the original error. `details.startupDiagnostics` reports the startup step (`prepare`, `spawn`, `initialize`, `configure`, or `submit`), stderr, a truncation flag, and unexpected exit code/signal when observed. Intentional cleanup exit codes are not presented as the cause of failure. Synchronous results and `delegate_status` use the same diagnostics.
 
 **Privacy:** child stderr may contain sensitive extension/configuration output. Failure diagnostics are enabled by default and are not guaranteed to be redacted. Do not log credentials in child startup code. No stderr log artifact is persisted by pi-delegate; the parent host may retain the returned failure text as part of its normal conversation history.
+
+Startup failures also report the last operation, per-operation/total elapsed time observed before cleanup, RPC timeout command/id/limit and pipe-write state when applicable, and the last protocol record observed. A completed pipe write is not proof of host acceptance; timed-out commands are not automatically retried. Up to eight recent startup `extension_error` records are retained, with bounded path/event/error fields; these errors can contain sensitive configuration details just like stderr and are not guaranteed to be redacted.
+
+A bounded, best-effort initialization checkpoint in the owned temporary directory distinguishes extension registration, waiting for tools, validation, readiness and failure. It includes available/expected tool counts and bounded missing-tool names when observed. The checkpoint is removed with initialization resources, is not a persistent log, and is read only for non-cancelled startup failures. A missing checkpoint or missing tool name does not prove which MCP server or extension caused the stall; unavailable causes are explicitly labelled unknown. Stderr is never parsed as protocol data.
+
+Open `/delegates`, select the failed task and press Enter: the **Overview** includes the failure and startup diagnostics, with the same details also available under **Result** and through task queries. Long diagnostics can be scrolled; the panel strips terminal control sequences from untrusted failure text.
 
 Collection ends and its buffer is discarded when original-task execution is observed or the task prompt is accepted as started. Successful tasks, subsequent runtime failures, and cancellations do not return startup stderr. Stderr alone does not make startup fail and is never parsed as RPC data. Diagnostics are collected after the existing bounded cleanup; pipes forcibly closed during cleanup may leave the tail incomplete. This is startup-error visibility, not a full execution record or a guarantee that reported task results are correct.
 

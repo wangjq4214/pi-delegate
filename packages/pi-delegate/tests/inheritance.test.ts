@@ -337,7 +337,7 @@ for (const name of DELEGATION_TOOLS) {
 	});
 }
 
-test("child registration excludes delegate entirely, not just its activation", () => {
+test("child registration excludes delegate entirely, not just its activation", async () => {
 	const previous = process.env[CHILD_ENV];
 	try {
 		for (const child of [false, true]) {
@@ -345,7 +345,7 @@ test("child registration excludes delegate entirely, not just its activation", (
 			else delete process.env[CHILD_ENV];
 			const tools: string[] = [];
 			const commands: string[] = [];
-			extension({
+			await extension({
 				registerTool: (definition: { name: string }) =>
 					tools.push(definition.name),
 				registerCommand: (name: string) => commands.push(name),
