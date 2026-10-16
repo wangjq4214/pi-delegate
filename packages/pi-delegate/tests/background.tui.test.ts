@@ -281,8 +281,9 @@ for (const busy of [false, true]) {
 				expect(textOf(queried)).toContain("explicit-only");
 				expect(queried.usage).toBeUndefined();
 				expect(processExited(child.pid)).toBe(true);
-				expect(statusHost.frame()).toContain("└─ completed");
-				expect(statusHost.frame()).toContain("1 turn · pressure: none");
+				expect(statusHost.frame()).toMatch(/└─\s+completed/);
+				expect(statusHost.frame()).toContain("1 turn");
+				expect(statusHost.frame()).toContain("pressure: none");
 				expect(statusHost.frame()).not.toContain("CHILD_RESULT");
 				await parent.prompt(
 					`STEER ${JSON.stringify({ taskId: details.taskId, message: "after settlement" })}`,

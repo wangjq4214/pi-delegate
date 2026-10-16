@@ -301,23 +301,26 @@ Each child has:
 - Its supplied `title`, or a shortened first task line without an extra model call.
 - Actual task-running seconds and English `turn` / `turns` labels.
 - `pressure: none / warning / urgent`.
-- A separate `│  model: provider/id · thinking: level` row showing confirmed startup configuration; before confirmation it says `unconfirmed`. The `│` aligns with the activity connector and `model` aligns with activity text. Thinking metadata does not imply observed thinking activity.
-- An aligned `│  ↑... ↓... R... W... · $...` usage row; see [usage accounting and estimate limits](runtime.md#delegated-usage-visibility).
+- A separate rail-aligned `model: provider/id · thinking: level` row showing confirmed startup configuration; before confirmation it says `unconfirmed`. Metadata aligns with the start of activity content, including an optional activity icon. Thinking metadata does not imply observed thinking activity.
+- An aligned `↑... ↓... R... W... · $...` usage row, followed by the independently styled pressure label; see [usage accounting and estimate limits](runtime.md#delegated-usage-visibility).
 - A subordinate line with only current observed activity, such as `thinking…` or `toolcall · read`. With concurrent tools, the most recent name is followed by `(+N)` for the others; details list all current names.
 
 The heading shows occupied/maximum capacity and queued count, followed by a separately labelled Delegated total. The list does not display thinking content, tool arguments, results, or roles. Queued and initializing phases are explicit and excluded from time/turn counts; elapsed execution time continues during provider/tool waits.
 
 Pressure advances only after the child's RPC accepts that stage's steering request; it does not indicate consumption or compliance.
 
-Terminal outcomes remain visible for 5 seconds and are then removed from the UI only. Both modes' records/results stay discoverable and queryable while their scope remains valid. Branch changes clear task rows/callbacks but retain cumulative delegated usage. Session replacement/reload and shutdown end the owning total.
+Terminal outcomes remain visible for 5 seconds and are then removed from the UI only. When the last displayed child expires or rows are cleared, the entire Agents widget—including its heading, Delegated total and widget-owned spacing—is removed. Capacity/usage updates alone do not bring back an empty panel. Cumulative usage is retained and shown again when a later task appears in the same runtime. Both modes' records/results remain discoverable/queryable while their scope is valid. Branch changes clear task rows/callbacks but retain cumulative delegated usage; session replacement/reload and shutdown end the owning total.
 
-The Agents area has 2-column horizontal insets when space permits and a 1-line gap above and below, counting Pi's existing widget spacing rather than doubling it. Insets shrink on narrow terminals before consuming space needed for identity and summary metadata.
+The Agents area uses lightweight vertical rails rather than a full enclosing box, with 2-column horizontal insets when space permits and a 1-line gap above and below, counting Pi's existing widget spacing rather than doubling it. On narrow terminals, padding and decorative rails yield to numeric identity/time/turns and pressure before text is truncated. Hidden panels contribute no widget-owned blank lines; ordinary host spacing is unchanged.
+
+The `#` label is the branch root: the metadata rail and final activity connector sit directly below it, not to the left of the status icon. The whole label (symbol and digits) and connectors use Pi's live `mdLink` color, matching Open TUI's normal Git branch name/icon; status and pressure keep their independent semantic colors.
 
 Colors follow Pi's active theme, including theme switches and host-supported custom-theme hot reload, without separate extension color settings. English status text remains visible alongside color:
 
 - Running/thinking/tool activity uses `accent`; completed uses `success`, incomplete uses `warning`, and failed uses `error`.
 - Queued, initializing, finishing, and cancelled states use `muted`. Titles use normal text color; time, turns, and separators use secondary styling.
 - Pressure independently uses `dim` for none, `warning` for warning, and `error` for urgent. Urgent pressure does not mean the task failed.
+- Ordinary Unicode symbols distinguish `●` executing, `◷` queued, `⚙` observed tool activity, `✓` completed, `!` incomplete, `×` failed and `Σ` delegated usage; Nerd Font is not required. Icons follow the corresponding semantic colors and do not replace status text. Pressure is independent: `✓ completed` may still have `pressure: urgent` in the error color.
 
 Narrow terminals preserve space for the numeric label, time, turns, and pressure where possible, shortening the title first. Extremely narrow output is truncated to terminal width. RPC, print, and JSON execution do not depend on this component.
 

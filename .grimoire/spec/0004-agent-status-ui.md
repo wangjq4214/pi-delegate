@@ -3,8 +3,8 @@
 **Spec ID:** 0004
 **Status:** Draft
 **Date:** 2026-10-03
-**Revised:** 2026-10-04
-**Sources:** The settled refinement conversation: the user requested a compact agent list without preset roles, accepted the recommended display/lifecycle behavior, required English turn labels and pressure visibility, accepted RPC acknowledgement as the pressure-display boundary, and explicitly invoked `grimoire-spec` for a spec-only endpoint.
+**Revised:** 2026-10-16
+**Sources:** The original settled refinement conversation and its presentation follow-ups; the 2026-10-16 user request to restyle the above-input delegate UI using `packages/pi-open-tui/` as a visual reference and hide it when the last agent disappears, followed by approval of H-refresh/H-icons below and the spec-only route.
 
 ## Source and coordination boundary
 
@@ -26,7 +26,16 @@ Spec 0003 excludes new parent pressure telemetry from that feature's scope. This
 
 **Model/thinking extension (2026-10-04):** In a later refinement, the user accepted per-task model selection, requested model/thinking visibility in this same Agents area, refined the metadata row to `│  model: ... · thinking: ...` aligned with the activity text after `└─ `, and explicitly invoked `grimoire-spec`. [Spec 0006 — Per-task model selection and Agents UI configuration visibility](./0006-per-task-model-selection.md) is the authoritative contract for that separately authorized startup-configuration feature. It extends the original allowed-field restriction only with a dedicated configuration row; the first summary and current activity/outcome remain. R1–R8, counting, acknowledged pressure, theme, spacing and 5-second retention otherwise remain unchanged. **Implementation update (2026-10-04):** implementation, tests and verification of that startup-selection/metadata follow-up were subsequently authorized and completed. [Spec 0006 § Implementation Verification](./0006-per-task-model-selection.md#implementation-verification-2026-10-04) is the evidence and limitation record; the historical R1–R6 and R7–R8 verification below remains scoped to those features.
 
-**Concurrency/usage extension (2026-10-04):** The user accepted runtime-local FIFO concurrency scheduling, queued/initializing/running visibility, per-task usage and a cumulative delegated total, with usage formatted as `↑8.2k ↓1.1k R20k W0 · $0.04`. [Spec 0007 — Concurrency scheduling and delegated cost visibility](./0007-concurrency-scheduling-and-cost-visibility.md) is the authoritative contract for these separately authorized additions to the existing allowed UI fields. Its queued phase and independently retained aggregate extend presentation without changing task-running time, turn counting, acknowledged pressure, model confirmation, theme/width/spacing or 5-second task-row retention. The selected endpoint is spec-only; this paragraph does not claim implementation or authorize QA.
+**Concurrency/usage extension (2026-10-04):** The user accepted runtime-local FIFO concurrency scheduling, queued/initializing/running visibility, per-task usage and a cumulative delegated total, with usage formatted as `↑8.2k ↓1.1k R20k W0 · $0.04`. [Spec 0007 — Concurrency scheduling and delegated cost visibility](./0007-concurrency-scheduling-and-cost-visibility.md) remains authoritative for scheduling and accounting. Its original requirement to keep the aggregate visible without child rows is superseded by R10 below; accumulated consumption is still retained independently of presentation. Other counting, acknowledged-pressure, model confirmation, theme/width/spacing and 5-second task-row-retention contracts remain unchanged.
+
+- **H-refresh — Approved restyling and empty-panel behavior (2026-10-16):** The user requested a prettier delegate UI above input, suggested `packages/pi-open-tui/` as a visual reference, and wanted the UI to disappear when the final agent disappears. The user then accepted the recommendation: compact vertical rails rather than a heavy full enclosing border; prominent titles/current activity with secondary metadata; retain model/thinking, time, English turns, pressure, per-task usage and delegated total; keep the existing 5-second terminal retention, then hide the entire panel including heading, aggregate and panel-owned blank space when the last row expires. Hiding must not clear accounting: a later task in the same runtime brings the panel back with retained cumulative usage. Borrow visual style only, without a dependency on `pi-open-tui`. Selected endpoint: revise this existing UI spec only; no tickets, implementation plan, production/test edits or QA execution.
+- **H-icons — Approved visual preview (2026-10-16):** After asking to see the expected UI and whether it includes icons/colors, the user accepted the preview and recommendation: a few ordinary Unicode symbols, no required Nerd Font, running/tool activity in the theme's accent role, completed in success, incomplete/warning pressure in warning, failed/urgent pressure in error, and secondary rails/model/usage/time styling. Keep normal title color and status text rather than relying on icons/colors alone. Blue/green/yellow/red in the conversational legend illustrate semantic roles, not fixed RGB requirements. The preview allows pressure to be grouped with per-task usage; exact row placement remains illustrative. This relaxes the earlier first-summary-row pressure placement in R1/spec 0006 R6, but not pressure visibility or acknowledgement meaning. The existing spec-only endpoint remains selected.
+- **H-rail — User-directed visual correction (2026-10-16):** After the live multi-agent demonstration, the user requested the side line use the current Open TUI Git branch color and originate at the `#` marker. The inspected normal-branch renderer in [Open TUI footer](../../packages/pi-open-tui/src/footer.ts) uses Pi's `mdLink` role. Use that live semantic color for the `#` root and connectors, place `│`/`└` directly below `#`, and remove the summary-row rail to the left of the task icon. This supersedes the earlier muted outer rail/illustration only; task icon/outcome/pressure colors, metadata alignment, lifecycle and package independence remain unchanged. This request authorizes the bounded follow-up implementation and checks.
+- **H-label — User-directed color correction:** The user then requested that the number after `#` share the `#` color. Apply `mdLink` to the whole `#<label>` as one label; keep task-title, status-icon and pressure colors unchanged.
+- **V-refresh — Current evidence:** [AgentStatus](../../packages/pi-delegate/src/status.ts) currently keeps the widget mounted/rendered when cumulative usage exists even without rows, while terminal rows expire after 5 seconds. [Open TUI's compact-layout documentation](../../packages/pi-open-tui/README.zh-CN.md#紧凑消息布局) and [message rails](../../packages/pi-open-tui/src/message-layout.ts) supply the visual reference, not a new configuration/runtime contract.
+- **Current precedence and knowledge boundary:** H-refresh and R9–R10 govern this revision. R10 supersedes only spec 0007 R6's empty-panel visibility sentence and its “Row expiry, branch navigation and runtime reset” scenario's expectation of a still-visible total. Accounting retention, contribution replacement, runtime reset and separate parent/delegated totals remain governed by [ADR 0006](../adr/0006-runtime-concurrency-and-delegated-usage.md). R9 extends the decorative rail placement illustrated by spec 0006 R7 while preserving its metadata/activity text alignment and confirmation semantics. Package independence is already established by [ADR 0010](../adr/0010-independent-workspace-packages.md) and [ADR 0011](../adr/0011-import-upstream-open-tui-extension.md); no architectural decision changes. There is no qualifying new CONTEXT/ADR update: the delta is ordinary presentation requirements plus preservation of existing boundaries. No unconfirmed semantic assumptions or blocking decisions remain. Earlier execution authorizations and verification below do not authorize or verify this revision.
+
+**Subsequent execution authorization (2026-10-16):** The user explicitly invoked `grimoire-loop` after approving the icon/color preview. For this bounded reversible UI change, the selected route is implementation → targeted verification → report, without a separate plan file or independent review/check stage. This authorizes the scoped status renderer, regression tests and associated usage/runtime documentation; prior spec-only execution exclusions are historical, not a restriction on this invocation.
 
 ## Requirements
 
@@ -35,7 +44,7 @@ Spec 0003 excludes new parent pressure telemetry from that feature's scope. This
 - Display one compact status list in a fixed area above the Pi terminal input.
 - Include child agents launched by this extension in both synchronous and background mode. Do not include the parent agent.
 - Do not use or introduce preset roles such as `Explore`, `Plan`, or role-based identities.
-- The first row for each child contains only its numeric label, task title, elapsed running time, completed-turn count, and pressure state. A subordinate row shows current activity or the terminal outcome. The separately authorized [spec 0006](./0006-per-task-model-selection.md#r6--modelthinking-visibility-in-the-existing-agents-ui) adds a dedicated model/thinking configuration row between them, with its effective-value and alignment semantics defined there.
+- The first row for each child contains its numeric label, task title, elapsed running time and completed-turn count, with decorative rail/icon styling as specified in R9. Keep the acknowledged pressure state visible for that same task; R9 allows grouping it with usage rather than fixing it to the first row. A subordinate row shows current activity or the terminal outcome. The separately authorized [spec 0006](./0006-per-task-model-selection.md#r6--modelthinking-visibility-in-the-existing-agents-ui) adds a dedicated model/thinking configuration row between them, with its effective-value semantics defined there; [spec 0007 R7](./0007-concurrency-scheduling-and-cost-visibility.md#r7--compact-agents-capacity-and-usage-presentation) adds capacity, delegated total and per-task usage. These additions remain visible while the panel is present (R9–R10).
 - This is terminal UI scope; existing non-TUI delegation remains operational without requiring this display.
 
 **Trace:** H; B for existing execution modes.
@@ -94,7 +103,7 @@ Spec 0003 excludes new parent pressure telemetry from that feature's scope. This
 
 - Apply spacing only to the extension's existing above-input Agents area; do not change Pi's overall interface layout.
 - At widths that accommodate the contracted content and spacing, inset the heading and child rows by 2 terminal columns from the left edge and reserve 2 terminal columns at the right edge. Measure and truncate content within the remaining width, not the full terminal width.
-- Keep 1 blank line between the Agents area and the adjacent content above, and 1 blank line between the Agents area and the input below. Count spacing supplied by Pi as part of these gaps; do not add another blank line where the host already supplies one.
+- While the Agents area is visible, keep 1 blank line between it and the adjacent content above, and 1 blank line between it and the input below. Count spacing supplied by Pi as part of these gaps; do not add another blank line where the host already supplies one. When the panel is hidden, it contributes no spacing of its own (R10).
 - On narrow terminals, horizontal spacing may shrink to avoid consuming columns needed for numeric identity and status. Every rendered line must still fit the supplied terminal width; spacing does not relax R2's identity or R1–R6's content boundaries.
 
 **Trace:** H-presentation for approved spacing and scope; V for the existing rendering surface and host spacing. No fixed narrow-width breakpoint was selected.
@@ -120,6 +129,42 @@ Spec 0003 excludes new parent pressure telemetry from that feature's scope. This
 
 **Trace:** H-presentation for the mapping, visual hierarchy, theme integration, and unchanged behavior; V for the host's semantic styling and theme integration interfaces. Semantic roles are required, not particular RGB hues or a new contrast threshold.
 
+### R9 — Lightweight rail styling with retained information
+
+- Restyle only the existing above-input Agents panel, borrowing the compact vertical-rail visual language of `packages/pi-open-tui/`. Use a lightweight rail to group each task's summary/configuration/usage/activity; do not add a heavy full enclosing box.
+- The branch originates at the summary's `#`: show the status icon before `#<label>` without an outer summary rail, and align the subordinate `│` and final `└` with that `#` column, including multi-digit labels. Style the entire `#<label>` (symbol and digits) and connectors with the active Pi theme's `mdLink` role, matching Open TUI's normal Git branch name/icon color. Metadata remains secondary; root/rail color does not encode task outcome or pressure. H-rail overrides the earlier muted rail appearance.
+- Make task titles and current activity/outcomes easy to distinguish from secondary model/thinking, time, turn and usage metadata. Preserve R8's normal title color, semantic activity/outcome roles and independently acknowledged pressure styling; keep metadata and separators visually subordinate.
+- Retain the existing capacity/queue heading, clearly labelled delegated total, numeric identity, title, elapsed time, English completed turns, pressure, model/thinking confirmation, per-task usage and current activity/outcome. A cosmetic change must not hide these fields at accommodating widths or change their meanings. Keep configuration/usage metadata text aligned with activity content (including an optional icon); preserve the spec 0007 usage field order and symbols.
+- Apply R7's width-aware insets/gaps, R8's live Pi theme integration and existing sanitization to the new rails too. Narrow terminals may reduce spacing/truncate under the existing contract rather than overflow; decorative rails must not displace the numeric identity/status merely to retain ornamentation.
+- The visual reference does not create a package/runtime/configuration dependency: delegate must render and perform its lifecycle normally whether or not `pi-open-tui` is installed or enabled. No import of its internal presentation components or requirement to load its settings is introduced.
+- Use a small ordinary-Unicode icon vocabulary without requiring Nerd Font/private-use glyphs. Icons are supplementary to truthful status text and follow the active Pi semantic theme, not a separate palette:
+
+| Icon / use | Theme role / meaning |
+| --- | --- |
+| `●` executing task indicator | `accent`; do not use it to claim observed thinking |
+| `◷` queued label/count | `muted`; queue residence is not execution |
+| `⚙` observed tool activity | `accent`; retain `toolcall · <tool name>` without arguments |
+| `✓` completed | `success`; keep the existing `completed` outcome text |
+| `!` incomplete | `warning`; keep `incomplete`, not a new failed outcome |
+| `×` failed | `error`; keep `failed` |
+| `Σ` delegated total | Secondary styling; keep the explicit delegated-total label |
+
+- Existing initializing/finishing/cancelled labels keep their R8 roles; the preview does not require inventing icons or new outcome meanings for them. Header capacity numbers retain spec 0007's occupied-slot meaning even when decorated with `●`, including initialization/cleanup.
+- Keep pressure text/color independent of the task icon/outcome. It may remain on the summary or be grouped with that task's usage as illustrated; this is not permission to omit it. Metadata aligns with the start of activity content, including an optional activity icon, under the same narrow-width constraints.
+
+**Trace:** H-refresh and H-icons for the approved rail/icon style, hierarchy, retained information and independent operation; H-presentation/R7–R8 and specs 0006/0007 for unchanged field meanings; V-refresh for the reference. Exact heading wording, rail glyph variants and reversible typography within these constraints remain implementation details; the icon/color meanings above are contractual.
+
+### R10 — Hide the entire panel when no displayed task remains
+
+- Show the panel while at least one task row is displayed: queued, initializing, executing/finishing, or a terminal task still within the existing 5-second retention. Zero running tasks alone is not a reason to hide queued or retained rows.
+- Keep all four terminal outcomes visible for the existing 5 seconds. When the final displayed row is removed, hide the entire Agents panel: heading, capacity/queue summary, delegated total, rails and panel-owned padding/blank lines. Cumulative usage alone must not keep the panel visible.
+- With no task rows, capacity or usage observations must not recreate an empty panel. This includes late same-runtime cleanup/accounting updates after rows have expired or been cleared. Preserve existing invalidation rules preventing stale cross-scope task rows from reappearing.
+- Hiding/removing the panel is visual only. Do not reset accumulated delegated usage, discard queryable task results, cancel work, alter admission/cleanup, or transfer ledger ownership to the renderer. A later delegation in the same runtime shows the panel again with the preserved cumulative delegated total, including prior consumption plus any newly reported consumption.
+- Session replacement/reload retains its existing fresh-runtime total behavior; preserving consumption here does not introduce persistence across runtime boundaries. Non-TUI usage/status remains independent of widget visibility.
+- This explicitly replaces spec 0007 R6's requirement to keep the total visible without child rows and the corresponding row-expiry acceptance expectation. It does not replace that spec's accounting-retention contract or ADR 0006. R7's visible-panel gaps must not remain as an empty widget footprint; unrelated host layout remains unchanged.
+
+**Trace:** H-refresh for complete disappearance, unchanged retention and later reappearance with retained usage; R6 and ADR 0006 for visual/accounting/result separation. No new retention duration or rendering-latency SLA is introduced.
+
 ## Solution
 
 Present the parent's existing delegated child executions as a compact terminal status list. Correlate invocation metadata, actual task start, completed-turn and activity observations, acknowledged pressure submissions, and the runner's final outcome with the same numeric UI identity. Observe both existing execution modes without changing who owns them or how their results reach the parent.
@@ -128,21 +173,28 @@ Use the same time/turn meanings as the pressure contract, but distinguish a pres
 
 For the presentation follow-up, keep the existing status state and ownership contract while adding width-aware spacing within the Agents area and deriving activity/outcome and pressure styles from the current Pi theme. Integrate with host-provided widget spacing and theme redraws so neither blank-line gaps nor old colors accumulate. The same rows and existing execution events drive both textual status and its color; pressure color is based on acknowledgement, not eligibility.
 
-Representative baseline layout (surrounding Pi content, titles, and durations are illustrative; R7 defines spacing, and R8 defines colors not representable in this plain-text diagram). The additional configuration row and final connector/text alignment are shown in [spec 0006 R7](./0006-per-task-model-selection.md#r7--vertical-connector-and-activity-text-alignment):
+Representative approved accommodating-width layout (surrounding Pi content, values and exact heading wording are illustrative; R7 defines spacing, R8 semantic colors, R9 rails/icons/hierarchy and R10 visibility). Configuration/usage text aligns with the start of activity content, including its icon where present; pressure remains visible for its task but its row placement is illustrative:
 
 ```text
 [Existing Pi content]
 
-  Agents
-  1  Check error handling  · 12s · 3 turns · pressure: none
-    └─ thinking…
-  2  Analyze test coverage ·  6m · 21 turns · pressure: warning
-    └─ toolcall · read
-  3  Summarize interfaces  · 11m · 42 turns · pressure: urgent
-    └─ completed
+  Agents   ● 1/4 active · ◷ 0 queued
+    Σ Delegated total · ↑24.1k ↓3.2k R80k W0 · $0.13
+
+  ● #3  Check status panel · 12s · 3 turns
+    │   model: provider/model · thinking: high
+    │   ↑8.2k ↓1.1k R20k W0 · $0.04 · pressure: none
+    └─  ⚙ toolcall · bash
+
+  ✓ #4  Add regression tests · 28s · 5 turns
+    │   model: provider/model · thinking: high
+    │   ↑6.1k ↓0.8k R12k W0 · $0.02 · pressure: none
+    └─  completed
 
 [Pi input]
 ```
+
+The aggregate can include earlier tasks no longer shown. After the final displayed task's retention expires, none of this panel, its heading/aggregate or its spacing remains; unrelated host spacing is not removed.
 
 ### Necessary seams
 
@@ -152,8 +204,9 @@ Representative baseline layout (surrounding Pi content, titles, and durations ar
 | Task execution observations | Shared runner / child RPC events → status state | Actual task onset, completed-turn boundary, current observable thinking/tool activity for that child | Initialization-excluding elapsed time, correct completed counts, and current activity without content/argument exposure (R3–R4) |
 | Pressure acknowledgement | Existing task-local pressure submission / RPC response → status state | Stage and successful child steering acknowledgement, distinguished from reservation/failure | Highest accepted stage for that task, without claiming model consumption or changing pressure behavior (R5) |
 | Outcome/ownership | Existing runner and synchronous/background owners → display lifecycle | Four terminal outcomes and scope invalidation/teardown | Final row for 5 seconds, visual-only removal, and no stale cross-scope updates (R6) |
-| Terminal presentation | Correlated status state → Pi terminal UI | Current rows, available terminal width, and existing host widget spacing within the owning TUI session | Compact fixed display above input with non-duplicated vertical gaps, horizontal insets, width bounds, and no role labels or uncontracted information (R1–R7; the separately authorized configuration row follows spec 0006) |
+| Terminal presentation | Correlated status state → Pi terminal UI | Current rows, available terminal width, and existing host widget spacing within the owning TUI session | Compact above-input rail display with non-duplicated gaps, horizontal insets, width bounds, contracted metadata, and no panel or panel-owned space when there are no rows (R1–R10; specs 0006/0007 supply configuration/usage meanings) |
 | Active theme | Pi theme configuration / host redraw → Agents presentation | Current semantic foreground roles and host theme switch/hot-reload redraws | Activity/outcome and acknowledged-pressure styling, normal titles, secondary metadata, and no stale colors on already-visible rows (R8) |
+| Usage retention / panel visibility | Runtime usage ledger and capacity observations → visual owner | Retained cumulative snapshots independent of current task rows; existing runtime lifetime | Aggregate shown with task rows, no empty panel from usage/capacity-only updates, and preserved consumption when later tasks make the panel reappear (R10; ADR 0006) |
 
 ## End-to-End Tests
 
@@ -192,7 +245,7 @@ These are future acceptance scenarios, not executed tests or an implementation p
 ### T7 — Presentation stays minimal and execution remains compatible (R1–R6)
 - **Given:** A representative TUI session at normal and narrow terminal widths, plus existing RPC/non-TUI delegation paths.
 - **When:** Status is rendered and changes while delegation continues.
-- **Then:** TUI presentation retains numeric identity and contains only the contracted fields/activity/outcome, with no roles, token/cost statistics, arguments, result body, or activity history. RPC/non-TUI execution, synchronous result returns, and background query/delivery remain functional without requiring a terminal display.
+- **Then:** TUI presentation retains numeric identity and contains only the contracted fields/activity/outcome and the configuration/usage additions separately authorized by specs 0006/0007, with no roles, arguments, result body, or activity history. RPC/non-TUI execution, synchronous result returns, and background query/delivery remain functional without requiring a terminal display.
 
 ### T8 — Spacing in the real host and after resize (R1–R2, R7)
 - **Given:** A Pi TUI session with existing content above the input, synchronous/background child rows, and a terminal width that accommodates the rows plus the agreed spacing.
@@ -209,6 +262,30 @@ These are future acceptance scenarios, not executed tests or an implementation p
 - **When:** The user switches Pi's theme, tested with light/dark and custom palettes, or edits the active custom theme at a location Pi supports for hot reload.
 - **Then:** On the next host redraw, already-visible rows use the current semantic-role colors rather than cached previous colors, without creating a new delegation. Their text, identity, time/turn meaning, pressure acknowledgements, outcomes, and retention ownership remain unchanged; styling does not change the selected Pi theme or require separate extension configuration.
 
+### T11 — Compact visual hierarchy and independent operation (R7–R9)
+
+- **Given:** The same controlled synchronous/background task states with model/thinking, usage and acknowledged pressure, tested both without Open TUI and with it enabled.
+- **When:** Tasks change activity/outcome, the active Pi theme changes, and the terminal is resized through accommodating/narrow widths, including wide/combining metadata.
+- **Then:** The panel uses lightweight task rails and the R9 Unicode icons without a heavy enclosing box or a Nerd Font prerequisite; titles/activity are distinct from secondary metadata, all contracted fields remain available at accommodating widths, and configuration/usage align with the start of activity content. Icons follow the same observed state and semantic theme roles as their labels; status/outcome and pressure remain readable in text without relying on color or icons. Theme changes, sanitization and column bounds remain correct. Delegate requires no Open TUI package or settings; both cases retain the same status/lifecycle meanings. Inspect the composed host frame for gaps, not only isolated renderer output.
+
+### T12 — Final retained row removes the complete panel (R6, R10)
+
+- **Given:** A runtime with nonzero delegated usage and tasks producing completed/incomplete/failed/cancelled outcomes; exercise synchronous and background modes, including a queryable background result.
+- **When:** One row expires while another remains, then the final displayed terminal row reaches its existing 5-second expiry.
+- **Then:** Removing an earlier row does not hide the remaining panel or renumber tasks. The final row remains through its retention interval; after expiry, the heading, aggregate, capacity summary, rails and panel-owned blank space all disappear from the composed host frame. The surrounding content/input resumes its normal no-widget layout. Cumulative usage and queryable results remain intact.
+
+### T13 — Usage-only updates do not resurrect the panel; later work does (R10)
+
+- **Given:** A hidden panel after final-row expiry or existing scope-local row clearing, with retained consumption in the same runtime.
+- **When:** Capacity/usage-only observations arrive, including late same-runtime cleanup usage, followed later by a new delegation.
+- **Then:** Observations alone leave the panel absent while retaining/reconciling usage. The new task makes the panel visible again with its valid session-local identity, preserved prior total and any new consumption, counted once. Existing replacement/reload starts a fresh runtime total; old callbacks cannot populate the new display or ledger. No result is discarded or execution cancelled merely because the panel is hidden.
+
+### T14 — Queued and retained work are not mistaken for an empty panel (R6, R10)
+
+- **Given:** Queued/initializing tasks or only terminal rows still inside their 5-second retention, with no task currently executing its model.
+- **When:** Capacity/activity changes and redraws occur before those rows are removed.
+- **Then:** The panel stays visible with truthful phase/configuration/usage data. It disappears only once no displayed rows remain, not merely when the executing count becomes zero.
+
 ## Decisions
 
 - **Choice:** One spec, no tickets/slice or implementation stage. **Source:** User accepted the recommendation and explicitly invoked spec after the settled handoff; one shared child status contract covers both execution modes.
@@ -220,6 +297,8 @@ These are future acceptance scenarios, not executed tests or an implementation p
 - **Choice:** Revise the existing shared UI spec rather than create another spec or tickets; stop at spec-only. **Source:** H-presentation; the user explicitly invoked `grimoire-spec` and accepted the recommended route for this bounded presentation change.
 - **Choice:** 2-column horizontal insets, reducible on narrow terminals, and 1-line vertical gaps counting existing host spacing. **Source:** H-presentation; approved defaults address the user's screen-edge concern without changing Pi's overall layout.
 - **Choice:** Use R8's semantic color mapping and visual hierarchy, preserve text labels, and follow active Pi theme changes without separate theme configuration or hard-coded RGB. **Source:** H-presentation; V establishes that Pi exposes the necessary theme integration. This is presentation only, not a change to execution or pressure policy.
+- **Choice:** Revise this UI spec only with lightweight rails and row-driven whole-panel visibility, preserving ledger consumption; no tickets or execution stage. **Source:** H-refresh, accepted by the user's “可以” after the recommendation. R10 explicitly supersedes spec 0007's total-only display requirement, not ADR 0006's retained accounting; package independence is unchanged.
+- **Choice:** Add ordinary Unicode status/activity icons with Pi semantic colors and retained text, without a required Nerd Font; allow the preview's pressure/usage grouping. **Source:** H-icons, explicitly accepted by the user. This is a presentation-only amendment to R9/T11, not a new domain/architecture decision.
 
 ## Test Plan and limitations
 
@@ -228,12 +307,13 @@ These are future acceptance scenarios, not executed tests or an implementation p
 - Include terminal rendering evidence for normal/narrow layouts and verify that stale subscriptions/timers cannot update an invalidated display. Record the actual Pi host/version verified rather than promising all-version compatibility.
 - For R7, inspect the composed host frame, not only the widget's isolated line array: Pi supplies leading widget spacing. Verify resize and Unicode/ANSI column measurement after insets are applied, without counting ANSI bytes as display columns.
 - For R8, pair semantic-role assertions with visible host rendering under representative light, dark, and custom themes. Change the theme while rows already exist and the child produces no new event; include supported custom-theme hot reload. User palettes determine concrete colors, so this revision does not promise every custom palette distinguishes roles visually or add a contrast SLA.
-- The historical implementation verification below documents bounded evidence for R1–R6 only. Current source inspection locates the existing renderer and host spacing/theme interfaces but does not establish R7–R8 acceptance. No production/test changes, test execution, or UI QA were performed for the 2026-10-04 spec-only revision.
-- No blocking requirement decision remains. Exact title-field naming, title shortening length, duration formatting, layout details not fixed by R7–R8, simultaneous-tool wording, and internal implementation remain unprescribed within the settled semantics. No unconfirmed architectural assumption is required by this draft.
+- The dated verification below records earlier R1–R8 implementation evidence and its limits; it does not verify R9–R10. No production/test changes, executable tests or manual UI QA are performed at the 2026-10-16 spec-only endpoint.
+- No blocking requirement decision remains. Exact title-field naming, title shortening length, duration formatting, layout details not fixed by R7–R10, simultaneous-tool wording, and internal implementation remain unprescribed within the settled semantics. No unconfirmed architectural assumption is required by this draft.
+- **2026-10-16 spec-only verification scope (historical):** The drafting pass established requirements, traceability and links only. Subsequent implementation authorization and automated evidence for R9–R10/T11–T14 are recorded below; that evidence does not substitute for physical-terminal visual/font/input acceptance.
 
 ## Out of Scope
 
-- Preset agent roles/identities, parent-agent rows, token/cost statistics, result bodies, tool arguments, thinking content, or an activity-history log.
+- Preset agent roles/identities, parent-agent rows, result bodies, tool arguments, thinking content, or an activity-history log. Token/cost statistics are limited to the separately authorized spec 0007 fields; this revision does not add accounting categories.
 - Extra model calls to generate titles; translating user/task titles merely because turn/status labels are English.
 - Changing pressure defaults, triggers, submission frequency, cancellation policy, or claiming reminder consumption/compliance.
 - Replacing background task IDs/results, discarding queryable results when rows expire, extending child lifetime, or migrating old execution/status into another ownership scope.
@@ -262,3 +342,15 @@ The subsequent user invocation of `grimoire-loop` authorized implementation of R
 - **Review/check/assessment:** Inspected complete production/test/documentation changes, the complete new presentation test, accepted spec delta, and applicable host interfaces. No confirmed blocker, material design deviation, or extra runtime behavior remains in the scoped follow-up. An initial width-one test assertion was corrected to ignore pi-tui's own trailing ANSI reset; no acceptance requirement was weakened. Formatting and import-order findings were handled by scoped Biome automation.
 - **Final post-format evidence (`D:/Code/pi-delegate`):** `bun test`: **265 passed, 0 failed**, 2,522 assertions across 15 files (48.94s); `bun run typecheck`: passed; `bun run check`: passed, 36 files checked; `git diff --check`: passed. Relative Markdown source links were checked. Formatting/import organization ran only on the four changed TypeScript files.
 - **Limitations:** Executable evidence uses installed Pi 1.0.0 widget methods, theme engine/watcher, real runner/credential-free child fixtures, and actual main-screen pi-tui rendering with an in-memory terminal transport and host-equivalent theme redraw binding. Full InteractiveMode startup, fullscreen/input interaction, a physical terminal/manual visual E2E, and other Pi versions were not tested. Concrete colors remain user-palette-dependent; extremely narrow truncation and large-list viewport limitations are unchanged. This scoped addendum does not claim global manual E2E acceptance or promote the spec status.
+
+## Rail/icon and empty-panel implementation verification (2026-10-16)
+
+- **Route/scope:** Explicit loop invocation authorized implementation and tests without a new plan artifact. Production changes are confined to [AgentStatus](../../packages/pi-delegate/src/status.ts); the renderer remains a visual observer, with no accounting, scheduler, result-owner or Open TUI production dependency changes. Usage/runtime docs describe the new presentation and visibility rule.
+- **R9 / T11 — Automated presentation evidence:** Updated status/presentation tests cover ordinary Unicode badges/tool icons, semantic foreground roles, independent pressure styling, normal titles/secondary metadata, sanitization, numeric identity, configuration/activity alignment and narrow/resize column bounds. Real Pi 1.1.0 theme switching and custom-theme file hot reload update already-visible rows/icons without task events. Delegate is exercised standalone; the Open TUI workspace suite is verified separately, not as a joint physical-terminal visual session.
+- **R10 / T12–T14 — Automated lifecycle evidence:** Controlled time covers all four outcomes, exact five-second row expiry, zero/nonzero totals, queued/retained-only visibility, no widget from usage/capacity-only observations, stale callbacks and same-runtime reappearance with retained consumption. The composed real-host widget/TUI test verifies an empty widget map and return to the host's own no-panel frame, including after scope clearing/late usage; host-owned default spacing is preserved. Scheduling-runtime coverage checks retained late cleanup consumption without resurrecting rows and shows it on later work.
+- **Both invocation modes/results:** Real runner/controlled RPC + Pi widget tests verify final panel removal in sync/background mode with accepted/rejected pressure submissions; background results remain queryable after expiry. Existing real background TUI and concurrent-startup/configuration integration cases pass with the updated layout.
+- **Test correction:** The initial new integration assertion hard-coded an unpadded two-line host frame. Direct host inspection showed that Pi retains its own default spacer/padding after the public widget-clear operation; the corrected test compares with the same host's captured empty-widget baseline and asserts zero registered widgets. This does not leave renderer-owned blank rows or change the host layout contract.
+- **Final post-format evidence (`D:/Code/pi-delegate`):** `bun run test` passed: root **6 passed**; delegate **630 passed, 1 POSIX-only permissions test skipped on Windows**; Open TUI **312 passed**. `bun run typecheck`, `bun run check` (109 files), and `bun run --filter @wangjq4214/pi-delegate build` passed. Scoped Biome formatting touched only changed TypeScript files; final whitespace/link checks passed.
+- **Limitations:** No full interactive startup/input, physical-terminal font/visual acceptance, joint enabled-Open-TUI terminal session or cross-version coverage is claimed. The Open TUI suite passes separately; a combined enabled-peer visual check remains unverified. Draft status is retained rather than claiming full manual acceptance.
+
+**H-rail follow-up:** Moved the rail directly below `#` and switched the root/connectors to Pi's live `mdLink` role, matching Open TUI's normal Git branch presentation. Regression assertions cover `#`/`│`/`└` column alignment for single/multi-digit labels, narrow widths, theme switching and custom-theme hot reload of the connector color. Post-format targeted status/presentation/scheduling/runner checks: **23 passed, 0 failed** across 4 files; workspace typecheck/lint and delegate build passed. The full workspace totals above predate this follow-up; the full suite was not rerun for this bounded visual delta.

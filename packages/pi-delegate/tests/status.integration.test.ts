@@ -76,6 +76,8 @@ for (const background of [false, true]) {
 			try {
 				await hooks.get("session_start")?.({}, ctx);
 				host.tui.start();
+				// Compare with Pi's own empty-widget layout, including host spacing/padding.
+				const withoutWidget = host.frame();
 				operation = delegate.execute(
 					"status",
 					{
@@ -90,7 +92,8 @@ for (const background of [false, true]) {
 				);
 				await waitFor(() => existsSync(join(dir, "warning-pending")));
 				expect(host.frame()).toContain("1  UI proof");
-				expect(host.frame()).toContain("2 turns · pressure: none");
+				expect(host.frame()).toContain("2 turns");
+				expect(host.frame()).toContain("pressure: none");
 				expect(host.styledFrame()).toContain(
 					host.ui.theme.fg("dim", "pressure: none"),
 				);
@@ -118,8 +121,12 @@ for (const background of [false, true]) {
 				expect(host.output()).toContain("INPUT SENTINEL");
 				await writeFile(join(dir, "urgent-release"), "release");
 				const result = await operation;
-				await waitFor(() =>
-					host.frame().includes(reject ? "└─ failed" : "└─ completed"),
+				await waitFor(
+					() =>
+						host
+							.frame()
+							.match(new RegExp(`└─\\s+${reject ? "failed" : "completed"}`)) !==
+						null,
 				);
 				expect(host.frame()).toContain(
 					`pressure: ${reject ? "warning" : "urgent"}`,
@@ -136,10 +143,11 @@ for (const background of [false, true]) {
 						`pressure: ${reject ? "warning" : "urgent"}`,
 					),
 				);
+				await waitFor(() => !host.frame().includes("1  UI proof"));
+				expect(host.above.size).toBe(0);
+				expect(host.frame()).toBe(withoutWidget);
 				if (background) {
 					const taskId = (result.details as { taskId: string }).taskId;
-					await waitFor(() => !host.frame().includes("1  UI proof"));
-					expect(host.frame()).toContain("Delegated total");
 					const retained = await query.execute(
 						"query",
 						{ taskId },

@@ -742,10 +742,10 @@ test("real concurrent child startup and UI retain snapshots across parent change
 					2,
 			);
 			expect(host.frame()).toContain(
-				`│  model: ${exactModel.provider}/${exactModel.id} · thinking: low`,
+				`model: ${exactModel.provider}/${exactModel.id} · thinking: low`,
 			);
 			expect(host.frame()).toContain(
-				"│  model: delegate-fixture/deterministic · thinking: off",
+				"model: delegate-fixture/deterministic · thinking: off",
 			);
 			expect(host.frame()).not.toContain("delegate-fixture-other");
 			expect(host.frame()).not.toContain("thinking…");

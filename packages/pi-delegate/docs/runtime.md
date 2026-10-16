@@ -123,7 +123,7 @@ The authoritative readback includes assistant/tool-result messages, standalone u
 
 ### Delegated usage visibility
 
-The Agents area shows latest task usage and an explicitly labelled cumulative **Delegated total**, separate from Pi's parent-session totals. Contributions are replaced by new snapshots, not charged again on queries or final readback. Completed, failed and cancelled consumption survives the five-second row expiry. Branch navigation removes task handles/rows but retains consumed usage, including available late cleanup reconciliation. Session replacement/reload creates a fresh total; no cross-runtime usage history is persisted.
+While task rows are visible, the Agents area shows latest task usage and an explicitly labelled cumulative **Delegated total**, separate from Pi's parent-session totals. When the last task row expires after five seconds or rows are cleared, the whole widget disappears; totals/capacity alone do not keep or bring it back. Accounting is retained independently and is shown again with the next task in the same runtime. Contributions are replaced by new snapshots, not charged again on queries or final readback. Completed, failed and cancelled consumption survives row expiry. Branch navigation removes task handles/rows but retains consumed usage, including available late cleanup reconciliation without resurrecting an empty widget. Session replacement/reload creates a fresh total; no cross-runtime usage history is persisted.
 
 The compact format is `↑8.2k ↓1.1k R20k W0 · $0.04`: ↑ is model input tokens, ↓ is output tokens, R is cache-read tokens and W is cache-write tokens. These are not network bytes, and cache tokens are separate from input. Display rounding does not change stored accounting precision.
 

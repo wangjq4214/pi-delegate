@@ -48,8 +48,7 @@ export class AgentStatus {
 	}
 
 	private mount(): void {
-		if (!this.ui || this.requestRender || (!this.rows.size && !this.delegated))
-			return;
+		if (!this.ui || this.requestRender || !this.rows.size) return;
 		const generation = this.generation;
 		this.ui.setWidget(
 			"pi-delegate:agents",
@@ -99,76 +98,12 @@ export class AgentStatus {
 	update = (): void => this.refresh();
 
 	render(width: number, theme?: Pick<Theme, "fg">): string[] {
-		if ((!this.rows.size && !this.delegated) || width <= 0) return [];
+		if (!this.rows.size || width <= 0) return [];
 		const fg = (color: ThemeColor, text: string) =>
 			theme ? theme.fg(color, text) : text;
 		const summaries = [...this.rows.values()].map((row) => {
-			const seconds = Math.floor(row.elapsedSeconds);
-			return {
-				row,
-				prefix: `${row.id}  `,
-				metadata: ` · ${seconds}s · ${row.turns} ${row.turns === 1 ? "turn" : "turns"} · `,
-				pressure: `pressure: ${row.pressure}`,
-			};
-		});
-		// Shrink insets before sacrificing identity/summary metadata to spacing.
-		const minimumWidth = Math.max(
-			visibleWidth("Agents"),
-			...summaries.map(({ prefix, metadata, pressure }) =>
-				visibleWidth(prefix + metadata + pressure),
-			),
-		);
-		const padding = Math.min(
-			2,
-			Math.max(0, Math.floor((width - minimumWidth) / 2)),
-		);
-		const contentWidth = width - padding * 2;
-		const line = (text: string, ellipsis = "") =>
-			" ".repeat(padding) + truncateToWidth(text, contentWidth, ellipsis);
-		const lines = [
-			line(
-				this.pool
-					? `Agents · active: ${this.pool.occupied}/${this.pool.maximum} · queued: ${this.pool.queued}`
-					: "Agents",
-				"…",
-			),
-		];
-		if (this.delegated)
-			lines.push(
-				line(
-					fg("muted", `  Delegated total · ${formatUsage(this.delegated)}`),
-					"…",
-				),
-			);
-		for (const { row, prefix, metadata, pressure } of summaries) {
-			const title = truncateToWidth(
-				row.title,
-				Math.max(0, contentWidth - visibleWidth(prefix + metadata + pressure)),
-			);
-			lines.push(
-				line(
-					fg("text", prefix + title) +
-						fg("muted", metadata) +
-						fg(pressureColors[row.pressure], pressure),
-				),
-			);
-			const configuration = row.configuration;
-			lines.push(
-				line(
-					fg(
-						"muted",
-						"  │  " +
-							(configuration
-								? `model: ${safeText(configuration.model.provider)}/${safeText(configuration.model.id)} · thinking: ${safeText(configuration.thinkingLevel)}`
-								: "model: unconfirmed · thinking: unconfirmed"),
-					),
-					"…",
-				),
-			);
-			lines.push(line(fg("muted", `  │  ${formatUsage(row.usageValue)}`), "…"));
 			const tool = row.latestTool;
-			const activity = taskActivity(row, "compact");
-			const color = row.status
+			const color: ThemeColor = row.status
 				? outcomeColor(row.status)
 				: !tool &&
 						(row.activity === "queued" ||
@@ -176,9 +111,114 @@ export class AgentStatus {
 							row.activity === "finishing…")
 					? "muted"
 					: "accent";
-			lines.push(line(fg("muted", "  └─ ") + fg(color, activity), "…"));
+			const icon = row.status
+				? { completed: "✓", incomplete: "!", failed: "×", cancelled: " " }[
+						row.status
+					]
+				: row.activity === "queued"
+					? "◷"
+					: color === "accent"
+						? "●"
+						: " ";
+			return {
+				row,
+				color,
+				icon,
+				metadata: ` · ${Math.floor(row.elapsedSeconds)}s · ${row.turns} ${row.turns === 1 ? "turn" : "turns"}`,
+				pressure: `pressure: ${row.pressure}`,
+				activity: taskActivity(row, "compact"),
+				tool: !!tool && !row.status,
+			};
+		});
+		// Give identity, time/turns and pressure space before padding or ornamentation.
+		const minimumWidth = Math.max(
+			visibleWidth("Agents"),
+			...summaries.map(({ row, metadata, pressure }) =>
+				Math.max(
+					visibleWidth(`${row.id}  ${metadata}`),
+					visibleWidth(pressure),
+				),
+			),
+		);
+		const padding = Math.min(
+			2,
+			Math.max(0, Math.floor((width - minimumWidth) / 2)),
+		);
+		const contentWidth = width - padding * 2;
+		const decorated = contentWidth >= minimumWidth + visibleWidth("● #");
+		const line = (text: string, ellipsis = "") =>
+			" ".repeat(padding) + truncateToWidth(text, contentWidth, ellipsis);
+		const lines = [
+			line(
+				fg("accent", "Agents") +
+					(this.pool
+						? `   ${fg("accent", "●")} ${fg("muted", `${this.pool.occupied}/${this.pool.maximum} active · ◷ ${this.pool.queued} queued`)}`
+						: ""),
+				"…",
+			),
+		];
+		if (this.delegated) {
+			lines.push(
+				line(
+					fg("muted", `  Σ Delegated total · ${formatUsage(this.delegated)}`),
+					"…",
+				),
+				"",
+			);
 		}
-		// Pi's aboveEditor container supplies the top gap; add only the bottom gap.
+		for (const [
+			index,
+			{ row, color, icon, metadata, pressure, activity, tool },
+		] of summaries.entries()) {
+			if (index) lines.push("");
+			const prefix = decorated
+				? `${fg(color, icon)} ${fg("mdLink", `#${row.id}`)}  `
+				: fg("text", `${row.id}  `);
+			const chrome = decorated ? visibleWidth(prefix) : 0;
+			// Continue the branch directly below #, using Open TUI's Git branch role.
+			const rail = fg(
+				"mdLink",
+				decorated ? `  │${" ".repeat(chrome - 3)}` : "",
+			);
+			const end = fg(
+				"mdLink",
+				decorated ? `  └─${" ".repeat(chrome - 4)}` : "",
+			);
+			const title = truncateToWidth(
+				row.title,
+				Math.max(0, contentWidth - visibleWidth(prefix + metadata)),
+			);
+			lines.push(line(prefix + fg("text", title) + fg("muted", metadata)));
+			const configuration = row.configuration;
+			lines.push(
+				line(
+					rail +
+						fg(
+							"muted",
+							configuration
+								? `model: ${safeText(configuration.model.provider)}/${safeText(configuration.model.id)} · thinking: ${safeText(configuration.thinkingLevel)}`
+								: "model: unconfirmed · thinking: unconfirmed",
+						),
+					"…",
+				),
+			);
+			// Reserve the acknowledged pressure label before clipping usage on narrow screens.
+			const usage = truncateToWidth(
+				formatUsage(row.usageValue),
+				Math.max(0, contentWidth - chrome - visibleWidth(` · ${pressure}`)),
+			);
+			lines.push(
+				line(
+					rail +
+						fg("muted", usage + (usage ? " · " : "")) +
+						fg(pressureColors[row.pressure], pressure),
+				),
+			);
+			lines.push(
+				line(end + (tool ? fg(color, "⚙ ") : "") + fg(color, activity), "…"),
+			);
+		}
+		// Pi supplies the top gap; this bottom gap exists only while task rows do.
 		lines.push("");
 		return lines;
 	}
@@ -192,12 +232,11 @@ export class AgentStatus {
 				this.rows.delete(row.id);
 		}
 		this.requestRender?.();
-		if (!this.rows.size && !this.delegated) {
+		if (!this.rows.size) {
 			this.ui?.setWidget("pi-delegate:agents", undefined);
 			this.requestRender = undefined;
 			return;
 		}
-		if (!this.rows.size) return;
 		const generation = this.generation;
 		const expiry = Math.min(
 			...[...this.rows.values()].map((row) =>

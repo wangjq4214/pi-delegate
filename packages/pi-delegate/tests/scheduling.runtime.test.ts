@@ -117,8 +117,9 @@ test("shared override pool reserves FIFO at background acceptance, holds initial
 		await tick();
 		expect(second.details).toMatchObject({ status: "queued" });
 		expect(host.order).toEqual(["first"]);
-		expect(host.text()).toContain("active: 1/1 · queued: 2");
-		expect(host.text()).toContain("0s · 0 turns · pressure: none");
+		expect(host.text()).toContain("1/1 active · ◷ 2 queued");
+		expect(host.text()).toContain("0s · 0 turns");
+		expect(host.text()).toContain("pressure: none");
 		expect(
 			(
 				await host.call("delegate_steer", {
@@ -174,11 +175,15 @@ test("queued cancellation never runs, navigation retains late cleanup usage with
 		const navigation = host.hooks.get("session_before_tree")?.({
 			preparation: { targetId: "new", oldLeafId: "old" },
 		});
-		expect(host.text()).toContain("Delegated total · ↑10");
+		expect(host.text()).toBe("");
 		expect(host.text()).not.toContain("held");
 		host.runs.get("held")?.finish();
 		await navigation;
 		expect(host.order).toEqual(["held"]);
+		expect(host.text()).toBe("");
+		await host.call("delegate", { task: "after navigation", background: true });
+		await tick();
+		expect(host.text()).toContain("after navigation");
 		expect(host.text()).toContain("Delegated total · ↑20");
 		expect(host.text()).not.toContain("held");
 		const fresh = runtime("1");
@@ -199,7 +204,7 @@ test("default shared pool admits four tasks and queues the fifth", async () => {
 			await host.call("delegate", { task: String(i), background: true });
 		await tick();
 		expect(host.order).toEqual(["0", "1", "2", "3"]);
-		expect(host.text()).toContain("active: 4/4 · queued: 1");
+		expect(host.text()).toContain("4/4 active · ◷ 1 queued");
 		const navigation = host.hooks.get("session_before_tree")?.({
 			preparation: { targetId: "new", oldLeafId: "old" },
 		});
