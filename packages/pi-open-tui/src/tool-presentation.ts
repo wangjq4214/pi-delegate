@@ -275,7 +275,7 @@ export class ToolPresentation {
 					const preview: Component = {
 						invalidate() {},
 						render: (width) => {
-							const lines = renderChildActivity(calls, theme, this.getConfig().icons.mode, width);
+							const lines = renderChildActivity(calls, theme, this.getConfig().icons.mode, width, compact);
 							const content = hideOutput ? { kind: "output" as const, lines: [] }
 								: compactContent(name, special, displayed, options.isPartial, context.isError, calls);
 							if (content.kind === "diff") {

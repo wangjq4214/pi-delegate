@@ -120,7 +120,7 @@ export function renderCallSummary(input: {
 	const line = truncateSummary(`${title}${summary ? ` · ${theme.fg(isError ? "error" : "muted", summary)}` : ""}`, Math.max(1, width - visibleWidth(suffix))) + suffix;
 	return [line, ...(special && name === "codemode" && !result ? [truncateSummary(theme.fg("dim", scriptHint), width)] : [])];
 }
-export function renderChildActivity(calls: readonly Child[] | undefined, theme: Theme, icons: IconMode, width: number): string[] {
+export function renderChildActivity(calls: readonly Child[] | undefined, theme: Theme, icons: IconMode, width: number, foldNotices = false): string[] {
 	if (!calls) return [];
 	const lines = wrapTextWithAnsi(theme.fg("muted", `Observed ${calls.length} calls${calls.length ? `: ${counts(calls)}` : ""}`), Math.max(1, width));
 	const { shown, hidden } = selectChildren(calls);
@@ -130,7 +130,7 @@ export function renderChildActivity(calls: readonly Child[] | undefined, theme: 
 		lines.push(`  ${statusText(call.status, theme, icons)} ${theme.fg("toolTitle", clean(call.name))} ${clean(call.args)}${time ? ` ${theme.fg("dim", time)}` : ""}${theme.fg("dim", cost)}`);
 		if (call.error) lines.push(theme.fg("error", `    ${clean(call.error)}`));
 	}
-	if (hidden.length) lines.push(...wrapTextWithAnsi(theme.fg("warning", `Hidden ${hidden.length}: ${counts(hidden)} — expand for all records`), Math.max(1, width)));
+	if (!foldNotices && hidden.length) lines.push(...wrapTextWithAnsi(theme.fg("warning", `Hidden ${hidden.length}: ${counts(hidden)} — expand for all records`), Math.max(1, width)));
 	return lines;
 }
 

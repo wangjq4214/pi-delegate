@@ -302,6 +302,48 @@ for (const mode of ["regular", "fullscreen"] as const) {
 			assert.match(frame(card), /failure-tail/);
 		}
 	});
+	test(`${mode}: compact codemode folds screenshot-style output and overflow notices until expansion`, async (t) => {
+		const f = await fixture(t, mode);
+		const payload = JSON.stringify([{ text: "RAW-PARENT-START " + "source code with truncated metadata ".repeat(80) + "RAW-PARENT-END" }]);
+		for (const childStatus of ["ok", "error"] as const) {
+			const calls = Array.from({ length: 8 }, (_, i) => ({
+				id: `child/${i}`, name: `child-${i}`, args: "{}", status: childStatus,
+				...(childStatus === "error" ? { error: "caught child failure" } : {}),
+			}));
+			const value = result(`Script completed\nWall time 0.2 seconds\nOutput:\n${payload}\n[Full output: /tmp/screenshot-output.txt (read with offset/limit)]`, {
+				calls, fullOutputPath: "/tmp/screenshot-output.txt",
+			});
+			const snapshot = JSON.stringify(value);
+			const card = f.component("codemode", `screenshot-${childStatus}`, { code: "return 'SCRIPT-DETAIL';" });
+			for (const partial of [true, false]) {
+				card.updateResult(value, partial);
+				f.config.toolMessageLayout = "normal";
+				const normal = frame(card, 500);
+				assert.match(normal, /Hidden 3:/, "uncompressed overflow notice is unchanged");
+				assert.match(normal, /screenshot-output\.txt/);
+				f.config.toolMessageLayout = "compact";
+				for (const width of [40, 500]) {
+					const compact = frame(card, width);
+					assert.doesNotMatch(compact, /Hidden |Full output|screenshot-output|RAW-PARENT/);
+					assert.match(compact, new RegExp(`Observed 8 calls: 8 ${childStatus}`), "all outcomes remain visible in the activity total");
+					if (childStatus === "error") assert.match(compact, /caught child failure/);
+				}
+				card.setExpanded(true);
+				const expanded = frame(card, 500);
+				assert.match(expanded, /SCRIPT-DETAIL/);
+				assert.match(expanded, /RAW-PARENT-START/);
+				assert.match(expanded, /RAW-PARENT-END/);
+				assert.match(expanded, /screenshot-output\.txt/);
+				assert.match(expanded, /child-7/, "overflow records remain available after expansion");
+				card.setExpanded(false);
+				assert.doesNotMatch(frame(card, 500), /Hidden |Full output|screenshot-output|RAW-PARENT/);
+				f.config.toolMessageLayout = "normal";
+				assert.equal(frame(card, 500), normal);
+			}
+			assert.equal(JSON.stringify(value), snapshot, "folding does not change host/model-facing data");
+		}
+	});
+
 	test(`${mode}: compact result notices fold through expansion without hiding errors or mutating results`, async (t) => {
 		const f = await fixture(t, mode);
 		const specialized: ToolRenderers = {
