@@ -2,14 +2,15 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-这是一个使用 Bun + TypeScript 的 monorepo，包含两个独立包：
+这是一个使用 Bun + TypeScript 的 monorepo，包含三个独立包：
 
 | 包 | 用途 | 状态 |
 | --- | --- | --- |
 | [`@wangjq4214/pi-delegate`](packages/pi-delegate/README.zh-CN.md) | 通过 RPC 委派子代理的 Pi 扩展 | 保留现有扩展、npm 包名和行为 |
 | [`@wangjq4214/pi-open-tui`](packages/pi-open-tui/README.zh-CN.md) | 从 OldSuns/pi-open-tui 导入的可配置 Pi 终端 UI 扩展 | 公开 npm 包，基于上游 v0.3.11 |
+| [`@wangjq4214/pi-dollar-skills`](packages/pi-dollar-skills/README.zh-CN.md) | `$` skill 补全与完整指令注入 | 本地 private 扩展，针对 Pi 1.4.0 验证 |
 
-`pi-open-tui` 不是 delegate UI 的抽取。两个包互不依赖，本次不引入共享运行时包或 Turbo/Nx。
+`pi-open-tui` 不是 delegate UI 的抽取。各包没有相互的运行时依赖，本次不引入共享运行时包或 Turbo/Nx。
 
 ## 开发
 
@@ -37,7 +38,7 @@ bun run --filter @wangjq4214/pi-open-tui build
 bun run --filter @wangjq4214/pi-open-tui start
 ```
 
-两个包都使用 Rolldown 生成 `dist/index.js`、source map 和根目录许可证的副本 `dist/LICENSE`。`dev` 加载 TypeScript 源码；`start` 加载构建产物，运行前需要先构建。修改源码或 `build:watch` 完成重新构建后，在 Pi 中执行 `/reload`。这些脚本在包目录启动 Pi。
+各包都使用 Rolldown 生成 `dist/index.js`、source map 和根目录许可证的副本 `dist/LICENSE`。`dev` 加载 TypeScript 源码；`start` 加载构建产物，运行前需要先构建。修改源码或 `build:watch` 完成重新构建后，在 Pi 中执行 `/reload`。这些脚本在包目录启动 Pi。
 
 ### 加载或安装 delegate
 
@@ -49,7 +50,7 @@ pi install /absolute/path/to/checkout/packages/pi-delegate
 pi install npm:@wangjq4214/pi-delegate
 ```
 
-根目录是 private workspace，不是 Pi package。两个包的构建、打包和发布分别在 `packages/` 下各自目录中进行；delegate 的 manifest 保留扩展入口和随包提供的 worktree skill。
+根目录是 private workspace，不是 Pi package。各包的构建、打包和发布分别在 `packages/` 下各自目录中进行；delegate 的 manifest 保留扩展入口和随包提供的 worktree skill。
 
 ## 目录结构
 
@@ -57,6 +58,7 @@ pi install npm:@wangjq4214/pi-delegate
 packages/
   pi-delegate/       扩展源码、测试、skills、文档和构建配置
   pi-open-tui/       导入的 UI 扩展、测试和文档
+  pi-dollar-skills/  独立的 $ skill 扩展、测试和文档
 tests/               仓库级 Git-hook 和 workspace 测试
 .grimoire/           项目需求和架构记录
 package.json         Private workspace 根配置和共享开发工具

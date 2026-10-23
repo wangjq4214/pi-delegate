@@ -2,14 +2,15 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-A Bun + TypeScript monorepo with two independent packages:
+A Bun + TypeScript monorepo with three independent packages:
 
 | Package | Purpose | Status |
 | --- | --- | --- |
 | [`@wangjq4214/pi-delegate`](packages/pi-delegate/README.md) | Pi extension for RPC subagent delegation | Existing extension; npm name and behavior preserved |
 | [`@wangjq4214/pi-open-tui`](packages/pi-open-tui/README.md) | Configurable Pi terminal UI extension imported from OldSuns/pi-open-tui | Public npm package; based on upstream v0.3.11 |
+| [`@wangjq4214/pi-dollar-skills`](packages/pi-dollar-skills/README.md) | Dollar skill autocomplete and full instruction injection | Local private extension; tested with Pi 1.4.0 |
 
-`pi-open-tui` is not a delegate UI extraction. Neither package depends on the other. No shared runtime package or Turbo/Nx layer is introduced.
+`pi-open-tui` is not a delegate UI extraction. The packages have no runtime dependency on one another. No shared runtime package or Turbo/Nx layer is introduced.
 
 ## Development
 
@@ -37,7 +38,7 @@ bun run --filter @wangjq4214/pi-open-tui build
 bun run --filter @wangjq4214/pi-open-tui start
 ```
 
-Both packages use Rolldown to emit `dist/index.js`, a source map, and a copy of the root license at `dist/LICENSE`. `dev` loads TypeScript source; `start` loads the bundle and requires a prior build. Use `/reload` in Pi after source changes, or after a `build:watch` rebuild. These scripts run Pi in the package directory.
+All packages use Rolldown to emit `dist/index.js`, a source map, and a copy of the root license at `dist/LICENSE`. `dev` loads TypeScript source; `start` loads the bundle and requires a prior build. Use `/reload` in Pi after source changes, or after a `build:watch` rebuild. These scripts run Pi in the package directory.
 
 ### Load or install delegate
 
@@ -57,6 +58,7 @@ The root is private and is not a Pi package. Build/pack/publish each package fro
 packages/
   pi-delegate/       Extension source, tests, skills, docs and build config
   pi-open-tui/       Imported UI extension, tests and docs
+  pi-dollar-skills/  Independent dollar skill extension, tests and docs
 tests/               Repository-level Git-hook and workspace tests
 .grimoire/           Project requirements and architectural records
 package.json         Private workspace root and shared development tools

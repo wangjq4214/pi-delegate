@@ -83,3 +83,29 @@ test("delegate retains its public Pi manifest and publication boundary", () => {
 		"@earendil-works/pi-tui": "*",
 	});
 });
+
+test("dollar skills is a private independently loadable Pi extension", () => {
+	const dollar = manifest("packages/pi-dollar-skills");
+	expect(dollar.name).toBe("@wangjq4214/pi-dollar-skills");
+	expect(dollar.private).toBe(true);
+	expect(dollar.pi.extensions).toEqual(["./dist/index.js"]);
+	expect(dollar.scripts.build).toBe("rolldown -c");
+	expect(dollar.scripts.typecheck).toBe("tsc --noEmit");
+	for (const other of ["@wangjq4214/pi-delegate", "@wangjq4214/pi-open-tui"]) {
+		for (const field of [
+			"dependencies",
+			"devDependencies",
+			"peerDependencies",
+		]) {
+			expect(dollar[field]?.[other]).toBeUndefined();
+		}
+	}
+	for (const host of [
+		"@earendil-works/pi-coding-agent",
+		"@earendil-works/pi-ai",
+		"@earendil-works/pi-tui",
+	]) {
+		expect(dollar.dependencies?.[host]).toBeUndefined();
+		expect(dollar.peerDependencies[host]).toBe("*");
+	}
+});

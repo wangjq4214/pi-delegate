@@ -39,7 +39,7 @@ function withRepository(check: (cwd: string) => void) {
 			join(cwd, "node_modules"),
 			"junction",
 		);
-		for (const name of ["pi-delegate", "pi-open-tui"]) {
+		for (const name of ["pi-delegate", "pi-open-tui", "pi-dollar-skills"]) {
 			const modules = join("packages", name, "node_modules");
 			if (existsSync(join(root, modules)))
 				symlinkSync(join(root, modules), join(cwd, modules), "junction");
@@ -53,7 +53,7 @@ function withRepository(check: (cwd: string) => void) {
 	} finally {
 		// Remove the junction before recursive cleanup; never traverse project dependencies.
 		rmSync(join(cwd, "node_modules"), { force: true, recursive: true });
-		for (const name of ["pi-delegate", "pi-open-tui"])
+		for (const name of ["pi-delegate", "pi-open-tui", "pi-dollar-skills"])
 			rmSync(join(cwd, "packages", name, "node_modules"), {
 				force: true,
 				recursive: true,
