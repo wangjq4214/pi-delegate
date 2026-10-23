@@ -9,10 +9,12 @@ import {
 } from "@earendil-works/pi-ai";
 import {
 	CustomEditor,
+	CustomMessageComponent,
 	createAgentSession,
 	DefaultResourceLoader,
 	type ExtensionAPI,
 	type ExtensionUIContext,
+	initTheme,
 	ModelRuntime,
 	SessionManager,
 	SettingsManager,
@@ -21,10 +23,17 @@ import {
 	type AutocompleteProvider,
 	CombinedAutocompleteProvider,
 	type EditorTheme,
+	stripTerminalSequences,
 	type TUI,
 } from "@earendil-works/pi-tui";
 
-async function host(commandsEnabled = true) {
+async function host(
+	commandsEnabled = true,
+	settings: {
+		mode?: "tui" | "rpc";
+		beforeReply?: (requestIndex: number) => Promise<void>;
+	} = {},
+) {
 	const cwd = await mkdtemp(join(tmpdir(), "dollar-skills-host-"));
 	const agentDir = join(cwd, "agent");
 	const review = join(cwd, ".pi", "skills", "grimoire-review", "SKILL.md");
@@ -79,6 +88,7 @@ async function host(commandsEnabled = true) {
 					},
 				};
 				void (async () => {
+					await settings.beforeReply?.(received.length);
 					await options?.onPayload?.({}, model);
 					await options?.onResponse?.({ status: 200, headers: {} }, model);
 					stream.push({ type: "done", reason: "stop", message });
@@ -176,7 +186,7 @@ async function host(commandsEnabled = true) {
 		},
 	} satisfies Partial<ExtensionUIContext>;
 	await session.bindExtensions({
-		mode: "tui",
+		mode: settings.mode ?? "tui",
 		uiContext: ui as unknown as ExtensionUIContext,
 		onError: (event) => errors.push(event.error),
 	});
@@ -237,6 +247,7 @@ for (const commandsEnabled of [true, false]) {
 				data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
 			};
 			await h.session.prompt(request, { images: [image] });
+			await eventually(() => h.received.length === 1 && h.session.isIdle);
 			const content = lastUser(h.received[0]);
 			const text = content
 				.filter((part) => part.type === "text")
@@ -252,6 +263,14 @@ for (const commandsEnabled of [true, false]) {
 				h.resourceLoader.getSkills().skills.map((skill) => skill.name),
 			).toEqual(["grimoire-review", "grimoire-test"]);
 			expect(h.session.systemPrompt).toContain("grimoire-review");
+			const messages = h.session.messages.filter(
+				(message) => message.role === "custom",
+			);
+			expect(messages).toHaveLength(1);
+			expect(messages[0]).toMatchObject({
+				customType: "dollar-skills",
+				display: true,
+			});
 			expect(h.errors).toEqual([]);
 		} finally {
 			await h.close();
@@ -360,4 +379,100 @@ for (const openTui of [false, true]) {
 			await h.close();
 		}
 	}, 15000);
+}
+
+test("real host: rendered multi-skill transcript hides instructions until expanded", async () => {
+	const h = await host();
+	try {
+		initTheme("dark");
+		await h.session.prompt("$grimoire-review $grimoire-test 仅检查");
+		await eventually(() => h.received.length === 1 && h.session.isIdle);
+		const message = h.session.messages.find(
+			(message) => message.role === "custom",
+		);
+		if (message?.role !== "custom")
+			throw new Error("missing custom skill prompt");
+		const render =
+			h.session.extensionRunner.getMessageRenderer("dollar-skills");
+		expect(render).toBeDefined();
+		const component = new CustomMessageComponent(message, render);
+		const collapsed = stripTerminalSequences(component.render(80).join("\n"));
+		expect(collapsed.match(/\[skill\]/g)).toHaveLength(2);
+		expect(collapsed).toContain("仅检查");
+		expect(collapsed).not.toContain("FULL REVIEW INSTRUCTIONS");
+		expect(collapsed).not.toContain("FULL TEST INSTRUCTIONS");
+		component.setExpanded(true);
+		const expanded = stripTerminalSequences(component.render(80).join("\n"));
+		expect(expanded).toContain("FULL REVIEW INSTRUCTIONS");
+		expect(expanded).toContain("FULL TEST INSTRUCTIONS");
+		expect(h.errors).toEqual([]);
+	} finally {
+		await h.close();
+	}
+});
+
+test("RPC keeps the ordinary User input pipeline and complete multi-skill context", async () => {
+	const h = await host(true, { mode: "rpc" });
+	try {
+		await h.session.prompt("$grimoire-review $grimoire-test 保留请求");
+		const text = JSON.stringify(lastUser(h.received[0]));
+		expect(text).toContain("FULL REVIEW INSTRUCTIONS");
+		expect(text).toContain("FULL TEST INSTRUCTIONS");
+		expect(text).toContain("保留请求");
+		expect(
+			h.session.messages.some((message) => message.role === "custom"),
+		).toBe(false);
+		expect(h.errors).toEqual([]);
+	} finally {
+		await h.close();
+	}
+});
+
+for (const streamingBehavior of ["steer", "followUp"] as const) {
+	test(`real host: queued ${streamingBehavior} delivers skills, request and image atomically once`, async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const h = await host(true, {
+			beforeReply: async (index) => {
+				if (index === 1) await gate;
+			},
+		});
+		const running = h.session.prompt("start");
+		try {
+			await eventually(() => h.received.length === 1);
+			const request = "$grimoire-test $grimoire-review $grimoire-test 排队需求";
+			const image = {
+				type: "image" as const,
+				mimeType: "image/png",
+				data: "fixture-image",
+			};
+			await h.session.prompt(request, { streamingBehavior, images: [image] });
+			expect(h.received).toHaveLength(1);
+			release();
+			await running;
+			await eventually(() => h.received.length === 2 && h.session.isIdle);
+			const content = lastUser(h.received[1]);
+			const text = content
+				.filter((part) => part.type === "text")
+				.map((part) => part.text)
+				.join("");
+			expect(text).toContain(request);
+			expect(text.match(/FULL TEST INSTRUCTIONS/g)).toHaveLength(1);
+			expect(text.match(/FULL REVIEW INSTRUCTIONS/g)).toHaveLength(1);
+			expect(text.indexOf("FULL TEST")).toBeLessThan(
+				text.indexOf("FULL REVIEW"),
+			);
+			expect(content.filter((part) => part.type === "image")).toEqual([image]);
+			expect(
+				h.session.messages.filter((message) => message.role === "custom"),
+			).toHaveLength(1);
+			expect(h.errors).toEqual([]);
+		} finally {
+			release();
+			await running;
+			await h.close();
+		}
+	});
 }

@@ -110,27 +110,45 @@ function attribute(text: string): string {
 		.replace(/>/g, "&gt;");
 }
 
-export async function injectSkills(
+export interface LoadedSkill extends Skill {
+	content: string;
+}
+
+/** Read every selected skill before committing any input or UI change. */
+export async function loadSkills(
 	text: string,
 	skills: Skill[],
-): Promise<string> {
+): Promise<LoadedSkill[]> {
 	const catalog = new Map(skills.map((skill) => [skill.name, skill]));
 	const selected = [...new Set(skillTokens(text).map((token) => token.name))]
 		.map((name) => catalog.get(name))
 		.filter((skill): skill is Skill => skill !== undefined);
-	if (!selected.length) return text;
-	const blocks = await Promise.all(
+	return Promise.all(
 		selected.map(async (skill) => {
-			let content: string;
 			try {
-				content = await readFile(skill.path, "utf8");
+				return { ...skill, content: await readFile(skill.path, "utf8") };
 			} catch (cause) {
 				throw new Error(`Cannot load $${skill.name} from ${skill.path}`, {
 					cause,
 				});
 			}
-			return `<skill name="${attribute(skill.name)}" location="${attribute(skill.path)}">\nReferences are relative to ${dirname(skill.path)}.\n\n${content}\n</skill>`;
 		}),
 	);
-	return `${blocks.join("\n\n")}\n\n${text}`;
+}
+
+export function skillBlock(skill: LoadedSkill): string {
+	return `<skill name="${attribute(skill.name)}" location="${attribute(skill.path)}">\nReferences are relative to ${dirname(skill.path)}.\n\n${skill.content}\n</skill>`;
+}
+
+export function skillPrompt(text: string, skills: LoadedSkill[]): string {
+	return skills.length
+		? `${skills.map(skillBlock).join("\n\n")}\n\n${text}`
+		: text;
+}
+
+export async function injectSkills(
+	text: string,
+	skills: Skill[],
+): Promise<string> {
+	return skillPrompt(text, await loadSkills(text, skills));
 }
