@@ -2,70 +2,102 @@
 
 [Back to README](../README.md) · [Usage](usage.md) · [Runtime and safety](runtime.md) · [Development](development.md)
 
-Prioritize reliable delegation: tasks should be easy to find and manage, results should be reviewable, and failures or blockers should be straightforward for the parent to take over. Expanding into a general multi-agent orchestration platform is not the current direction.
+Make delegation easier to wait for, understand, and take over—not a general multi-agent orchestration platform. Prioritize lower parent-context overhead and reliable handoffs over more autonomous agents.
 
-Unchecked items below are unimplemented capability candidates, listed in suggested priority order. Tool names are illustrative; behavior and interfaces should be agreed before implementation. This list is not a release commitment.
+This document records future capability candidates and their suggested priority, not current features, fixed interfaces, implementation authorization, or release commitments. Tool names below are illustrative. Agree on each candidate's behavior and lifecycle before implementation.
+
+<!-- Preserve inbound links from historical specs/ADRs without retaining delivered checklist items. -->
+<a id="todo"></a>
+<a id="1-task-listing-and-details"></a>
+<a id="2-reviewable-traceable-result-handoff"></a>
+<a id="5-optional-execution-budgets"></a>
+
+Delivered capabilities are documented in [Usage](usage.md) and [Runtime and safety](runtime.md); their decisions and requirements remain in the [grimoire](../../../.grimoire/). Remove delivered candidates from this roadmap rather than accumulating a completed-feature inventory. Removal does not imply new verification or user acceptance; see [verification boundaries](development.md#testing).
 
 ## Prioritized candidates
 
-### 1. Task listing and details
+### 1. Explicit waiting and incremental queries
 
-Implemented in the current source: `delegate_list`, unified `delegate_status`, read-only synchronous IDs and the native `/delegates` floating panel. Automated RPC/component/native-overlay checks cover this increment; real regular/fullscreen terminal and IME acceptance remains pending. See [verification boundaries](development.md#testing).
+**Value:** Reduce polling and repeated result text when the parent has no other work, without restoring automatic completion messages.
 
-- [x] Expose a capability such as `delegate_list` to list queued, active, and terminal tasks in the current session/branch scope, without requiring the caller to remember each `taskId`.
-- [x] Provide consistent task details: title, `taskId`, cwd, model, elapsed time, turns, current tool, pressure, usage, and available result. Distinguish requested configuration from confirmed effective configuration.
-- [x] Establish an explicit relationship between TUI numeric labels and `taskId`; provide a TUI task panel for inspecting results, cancelling work, and sending additional instructions.
-- [x] Retain outcomes for on-demand queries without automatic completion messages or parent wake-up. Task discovery and result access do not depend on the short-lived terminal status row.
+- [ ] Offer bounded, explicit waiting, such as `delegate_wait`, for any or all tasks in a caller-selected set.
+- [ ] On timeout, return observed state rather than cancelling child work.
+- [ ] Support metadata-only queries and optionally changes since a caller-held revision/cursor, so checking status need not return the same large result repeatedly.
+- [ ] Define behavior for already-terminal, unknown, and invalidated IDs, concurrent completion, and expired query cursors before settling the interface.
 
-### 2. Reviewable, traceable result handoff
+**Boundaries:** Waiting observes existing tasks; it does not acquire execution ownership. Cancelling a wait must not cancel accepted background tasks. Scope invalidation must end obsolete waits. Keep bounded responses, unchanged usage accounting, and no unsolicited result delivery or idle-parent wake-up. An explicit wait returning is not automatic completion delivery.
 
-Implemented in the current source as optional `delegate.resultFormat: "handoff"`. It is an advisory reporting request, not a schema or acceptance gate; explicit output requirements and task permissions prevail. Omission keeps existing behavior. See [usage and limitations](usage.md#optional-result-handoff).
+### 2. Bounded execution observability
 
-- [x] Offer an optional lightweight result template covering completed and unfinished work, changed files, commit/patch/artifact paths, performed checks and their results, omitted checks and their reasons, blockers, and decisions needed from the parent.
-- [ ] Consider optional result schemas after the template workflow is established. Structural validation is not evidence that reported changes or checks are correct.
-- [x] Preserve the distinction between execution completion and task acceptance: `completed` means the child produced a final answer, not that requirements were satisfied or tests passed. The parent remains responsible for inspecting actual artifacts, integration, and necessary validation.
+**Value:** Help the parent decide whether to keep waiting, steer, or cancel using observed activity rather than guesses.
 
-### 3. Bounded execution observability
+- [ ] Expose the latest observed event time and start time/duration of each currently executing tool, including concurrent tools.
+- [ ] Offer an on-demand, bounded recent-event view: phase transitions, tool start/end events, steering receipts, and termination reasons.
+- [ ] Make a compact event timeline available in `/delegates`, using the same observations as tool queries.
+- [ ] Define event retention, truncation, and unavailable-data indicators without retaining unbounded transcripts.
 
-- [ ] Expose the latest observed event time and current tool start time to help distinguish ongoing work from a lack of observable progress.
-- [ ] Offer an on-demand, bounded recent-event view covering phase transitions, tool start/end events, steering receipts, and termination reasons, rather than continuously injecting full transcripts into the parent context.
-- [ ] Consider opt-in execution-record export with explicit retention and sensitive-data handling. Existing startup diagnostics are not a full execution record.
-- [ ] Report observed facts and unknowns: silence alone does not prove a hung task, and a steering receipt does not prove model consumption or compliance.
+**Boundaries:** Silence means no recently observed event, not a proven hang. A steering receipt does not prove model consumption or compliance. Do not expose raw thinking, tool arguments, or full tool output by default, or continuously inject event streams into parent context. Keep observation separate from execution ownership.
 
-### 4. Explicit help and blocker handoff
+### 3. Explicit help and decision handoff
 
-- [ ] Let a child explicitly report a decision it needs from the parent, including the question, options, recommendation, and impact of proceeding without an answer.
-- [ ] Make the handoff actionable for the parent without introducing blocking background dialogs. Preserve the existing refusal/cancellation behavior for unsupported background UI requests unless a separate interaction contract is agreed.
-- [ ] Start with reliable blocker reporting, not implicit pause/resume. A still-active, steer-ready task can receive a decision through steering; an already terminal task requires an explicit follow-up delegation rather than pretending its execution is still open.
+**Value:** Let a child identify a decision it cannot safely make instead of guessing or burying the blocker in a final report.
 
-### 5. Optional execution budgets
+- [ ] Provide a machine-readable way to report a question, options, recommendation, and impact of proceeding without an answer.
+- [ ] Indicate whether other work can continue while the question remains unresolved.
+- [ ] Surface unresolved questions through task queries and the task panel, with an explicit way to correlate answers and resolution.
+- [ ] Let the parent answer a still-active, steer-ready child through steering; use an explicit new delegation when the original task has ended.
 
-Implemented in the current source as `delegate.budget: { maxSeconds?, maxTurns? }`, with original-prompt disclosure, independent advisory pressure, observed-threshold cancellation and partial output/usage retention. Local-provider RPC and controlled lifecycle tests cover this increment; no exact process-stop deadline or billing ceiling is promised. See [usage and limitations](usage.md#optional-execution-budget).
+**Boundaries:** Start with reliable blocker reporting, not implicit pause/resume. A needs-decision indicator must not pretend execution is suspended. Do not add blocking background dialogs, automatic parent wake-up, or change the refusal/cancellation behavior of unsupported background UI requests without a separate interaction contract.
 
-- [x] Provide explicit, opt-in maximum running-time and completed-turn limits, separate from advisory soft pressure, with defined timing/counting and cancellation semantics.
-- [x] On a limit-triggered stop, record the reason, retain available output and usage, and complete owned execution-resource cleanup. Cancellation does not roll back file changes or external side effects.
-- [ ] Evaluate token/cost policies later. Delayed or missing usage and estimated pricing prevent a promise of an exact supplier-billing ceiling.
+### 4. Explicit follow-up delegation
 
-The lightweight template is delivered; unchecked follow-ups remain candidates, not implementation or release commitments.
+**Value:** Make “verify the second finding” or “continue the unfinished part” cheaper to hand off without reconstructing all context manually.
 
-## Delivered foundations
+- [ ] Support creating a fresh task explicitly associated with an earlier task.
+- [ ] Let the parent select the summary, artifact references, and additional instructions to carry forward.
+- [ ] Show the predecessor/follow-up relationship in task details so a sequence of handoffs is traceable.
+- [ ] Define behavior for unavailable predecessor records and missing or changed artifacts; disclose missing context instead of silently substituting it.
 
-- [x] **Runtime steering:** `delegate_steer({ taskId, message })` lets the parent supply new context, narrow scope, or request a final report without cancelling and restarting a running task.
-  - Distinguish RPC acceptance from model consumption or execution. Do not promise to interrupt an in-flight model request or tool.
-- [x] **Per-task model selection:** allow a delegation to override the model and thinking level, retaining parent inheritance by default, to balance task complexity, speed, and cost.
-- [x] **Concurrency scheduling and cost visibility:** support a maximum concurrency limit with excess tasks queued, distinguishing `queued / initializing / running`.
-  - Aggregate subtask token/cost usage while maintaining a clear boundary from Pi's parent-session totals and avoiding duplicate accounting. Soft pressure remains advisory, not a forced timeout.
-- [x] **Per-task working directory and bundled worktree workflow:** optional `delegate.cwd` selects an existing directory, resolved against the parent cwd at submission and retained through queueing. Started-child results include the absolute startup directory.
-  - The bundled `delegate-worktree` skill guides the parent through independent Git worktrees from explicit commit baselines, reviewable child artifacts, and parent-owned review, integration and validation before cleanup. It does not automatically stash, commit or copy dirty main-workspace changes; failed or unmerged workspaces remain inspectable.
-  - The plugin does not manage Git worktrees or merging, warn about scope conflicts, enforce tool permissions, or provide a sandbox. See [working-directory usage](usage.md#per-task-working-directory-and-worktrees) and [workspace boundaries](runtime.md#workspace-and-security-boundaries).
-- [x] **Startup failure diagnostics:** automatically expose a bounded child-stderr tail and startup step through existing synchronous/background failure results, without persisting a stderr artifact. Diagnostics may contain sensitive information; see [runtime and privacy limits](runtime.md#completed-and-failed-tasks). This does not implement full execution records or result schemas.
+**Boundaries:** A follow-up starts a new child session, not a resumed old execution. Do not automatically copy the full transcript, retry failures, or treat previous reports as verified facts. Previous file changes and external side effects remain; the parent decides whether repeating work is safe. Task relationships do not introduce cross-session persistence or a dependency scheduler.
+
+### 5. Reusable task presets
+
+**Value:** Reduce repeated setup for review, research, and implementation tasks without introducing an agent-team framework.
+
+- [ ] Explore named presets for model, thinking level, budget, result format, and task guidance.
+- [ ] Allow explicit invocation overrides and expose the resolved configuration.
+- [ ] Define configuration source, precedence, validation, and capture timing before adding runtime configuration.
+- [ ] Prefer bundled skills for instruction-only workflows; add runtime support only where deterministic configuration resolution provides additional value.
+
+**Boundaries:** Presets reuse configuration, not identities, child sessions, or permissions. A “read-only review” instruction is not enforced filesystem protection. Do not silently change the parent model, saved defaults, or existing calls that omit a preset.
+
+## Later candidates
+
+These remain worth evaluating, but come after the core waiting, observation, and handoff improvements.
+
+- [ ] **Optional structured results:** evaluate schemas when there is a concrete machine-consumption need beyond the advisory handoff template. Keep structural validation separate from artifact verification and task acceptance; do not make every task comply with a mandatory format or automatically run repair turns.
+- [ ] **Opt-in execution-record export:** build on bounded observations with explicit content selection, retention, sensitive-data handling, and cleanup rules. Exporting a record is not durable execution or cross-session resume; startup diagnostics alone are not a full execution record.
+- [ ] **Token/cost policies:** evaluate advisory thresholds or observed-usage stop policies after defining partial/delayed usage behavior. Estimated pricing and missing provider reports cannot support an exact supplier-billing ceiling.
 
 ## Not prioritized
 
-These are not part of the current recommended increments; revisiting them requires an explicit scope and architecture decision.
+Revisiting these requires an explicit scope and architecture decision, not an incidental addition to one of the candidates above.
 
-- **Recursive delegation and multi-level agent trees:** preserve the clear parent-only delegation boundary rather than multiplying resource and ownership complexity.
-- **Plugin-owned worktree creation or automatic merging:** retain the generic `cwd` capability, bundled skill, and parent-owned review/integration workflow.
-- **Automatic retries of arbitrary failed tasks:** execution may already have changed files or caused external side effects; retrying is not inherently safe.
-- **Execution surviving exit or cross-session resume:** this would introduce durable task-service concerns beyond the current session-owned runtime.
-- **Automatic copying of the entire parent conversation:** keep explicit task context as the default instead of increasing cost and unrelated context implicitly.
+- **Recursive delegation and multi-level agent trees:** avoid multiplying resource and ownership complexity.
+- **General workflow/DAG orchestration or autonomous agent teams:** keep task relationships and presets lightweight; the parent coordinates work.
+- **Plugin-owned worktree creation or automatic merging:** retain generic working-directory selection, the bundled skill, and parent-owned workspace management, review, integration, and validation.
+- **Automatic retries of arbitrary failed or incomplete tasks:** prior execution may already have changed files or caused external side effects.
+- **Execution surviving exit or cross-session resume:** avoid turning the session-owned plugin into a persistent task service.
+- **Automatic copying of the entire parent conversation:** keep task context explicit and bounded.
+- **Automatic background completion messages or idle-parent wake-up:** preserve query-only results; reduce polling through explicit waiting instead.
+
+## Decision references
+
+The candidates above are recorded proposals, not new implemented guarantees or replacements for existing decisions:
+
+- [Query-only background result retrieval](../../../.grimoire/adr/0021-query-only-background-result-retrieval.md) — no unsolicited completion delivery or wake-up.
+- [Task-addressed runtime steering](../../../.grimoire/adr/0004-task-addressed-runtime-steering.md) — active-task control and receipt boundaries.
+- [Advisory result handoff](../../../.grimoire/adr/0017-advisory-result-handoff-template.md) — reports and format compliance are not acceptance.
+- [Bundled worktree skill](../../../.grimoire/adr/0009-bundled-worktree-skill-without-plugin-git-management.md) — Git lifecycle and integration remain outside the runtime.
+
+Start with **explicit waiting/incremental queries** and **bounded execution observability**: they improve routine delegation while preserving the current execution and ownership boundaries.
