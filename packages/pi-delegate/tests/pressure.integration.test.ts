@@ -366,6 +366,61 @@ function assertResult(
 	expect(child.pid).toBeGreaterThan(0);
 }
 
+for (const backgroundMode of [false, true]) {
+	test(`pressure real RPC: omitted ${backgroundMode ? "background" : "synchronous"} pressure stays off alongside explicit default pressure after 40 turns`, async () => {
+		await withHost(async (host) => {
+			const calls = [
+				{ task: { id: "disabled", finishAt: 44 }, background: backgroundMode },
+				{
+					task: { id: "enabled", finishAt: 44 },
+					background: !backgroundMode,
+					pressure: {},
+				},
+			];
+			const done = host.begin({ calls });
+			const disabled = await host.child("disabled");
+			const enabled = await host.child("enabled");
+			await Promise.all([
+				host.finish(disabled, 0, 44),
+				host.finish(enabled, 0, 44),
+			]);
+			await done;
+			const results = (await host.messages()).filter(
+				(m): m is ToolResult =>
+					m.role === "toolResult" && m.toolName === "delegate",
+			);
+			const syncResult = results.find(
+				(r) => background(r).status === "completed",
+			);
+			const ack = results.find((r) => background(r).status === "initializing");
+			if (!syncResult || !ack) throw new Error("Missing delegation results");
+			assertResult(
+				syncResult,
+				backgroundMode ? enabled : disabled,
+				backgroundMode ? "enabled" : "disabled",
+				45,
+			);
+			const messages = await host.queryResult(background(ack).taskId);
+			expect(background(tool(messages, "delegate_status")).result?.status).toBe(
+				"completed",
+			);
+			expect(receipts(host.trace(disabled.pid))).toEqual([]);
+			expect(models(host.trace(disabled.pid))).toHaveLength(45);
+			expect(
+				models(host.trace(disabled.pid)).every(
+					(m) => m.reminders?.length === 0,
+				),
+			).toBe(true);
+			expect(receipts(host.trace(enabled.pid)).map((e) => e.completed)).toEqual(
+				[20, 40],
+			);
+			assertStages(host, enabled, 44);
+			await host.cleaned(disabled);
+			await host.cleaned(enabled);
+		});
+	}, 30_000);
+}
+
 // Real elapsed clocks are intentional. Files order work; polling waits for evidence, not an immediate-next-call SLA.
 test("pressure real RPC: sync elapsed OR includes a held provider, excludes initialization, deduplicates later turn triggers, and stays advisory", async () => {
 	await withHost(async (host) => {

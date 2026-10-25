@@ -13,7 +13,7 @@ pi-delegate is a TypeScript extension for Pi. It launches one-off subagents over
 - **Synchronous and background execution:** wait for a result or continue working while a session-owned task runs.
 - **Task management:** discover synchronous/background tasks, inspect retained results, and manage background work in a floating `/delegates` TUI panel or through tools.
 - **Runtime steering:** add context, narrow scope, or request a report from an active background child without restarting it.
-- **Soft pressure and status UI:** configure task-local finish reminders and monitor subagents above the TUI input.
+- **Opt-in soft pressure and status UI:** finish reminders are off by default; explicitly configure them per task and monitor subagents above the TUI input.
 - **Opt-in execution budgets:** disclose per-task time/turn limits upfront and cancel on either observed threshold, independently of advisory pressure.
 
 ## Requirements

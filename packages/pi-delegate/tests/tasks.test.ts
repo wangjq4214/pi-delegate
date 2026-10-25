@@ -89,6 +89,22 @@ test("headless records distinguish selected/confirmed inputs and share current p
 	expect(JSON.stringify(records.list())).not.toContain("PRIVATE");
 });
 
+test("disabled pressure has no resolved policy; enabled policy snapshots stay isolated", () => {
+	const records = new TaskRecords();
+	const disabled = records.accept({ ...taskInput, pressure: undefined });
+	const enabled = records.accept(taskInput);
+	expect(disabled.details().pressure).toEqual({ accepted: "none" });
+	expect(JSON.parse(JSON.stringify(disabled.details())).pressure).toEqual({
+		accepted: "none",
+	});
+	const policy = enabled.details().pressure.policy;
+	if (!policy) throw new Error("Missing enabled policy");
+	expect(policy.warning.afterTurns).toBe(20);
+	policy.warning.afterTurns = 1;
+	expect(enabled.details().pressure.policy?.warning.afterTurns).toBe(20);
+	expect(disabled.details().pressure).not.toHaveProperty("policy");
+});
+
 test("details retain the full supplied title while summaries stay bounded and fallback uses only the first task line", () => {
 	const records = new TaskRecords();
 	const title = `First line\n${"宽".repeat(140)} END`;

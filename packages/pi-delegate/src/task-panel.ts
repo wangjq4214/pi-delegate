@@ -352,7 +352,9 @@ export class TaskPanel {
 								`Execution: ${Math.floor(task.elapsedSeconds)}s · ${task.turns} ${task.turns === 1 ? "turn" : "turns"} · ${task.activity}`,
 								`Current tools: ${task.currentTools.join(", ") || "none observed"}`,
 								`Pressure accepted: ${task.pressure.accepted} (not consumption/compliance)`,
-								`Warning: ${task.pressure.policy.warning.afterSeconds}s / ${task.pressure.policy.warning.afterTurns} turns; urgent: ${task.pressure.policy.urgent.afterSeconds}s / ${task.pressure.policy.urgent.afterTurns} turns`,
+								task.pressure.policy
+									? `Warning: ${task.pressure.policy.warning.afterSeconds}s / ${task.pressure.policy.warning.afterTurns} turns; urgent: ${task.pressure.policy.urgent.afterSeconds}s / ${task.pressure.policy.urgent.afterTurns} turns`
+									: "Pressure: disabled",
 								`Usage: ${formatUsage(task.usage)} (available, possibly partial; cost estimate)`,
 								`Controls: ${task.controls.reason ?? "background control ready"}`,
 							].join("\n");

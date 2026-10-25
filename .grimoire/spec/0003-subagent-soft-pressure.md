@@ -5,6 +5,8 @@
 **Date:** 2026-10-03
 **Sources:** The settled refinement handoff in this conversation: the user accepted Option A, the recommended defaults, reminders only, and the spec-only endpoint by replying “按照推荐”; [ADR 0003](../adr/0003-per-delegation-soft-pressure.md). Baseline and installed-host references are identified below.
 
+**Default enablement superseded (2026-10-25):** [ADR 0028](../adr/0028-opt-in-delegation-soft-pressure.md) and the subsequently approved handoff replace this spec's default-on omission behavior: omit `pressure` to disable both stages; explicitly supply `{}` or a custom pressure object to enable them. The threshold defaults, validation and advisory semantics below now apply only when pressure is explicitly enabled. Historical implementation evidence is retained.
+
 ## Source boundary
 
 - **H — Accepted handoff:** Parent-configured, task-local pressure; two independently configurable time/turn stages with per-value defaults; OR and inclusive threshold semantics; one reminder per stage; warning/urgent meanings; task-running time and completed-turn definitions; identical policy for synchronous/background execution; soft steering rather than hard termination. This handoff supplies the ordinary numerical and counting requirements, not a new architectural decision made by this spec.

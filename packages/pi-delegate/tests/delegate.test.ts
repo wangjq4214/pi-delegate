@@ -8,6 +8,7 @@ import type {
 	ExtensionAPI,
 	ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
+import { taskClock } from "../src/clock.ts";
 import {
 	type DelegationOptions,
 	type DelegationResult,
@@ -262,7 +263,7 @@ test("public synchronous/background invocation policies do not share mutable def
 		);
 		await registration.tool.execute(
 			"bg",
-			{ task: "task", background: true },
+			{ task: "task", background: true, pressure: {} },
 			undefined,
 			undefined,
 			registration.ctx,
@@ -278,7 +279,7 @@ test("public synchronous/background invocation policies do not share mutable def
 		if (!first?.warning || !first.urgent || !second?.warning || !second.urgent)
 			throw new Error("Runner did not receive fully resolved policies");
 		first.warning.afterSeconds = 999;
-		expect(second).toEqual(resolvePressure());
+		expect(second).toEqual(resolvePressure({}));
 		expect(first.warning).not.toBe(second.warning);
 		expect(first.urgent).not.toBe(second.urgent);
 	} finally {
@@ -513,6 +514,52 @@ for (const [name, pressure, error] of invalidPressureCases) {
 		});
 	});
 }
+for (const enabled of [false, true]) {
+	test(`direct runner ${enabled ? "explicit empty policy enables defaults" : "omission disables pressure"} beyond default time/turn thresholds`, async () => {
+		let clockReads = 0;
+		const now = spyOn(taskClock, "now").mockImplementation(() =>
+			clockReads++ === 0 ? 0 : 601,
+		);
+		const schedule = spyOn(taskClock, "schedule");
+		try {
+			await runnerProbe(async (options, records) => {
+				const result = await runDelegation({
+					...options,
+					pressure: enabled ? {} : undefined,
+				});
+				expect(result.details.status).toBe("completed");
+				expect(result.usage.totalTokens).toBe(3);
+				expect(result.content[0].text).toContain("Report:");
+				const trace = records();
+				const steers = trace.filter((record) => record.type === "steer");
+				expect(
+					steers.map(
+						(record) =>
+							/pressure: (warning|urgent)/.exec(record.message ?? "")?.[1],
+					),
+				).toEqual(enabled ? ["warning", "urgent"] : []);
+				// A missing optional pressure failure must not settle Promise.race early.
+				const settledIndex = trace.findIndex(
+					(record) => record.kind === "task-settled",
+				);
+				expect(settledIndex).toBeGreaterThanOrEqual(0);
+				expect(
+					trace
+						.slice(settledIndex + 1)
+						.some((record) => record.type === "get_entries"),
+				).toBe(true);
+				if (!enabled) {
+					expect(clockReads).toBe(0);
+					expect(schedule).not.toHaveBeenCalled();
+				}
+				assertRunnerCleaned(trace);
+			}, "long-running");
+		} finally {
+			now.mockRestore();
+			schedule.mockRestore();
+		}
+	});
+}
 
 for (const [scenario, status, stages] of [
 	["turns", "completed", ["warning", "urgent"]],
@@ -651,7 +698,7 @@ test("direct runner abort after actual task start disposes pressure/subscription
 				expect(unsubscribed).toBe(1);
 				expect(
 					removed.mock.calls.filter(([event]) => event === "abort"),
-				).toHaveLength(3);
+				).toHaveLength(2);
 				assertRunnerCleaned(records());
 			} finally {
 				controller.abort();

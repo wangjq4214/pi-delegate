@@ -2,6 +2,7 @@
 
 **Status:** Completed
 **Date:** 2026-10-03
+**Superseded by:** [ADR 0028 — Opt-in delegation soft pressure](./0028-opt-in-delegation-soft-pressure.md), for default-on enablement only. The replacement is Completed; the implementation evidence below describes the previous default-on behavior.
 
 ## Context
 

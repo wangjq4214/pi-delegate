@@ -193,15 +193,16 @@ export async function runDelegation(
 			);
 			steering = taskSteering;
 			options.onSteeringControl?.(steering.control);
-			pressure = new TaskPressure(policy, async (message) => {
-				const response = await taskSteering.submit(message);
-				options.status?.accepted(
-					message.startsWith("[pi-delegate pressure: urgent]")
-						? "urgent"
-						: "warning",
-				);
-				return response;
-			});
+			if (policy)
+				pressure = new TaskPressure(policy, async (message) => {
+					const response = await taskSteering.submit(message);
+					options.status?.accepted(
+						message.startsWith("[pi-delegate pressure: urgent]")
+							? "urgent"
+							: "warning",
+					);
+					return response;
+				});
 			if (effectiveBudget)
 				budget = new TaskBudget(effectiveBudget, (cause) => {
 					if (options.signal?.aborted) return;
@@ -228,9 +229,10 @@ export async function runDelegation(
 				pressure?.observe(record);
 				options.status?.observe(record);
 			});
-			options.signal?.addEventListener("abort", pressure.dispose, {
-				once: true,
-			});
+			if (pressure)
+				options.signal?.addEventListener("abort", pressure.dispose, {
+					once: true,
+				});
 			if (budget)
 				options.signal?.addEventListener("abort", budget.dispose, {
 					once: true,
@@ -254,9 +256,13 @@ export async function runDelegation(
 			started();
 			steering.confirmStart();
 			if (details.budgetStop) throw new Error("Execution budget reached");
-			await Promise.race([settlement.promise, pressure.failure, budgetStopped]);
+			await Promise.race([
+				settlement.promise,
+				...(pressure ? [pressure.failure] : []),
+				budgetStopped,
+			]);
 			if (details.budgetStop) throw new Error("Execution budget reached");
-			pressure.dispose();
+			pressure?.dispose();
 			budget?.dispose();
 			// Projected get_messages can omit a length response during host recovery.
 			// Persisted entries retain every attempt, including the final truncated answer.

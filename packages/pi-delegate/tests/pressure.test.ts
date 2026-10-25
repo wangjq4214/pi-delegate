@@ -82,7 +82,7 @@ afterEach(() => {
 });
 
 function harness(
-	policy = resolvePressure(),
+	policy = resolvePressure({}),
 	steer?: (message: string) => Promise<unknown>,
 ) {
 	const clock = new FakeClock();
@@ -120,9 +120,13 @@ function expectReminderIntent(messages: string[]) {
 }
 
 describe("pressure policy", () => {
-	test("omitted policy, empty stages and undefined fields independently use all four defaults", () => {
+	test("omission disables pressure", () => {
+		expect(resolvePressure()).toBeUndefined();
+		expect(resolvePressure(undefined)).toBeUndefined();
+	});
+
+	test("explicit empty policy, empty stages and undefined fields independently use all four defaults", () => {
 		for (const input of [
-			undefined,
 			{},
 			{ warning: {} },
 			{ urgent: {} },
@@ -170,12 +174,12 @@ describe("pressure policy", () => {
 	}
 
 	test("resolution neither mutates inputs nor shares stage objects between invocations", () => {
-		const input = Object.freeze({
+		const input: PressureOverrides = Object.freeze({
 			warning: Object.freeze({ afterSeconds: 360 }),
 		});
 		const first = resolvePressure(input);
 		const second = resolvePressure(input);
-		const omitted = resolvePressure();
+		const defaulted = resolvePressure({});
 		expect(first).not.toBe(second);
 		expect(first.warning).not.toBe(second.warning);
 		expect(first.urgent).not.toBe(second.urgent);
@@ -185,8 +189,8 @@ describe("pressure policy", () => {
 			warning: { afterSeconds: 360, afterTurns: 20 },
 			urgent: defaults.urgent,
 		});
-		expect(omitted).toEqual(defaults);
-		expect(input.warning.afterSeconds).toBe(360);
+		expect(defaulted).toEqual(defaults);
+		expect(input.warning?.afterSeconds).toBe(360);
 	});
 
 	test("positive finite fractional and huge times and positive integer turns are accepted unchanged", () => {
@@ -325,7 +329,7 @@ describe("pressure policy", () => {
 
 describe("task pressure", () => {
 	test("the default constructor arms the real monotonic clock without parameter-shadowing failure", () => {
-		const monitor = new TaskPressure(resolvePressure(), async () => {});
+		const monitor = new TaskPressure(resolvePressure({}), async () => {});
 		monitors.add(monitor);
 		expect(() => monitor.observe({ type: "agent_start" })).not.toThrow();
 		monitor.dispose();
@@ -426,7 +430,7 @@ describe("task pressure", () => {
 		test(`time/turn overlap dedupes both stages with pending steering: ${order}`, async () => {
 			const held = deferred();
 			const { monitor, messages, clock } = harness(
-				resolvePressure(),
+				resolvePressure({}),
 				() => held.promise,
 			);
 			monitor.observe({ type: "agent_start" });
@@ -590,7 +594,7 @@ describe("task pressure", () => {
 	test("disposal while warning is in flight prevents the queued unsent urgent stage", async () => {
 		const held = deferred();
 		const { monitor, messages } = harness(
-			resolvePressure(),
+			resolvePressure({}),
 			() => held.promise,
 		);
 		monitor.observe({ type: "agent_start" });
@@ -606,7 +610,7 @@ describe("task pressure", () => {
 	for (const error of [new Error("steer refused"), "steer refused"]) {
 		test(`observed steering failure rejects failure and stops queued pressure (${typeof error})`, async () => {
 			const { monitor, messages, clock } = harness(
-				resolvePressure(),
+				resolvePressure({}),
 				async () => {
 					throw error;
 				},
@@ -627,7 +631,7 @@ describe("task pressure", () => {
 	test("late steering rejection after settlement is consumed without changing the disposed outcome", async () => {
 		const held = deferred();
 		const { monitor, messages, clock } = harness(
-			resolvePressure(),
+			resolvePressure({}),
 			() => held.promise,
 		);
 		let failure: unknown;

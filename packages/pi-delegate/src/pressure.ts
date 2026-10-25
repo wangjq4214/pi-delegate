@@ -28,7 +28,7 @@ export const pressureParameters = Type.Object(
 	{
 		additionalProperties: false,
 		description:
-			"Soft reminders to wrap up, not timeouts. Each stage reminds once when either threshold is reached; never auto-cancels. Omitted fields default to warning: 300 seconds or 20 turns; urgent: 600 seconds or 40 turns. Each urgent threshold must exceed its corresponding warning threshold.",
+			"Opt-in soft reminders to wrap up, not timeouts. Omit pressure to disable reminders; pass {} to enable defaults. Each stage reminds once when either threshold is reached; never auto-cancels. When enabled, omitted fields default to warning: 300 seconds or 20 turns; urgent: 600 seconds or 40 turns. Each urgent threshold must exceed its corresponding warning threshold.",
 	},
 );
 
@@ -93,7 +93,12 @@ export function validatePressureInput(value: unknown): void {
 	readPressure(value);
 }
 
-export function resolvePressure(value: unknown = undefined): PressurePolicy {
+export function resolvePressure(value: PressureOverrides): PressurePolicy;
+export function resolvePressure(value?: unknown): PressurePolicy | undefined;
+export function resolvePressure(
+	value: unknown = undefined,
+): PressurePolicy | undefined {
+	if (value === undefined) return undefined;
 	const policy = readPressure(value);
 	for (const key of ["afterSeconds", "afterTurns"] as const) {
 		if (policy.urgent[key] <= policy.warning[key])

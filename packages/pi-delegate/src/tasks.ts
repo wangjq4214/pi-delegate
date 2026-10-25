@@ -30,7 +30,7 @@ export interface TaskDetails extends TaskSummary {
 	cwd: { selected: string; effective?: string };
 	configuration: ConfigurationDetails;
 	currentTools: string[];
-	pressure: { policy: PressurePolicy; accepted: TaskProgress["pressure"] };
+	pressure: { policy?: PressurePolicy; accepted: TaskProgress["pressure"] };
 	budget?: ExecutionBudget;
 	usage: TaskProgress["usageValue"];
 }
@@ -45,7 +45,7 @@ export interface TaskInput {
 	mode: TaskMode;
 	cwd: string;
 	configuration: TaskConfiguration;
-	pressure: PressurePolicy;
+	pressure?: PressurePolicy;
 	budget?: ExecutionBudget;
 }
 
@@ -158,7 +158,9 @@ export class TaskRecord {
 			}),
 			currentTools: [...this.progress.tools.values()],
 			pressure: {
-				policy: structuredClone(this.input.pressure),
+				...(this.input.pressure
+					? { policy: structuredClone(this.input.pressure) }
+					: {}),
 				accepted: this.progress.pressure,
 			},
 			...(this.input.budget

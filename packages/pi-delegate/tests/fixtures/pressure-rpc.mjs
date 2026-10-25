@@ -25,6 +25,7 @@ const reply = (command, data, error) =>
 		...(error === undefined ? { data } : { error }),
 	});
 const event = (type) => send({ type });
+// Long tasks settle independently of reminders, including when pressure is disabled.
 let taskStarted = false;
 let settled = false;
 let steers = 0;
@@ -86,6 +87,13 @@ createInterface({ input: process.stdin })
 			process.stdout.write(batch.join(""));
 			batch = undefined;
 			log({ kind: "task-started" });
+			if (scenario === "long-running") {
+				for (let i = 0; i < 45; i++) event("turn_end");
+				setTimeout(() => {
+					log({ kind: "task-settled" });
+					settle();
+				}, 50);
+			}
 		} else if (command.type === "steer") {
 			steers++;
 			if (scenario === "steer-failure")
@@ -95,7 +103,7 @@ createInterface({ input: process.stdin })
 				reply(command, undefined, "late fixture steer refused");
 			} else {
 				reply(command, { disposition: "queued" });
-				if (steers === 2) settle();
+				if (steers === 2 && scenario !== "long-running") settle();
 			}
 		} else if (command.type === "get_entries") {
 			// Late events during result collection must not restart disposed pressure.

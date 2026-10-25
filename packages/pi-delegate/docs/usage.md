@@ -31,7 +31,7 @@ Children do not register any of these tools or the parent-only `/delegates` task
 | `background` | No | Set to `true` to return a background task ID instead of waiting. Defaults to synchronous execution. |
 | `model` | No | Exact configured `{ "provider": "...", "id": "..." }` identity; omitted inherits the current parent model. |
 | `thinkingLevel` | No | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`; omitted independently inherits the current parent level. |
-| `pressure` | No | Per-task warning and urgent finish-reminder thresholds. Omitted fields use defaults. |
+| `pressure` | No | Opt-in warning and urgent finish reminders. Omit to disable; `{}` enables default thresholds; a supplied object customizes them. |
 | `budget` | No | Opt-in `{ maxSeconds?, maxTurns? }` execution limits. Omitted dimensions are unlimited; no default hard budget. |
 | `resultFormat` | No | `"handoff"` requests an advisory result handoff in either mode; omission preserves existing free-text behavior. Other explicit values are rejected. |
 
@@ -167,7 +167,7 @@ Pass an exact discovered ID to `delegate_status`:
 { "taskId": "<exact taskId>" }
 ```
 
-Both modes return metadata in the model-visible text and `details.task`: summary identity/progress; selected and confirmed effective startup cwd; requested and confirmed effective model/thinking; current tools (including concurrent/nested tools); resolved pressure policy and highest RPC-accepted stage; available usage; and control availability/reasons. Missing effective fields are unconfirmed, not success. Cwd is startup configuration, not a continuously observed directory or sandbox. Elapsed time excludes queue/initialization, and tool calls do not add turns.
+Both modes return metadata in the model-visible text and `details.task`: summary identity/progress; selected and confirmed effective startup cwd; requested and confirmed effective model/thinking; current tools (including concurrent/nested tools); resolved pressure policy (absent when disabled) and highest RPC-accepted stage; available usage; and control availability/reasons. Missing effective fields are unconfirmed, not success. Cwd is startup configuration, not a continuously observed directory or sandbox. Elapsed time excludes queue/initialization, and tool calls do not add turns.
 
 | Field | Meaning |
 | --- | --- |
@@ -244,7 +244,7 @@ Full-output files outlive child-process and initialization cleanup. Delete them 
 
 ## Soft pressure
 
-Configure two stages on each `delegate` call. The policy applies to both synchronous and background tasks and does not affect other tasks.
+Pressure is **off by default**, so long-running tasks receive no automatic wrap-up instructions. Omit `pressure` to keep it off; pass `pressure: {}` to enable the defaults below, or supply an object with custom thresholds. The policy is invocation-local and applies equally to synchronous and background tasks.
 
 ```json
 {
@@ -264,8 +264,8 @@ Configure two stages on each `delegate` call. The policy applies to both synchro
 ### Validation and counting
 
 - A stage becomes eligible when either threshold is reached (`>=`). Each stage sends at most one reminder, even if both thresholds are reached.
-- Defaults apply field by field when `pressure`, a stage, or an individual field is omitted. Setting only `warning.afterSeconds: 180` keeps the default 20-turn warning threshold.
-- `afterSeconds` must be a positive finite number; fractions are allowed. `afterTurns` must be a positive finite integer. `0` and `null` do not disable pressure.
+- When explicitly enabled, defaults apply field by field when a stage or individual field is omitted. Setting only `warning.afterSeconds: 180` keeps the default 20-turn warning threshold. Omitting `pressure` entirely disables both stages.
+- `afterSeconds` must be a positive finite number; fractions are allowed. `afterTurns` must be a positive finite integer. `0`, `null`, and booleans are not disabling values; omit `pressure` instead.
 - After defaults are filled in, `urgent.afterSeconds` must exceed `warning.afterSeconds`, and `urgent.afterTurns` must exceed `warning.afterTurns`.
 - Invalid policies fail before child startup, including background calls. Values are not silently sorted, rewritten, or replaced with defaults.
 - Timing starts at actual task execution, excluding queue residence and process/tool initialization. Model calls, tools, and waiting time count.

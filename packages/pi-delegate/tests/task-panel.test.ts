@@ -69,6 +69,23 @@ const down = "\x1b[B",
 	tab = "\t";
 
 test.serial(
+	"Overview shows disabled pressure without default thresholds",
+	async () => {
+		const s = await setup(() => 32);
+		try {
+			s.records.accept({ ...taskInput, pressure: undefined });
+			s.frame();
+			s.panel.handleInput(enter);
+			const frame = s.frame();
+			expect(frame).toContain("Pressure: disabled");
+			expect(frame).not.toContain("Warning:");
+		} finally {
+			s.dispose();
+		}
+	},
+);
+
+test.serial(
 	"filter changes keep the heading, footer and label columns fixed",
 	async () => {
 		let height = 24;

@@ -12,7 +12,7 @@ export const taskInput: TaskInput = {
 		model: { provider: "fixture", id: "fixture-model" },
 		thinkingLevel: "high",
 	},
-	pressure: resolvePressure(),
+	pressure: resolvePressure({}),
 };
 export function taskResult(
 	status: DelegationResult["details"]["status"] = "completed",

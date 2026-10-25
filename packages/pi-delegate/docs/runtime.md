@@ -13,7 +13,7 @@ The child uses the CLI from the installed Pi host package:
 - A Node.js host uses the current Node executable.
 - A Bun host requires `node` on `PATH`.
 
-RPC control commands have a 40-second response timeout. Inherited-tool initialization waits up to 30 seconds for missing tools to become available. The model task has no default fixed timeout; opt-in [execution budgets](usage.md#optional-execution-budget) can cancel on observed time/turn thresholds, while [soft pressure](usage.md#soft-pressure) is advisory rather than a hard execution budget.
+RPC control commands have a 40-second response timeout. Inherited-tool initialization waits up to 30 seconds for missing tools to become available. The model task has no default fixed timeout; opt-in [execution budgets](usage.md#optional-execution-budget) can cancel on observed time/turn thresholds, while [soft pressure](usage.md#soft-pressure) is opt-in (off by default) and advisory rather than a hard execution budget.
 
 The initialization request's deadline includes child cold startup, extension/session initialization, and the inherited-tool handshake; it is not an additional 40 seconds after the child is ready. Child registration loads only the child initialization branch, not parent task/panel modules. Each tool-wait poll enumerates the registry once and uses a name set; full schema/exposure/activation validation still runs before task submission.
 
