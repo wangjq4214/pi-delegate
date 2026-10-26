@@ -300,6 +300,16 @@ function services(f: ReturnType<typeof fixture>) {
 	const available = new Set<string>();
 	const attempts: string[] = [];
 	const calls: string[] = [];
+	const sleeps: number[] = [];
+	let elapsed = 0;
+	const clock = {
+		now: () => elapsed,
+		sleep: async (ms: number) => {
+			sleeps.push(ms);
+			elapsed += ms;
+		},
+	};
+	const uploadedAt = new Map<string, number>();
 	type FakeRelease = {
 		id: number;
 		tag_name: string;
@@ -314,6 +324,7 @@ function services(f: ReturnType<typeof fixture>) {
 		failCreate: false,
 		failFinalize: false,
 		lookupStatus: 0,
+		visibilityDelayMs: 0,
 		creates: 0,
 		uploads: 0,
 	};
@@ -329,6 +340,7 @@ function services(f: ReturnType<typeof fixture>) {
 		if (state.failPackage === pkg.manifest.name)
 			throw new Error("npm authentication/publication failed");
 		available.add(pkg.manifest.name);
+		uploadedAt.set(pkg.manifest.name, elapsed);
 		return "";
 	};
 	const http: Request = async (url, init) => {
@@ -339,6 +351,12 @@ function services(f: ReturnType<typeof fixture>) {
 			if (state.lookupStatus)
 				return new Response("", { status: state.lookupStatus });
 			const name = decodeURIComponent(parsed.pathname.slice(1).split("/")[0]);
+			const uploaded = uploadedAt.get(name);
+			if (
+				uploaded !== undefined &&
+				elapsed - uploaded < state.visibilityDelayMs
+			)
+				return new Response("", { status: 404 });
 			return available.has(name)
 				? Response.json({ name, version: "1.2.3" })
 				: new Response("", { status: 404 });
@@ -402,8 +420,26 @@ function services(f: ReturnType<typeof fixture>) {
 		throw new Error(`Unexpected HTTP: ${method} ${url}`);
 	};
 	const publish = () =>
-		publishArtifacts(f.packages, "v1.2.3", f.output, "fake-token", run, http);
-	return { available, attempts, calls, state, run, http, publish };
+		publishArtifacts(
+			f.packages,
+			"v1.2.3",
+			f.output,
+			"fake-token",
+			run,
+			http,
+			clock,
+		);
+	return {
+		available,
+		attempts,
+		calls,
+		state,
+		run,
+		http,
+		publish,
+		clock,
+		sleeps,
+	};
 }
 
 test("successful release publishes exactly the checked tarballs then finalizes one Release", async () => {
@@ -420,6 +456,109 @@ test("successful release publishes exactly the checked tarballs then finalizes o
 	expect(s.state.creates).toBe(1);
 	expect(s.state.uploads).toBe(3);
 });
+
+test("npm processing delays are polled without republishing and Release waits for visibility", async () => {
+	const f = fixture();
+	const s = services(f);
+	s.state.visibilityDelayMs = 30_000;
+	await s.publish();
+	expect(s.attempts).toEqual(f.packages.map((pkg) => pkg.manifest.name));
+	expect(s.sleeps).toEqual(Array(6).fill(15_000));
+	expect(s.state.release?.draft).toBe(false);
+	const firstGitHubCall = s.calls.findIndex(
+		(call) => !call.includes("registry.npmjs.org"),
+	);
+	expect(firstGitHubCall).toBe(12); // Preflight + 404 + 404 + visible, per package.
+	await s.publish();
+	expect(s.attempts).toHaveLength(3);
+	expect(s.sleeps).toHaveLength(6);
+});
+
+test("npm visibility timeout blocks Release and a later rerun skips the accepted version", async () => {
+	const f = fixture();
+	const s = services(f);
+	s.state.visibilityDelayMs = 21 * 60_000;
+	await expect(s.publish()).rejects.toThrow(
+		`Timed out waiting for npm publication: ${f.packages[0].manifest.name}@1.2.3`,
+	);
+	expect(s.clock.now()).toBe(20 * 60_000);
+	expect(s.sleeps).toEqual(Array(80).fill(15_000));
+	expect(s.attempts).toEqual([f.packages[0].manifest.name]);
+	expect(s.calls.every((call) => call.includes("registry.npmjs.org"))).toBe(
+		true,
+	);
+	expect(s.state.creates).toBe(0);
+	s.state.visibilityDelayMs = 0;
+	await s.publish();
+	expect(s.attempts).toEqual(f.packages.map((pkg) => pkg.manifest.name));
+	expect(s.state.release?.draft).toBe(false);
+});
+
+test.each([401, 403, 429, 500, 503])(
+	"npm HTTP %i during visibility polling aborts without republishing or Release writes",
+	async (status) => {
+		const f = fixture();
+		const s = services(f);
+		let postUploadLookups = 0;
+		const http: Request = async (url, init) => {
+			if (url.includes("registry.npmjs.org") && s.attempts.length > 0) {
+				postUploadLookups++;
+				return new Response("", {
+					status: postUploadLookups === 1 ? 404 : status,
+				});
+			}
+			return s.http(url, init);
+		};
+		await expect(
+			publishArtifacts(
+				f.packages,
+				"v1.2.3",
+				f.output,
+				"fake-token",
+				s.run,
+				http,
+				s.clock,
+			),
+		).rejects.toThrow(`npm lookup failed: HTTP ${status}`);
+		expect(postUploadLookups).toBe(2);
+		expect(s.sleeps).toEqual([15_000]);
+		expect(s.attempts).toHaveLength(1);
+		expect(s.state.creates).toBe(0);
+	},
+);
+
+test.each(["network", "JSON", "identity"])(
+	"npm %s failure during visibility polling is not treated as pending or successful",
+	async (failure) => {
+		const f = fixture();
+		const s = services(f);
+		const http: Request = async (url, init) => {
+			if (url.includes("registry.npmjs.org") && s.attempts.length > 0) {
+				if (failure === "network") throw new Error("offline");
+				if (failure === "JSON") return new Response("not json");
+				return Response.json({
+					name: f.packages[0].manifest.name,
+					version: "other",
+				});
+			}
+			return s.http(url, init);
+		};
+		await expect(
+			publishArtifacts(
+				f.packages,
+				"v1.2.3",
+				f.output,
+				"fake-token",
+				s.run,
+				http,
+				s.clock,
+			),
+		).rejects.toThrow();
+		expect(s.sleeps).toHaveLength(0);
+		expect(s.attempts).toHaveLength(1);
+		expect(s.state.creates).toBe(0);
+	},
+);
 
 test("partial npm failure creates no Release and rerun skips successful immutable versions", async () => {
 	const f = fixture();
@@ -523,8 +662,8 @@ test("workflow connects read-only gates to OIDC publication on the exact tagged 
 		"bun install --frozen-lockfile",
 		"bun run check",
 		"bun run typecheck",
-		"bun run test",
 		"bun run build",
+		"bun run test",
 		'node scripts/release.ts pack "$RELEASE_TAG"',
 	]);
 	for (const job of [validate, publish]) {

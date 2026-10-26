@@ -35,8 +35,9 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun run typecheck
-      - run: bun run test
+      # Package-discovery tests require the built dist/index.js entries.
       - run: bun run build
+      - run: bun run test
       - name: Pack and inspect release tarballs
         run: node scripts/release.ts pack "$RELEASE_TAG"
       - uses: actions/upload-artifact@v4

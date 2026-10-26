@@ -382,7 +382,14 @@ for (const backgroundMode of [false, true]) {
 			const enabled = await host.child("enabled");
 			await Promise.all([
 				host.finish(disabled, 0, 44),
-				host.finish(enabled, 0, 44),
+				(async () => {
+					// Hold the next model at each threshold until the RPC reminder arrives.
+					await host.finish(enabled, 0, 19);
+					await host.event(enabled, "pressure-receipt");
+					await host.finish(enabled, 20, 39);
+					await host.stagesReceived(enabled);
+					await host.finish(enabled, 40, 44);
+				})(),
 			]);
 			await done;
 			const results = (await host.messages()).filter(

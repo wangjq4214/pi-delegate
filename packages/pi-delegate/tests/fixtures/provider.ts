@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	type AssistantMessage,
@@ -266,15 +266,17 @@ export default function fixture(pi: ExtensionAPI): void {
 					toolCall("read", { path: "workspace-proof.txt" });
 					return;
 				}
+				const finalText = process.env.FIXTURE_FINAL_TEXT_FILE
+					? readFileSync(process.env.FIXTURE_FINAL_TEXT_FILE, "utf8")
+					: process.env.FIXTURE_FINAL_TEXT;
 				const text =
 					prompt.startsWith("DELEGATE ") && last
 						? last.content
 								.filter((block) => block.type === "text")
 								.map((block) => block.text)
 								.join("\n")
-						: process.env.PI_DELEGATE_CHILD === "1" &&
-								process.env.FIXTURE_FINAL_TEXT !== undefined
-							? process.env.FIXTURE_FINAL_TEXT
+						: process.env.PI_DELEGATE_CHILD === "1" && finalText !== undefined
+							? finalText
 							: JSON.stringify({
 									pid: process.pid,
 									cwd: process.cwd(),

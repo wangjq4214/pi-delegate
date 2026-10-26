@@ -332,14 +332,18 @@ test("real parent tool results preserve structured failure and isError", async (
 test("length limit and presentation truncation remain independent", async () => {
 	await withParent(async (_parent, state, args, env, logs) => {
 		const text = "partial".repeat(DEFAULT_MAX_BYTES);
+		// Keep oversized fixture data out of the child environment (Linux E2BIG).
+		const finalTextFile = join(logs, "final-output.txt");
+		await writeFile(finalTextFile, text);
 		const child = await runDelegation({
 			...inherited(state, args),
 			cwd: state.cwd,
-			env: { ...env, FIXTURE_FINAL_TEXT: text },
+			env: { ...env, FIXTURE_FINAL_TEXT_FILE: finalTextFile },
 			task: "length-model",
 		});
 		const path = child.details.fullOutputPath;
-		if (!path) throw new Error("Missing partial output file");
+		if (!path)
+			throw new Error(`Missing partial output file: ${child.details.error}`);
 		try {
 			expect(child.details.status).toBe("incomplete");
 			expect(child.details.truncation?.truncated).toBe(true);

@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 
@@ -363,6 +364,40 @@ export async function completeRelease(
 		});
 }
 
+interface PublicationClock {
+	now(): number;
+	sleep(ms: number): Promise<void>;
+}
+
+const publicationClock: PublicationClock = {
+	now: () => performance.now(),
+	sleep,
+};
+
+async function waitForPublication(
+	pkg: ReleasePackage,
+	http: Request,
+	clock: PublicationClock,
+): Promise<void> {
+	// npm can accept an upload before its scanning/processing makes it public.
+	const deadline = clock.now() + 20 * 60_000;
+	let waiting = false;
+	while (!(await published(pkg, http))) {
+		const remaining = deadline - clock.now();
+		if (remaining <= 0)
+			throw new Error(
+				`Timed out waiting for npm publication: ${pkg.manifest.name}@${pkg.manifest.version}. Check npm processing status before rerunning; do not republish blindly.`,
+			);
+		if (!waiting) {
+			console.log(
+				`Waiting up to 20 minutes for npm processing: ${pkg.manifest.name}@${pkg.manifest.version}`,
+			);
+			waiting = true;
+		}
+		await clock.sleep(Math.min(15_000, remaining));
+	}
+}
+
 export async function publishArtifacts(
 	packages: ReleasePackage[],
 	tag: string,
@@ -370,6 +405,7 @@ export async function publishArtifacts(
 	token: string,
 	run: Run = runCommand,
 	http: Request = request,
+	clock: PublicationClock = publicationClock,
 ): Promise<void> {
 	versionFromTag(tag);
 	if (!token) throw new Error("GITHUB_TOKEN is required for Release delivery");
@@ -396,10 +432,7 @@ export async function publishArtifacts(
 			],
 			pkg.directory,
 		);
-		if (!(await published(pkg, http)))
-			throw new Error(
-				`npm version not visible after publication: ${pkg.manifest.name}`,
-			);
+		await waitForPublication(pkg, http, clock);
 	}
 	await completeRelease(tag, packages, output, token, http);
 }

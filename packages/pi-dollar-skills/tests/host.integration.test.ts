@@ -260,7 +260,10 @@ for (const commandsEnabled of [true, false]) {
 			expect(text.includes(request)).toBe(true);
 			expect(content.filter((part) => part.type === "image")).toHaveLength(1);
 			expect(
-				h.resourceLoader.getSkills().skills.map((skill) => skill.name),
+				h.resourceLoader
+					.getSkills()
+					.skills.map((skill) => skill.name)
+					.sort(),
 			).toEqual(["grimoire-review", "grimoire-test"]);
 			expect(h.session.systemPrompt).toContain("grimoire-review");
 			const messages = h.session.messages.filter(
@@ -357,9 +360,20 @@ for (const openTui of [false, true]) {
 				submitted = h.session.prompt(text);
 			};
 			editor.handleInput("$");
-			await eventually(() =>
-				editor.render(80).join("\n").includes("$grimoire-review"),
-			);
+			await eventually(() => {
+				const menu = editor.render(80).join("\n");
+				return (
+					menu.includes("$grimoire-review") && menu.includes("$grimoire-test")
+				);
+			});
+			// Select explicitly rather than depending on filesystem discovery order.
+			editor.handleInput("grimoire-r");
+			await eventually(() => {
+				const menu = editor.render(80).join("\n");
+				return (
+					menu.includes("$grimoire-review") && !menu.includes("$grimoire-test")
+				);
+			});
 			editor.handleInput("\r");
 			expect(editor.getText()).toBe("$grimoire-review ");
 			expect(submitted).toBeUndefined();
