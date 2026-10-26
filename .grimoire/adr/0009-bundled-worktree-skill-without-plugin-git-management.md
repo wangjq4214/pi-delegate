@@ -7,7 +7,7 @@
 
 [ADR 0007](./0007-external-worktree-lifecycle-and-parent-integration.md) keeps worktree lifecycle management outside the plugin runtime and integration with the parent agent. [ADR 0008](./0008-generic-per-delegation-working-directory.md) adds a generic optional child working-directory selection.
 
-The remaining distribution choice was whether the worktree skill should be provided with pi-delegate or maintained separately. The user selected providing it together and accepted the recommended defaults with "一起提供，剩下的按照推荐就可以". This follows the explicit exclusion of scope-conflict warnings, permission controls and an OS sandbox from the current delivery scope.
+The remaining distribution choice was whether the worktree skill should be provided with pi-delegate or maintained separately. The user selected providing it together and accepted the recommended defaults with "Bundle it together and follow the recommendations for the rest" (translated). This follows the explicit exclusion of scope-conflict warnings, permission controls and an OS sandbox from the current delivery scope.
 
 Sources:
 

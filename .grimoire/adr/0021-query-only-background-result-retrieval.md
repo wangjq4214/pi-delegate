@@ -10,7 +10,7 @@ The user requested removing delegate's automatic completion message because mode
 
 Sources:
 
-- User request in the refinement conversation: “去掉 delegate的complete 自动消息，因为我发现大部分模型会自己去获取，这样会重复的获取结果，浪费上下文”.
+- User request in the refinement conversation: “Remove delegate's automatic completion messages: most models retrieve results themselves, so the duplicate retrieval wastes context” (translated).
 - ADR 0002 and ADR 0016: existing completion-delivery and task-discovery boundaries.
 - `packages/pi-delegate/src/background.ts`, `packages/pi-delegate/src/delegate.ts` and `packages/pi-delegate/src/tasks.ts`: current storage, delivery and delivery-observation paths.
 - `packages/pi-delegate/docs/usage.md`: existing synchronous return, background delivery and query contracts.

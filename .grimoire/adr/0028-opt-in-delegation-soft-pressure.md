@@ -10,7 +10,7 @@ The user requested that delegate stop automatically sending pressure messages, r
 
 Sources:
 
-- This refinement request: “delegate 不要自动发送压力信息了，可以作为选项被开启，有些任务会很长，不适合这样，默认关闭吧”.
+- This refinement request: “Do not send delegate pressure messages automatically; make them opt-in and disabled by default because some tasks are too long for this behavior” (translated).
 - [ADR 0003](./0003-per-delegation-soft-pressure.md) and [spec 0003](../spec/0003-subagent-soft-pressure.md): the previous default-on policy and advisory reminder contract.
 - `packages/pi-delegate/src/pressure.ts` at refinement baseline: omitted configuration resolved to warning/urgent defaults and reminder instructions encouraged early wrap-up.
 - [ADR 0022](./0022-opt-in-task-execution-budgets.md): execution budgets are a separate opt-in cancellation policy.

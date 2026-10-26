@@ -6,7 +6,7 @@
 
 ## Context
 
-The current Open TUI presentation resolver recognizes eight host-native tools and returns other renderers unchanged. The user rejected this coverage boundary: “我觉得其他所有的tool call也要被覆盖，不能只覆盖这些！”. They accepted the coordinator's “通用样式兜底 + 特定工具增强” proposal with “可以”, selecting revision of Spec 0011 without implementation or ticket decomposition.
+The current Open TUI presentation resolver recognizes eight host-native tools and returns other renderers unchanged. The user rejected this coverage boundary: “All other tool calls must be covered too, not just these” (translated). They accepted the coordinator's “generic styling fallback + tool-specific enhancements” (translated) proposal with “Yes” (translated), selecting revision of Spec 0011 without implementation or ticket decomposition.
 
 The accepted scope includes native tools, editing/search extensions, delegate tools, computer-use, MCP and other extension tools, including future tools without adding their names to a styling allowlist. Existing third-party renderers may carry useful output, images, controls or important metadata; universal styling must not discard these capabilities. Unknown schemas must not be interpreted using a familiar tool name alone.
 

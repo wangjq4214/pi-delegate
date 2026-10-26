@@ -1,6 +1,6 @@
 # pi-dollar-skills
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+[English](README.md) | [Simplified Chinese](README.zh-CN.md)
 
 An independent Pi extension for Codex-style skill selection. `/` keeps ordinary commands but hides skill candidates; `$` offers skills by name and description. Selecting a skill inserts `$skill-name` without sending. Submission injects the full skill file and its location into model context.
 
@@ -17,14 +17,14 @@ bun run --filter @wangjq4214/pi-dollar-skills build
 pi -e ./packages/pi-dollar-skills/dist/index.js
 ```
 
-This package is private/unpublished. These commands do not install it or change your global settings. Do not load both source and bundle at once.
+The package is configured for public npm publication. Initial publication and Trusted Publisher setup are maintainer prerequisites, not actions performed by these commands. After publication, install with `pi install npm:@wangjq4214/pi-dollar-skills`. Do not load both source and bundle at once.
 
 ## Interaction
 
 Type `$`, keep typing to filter names, then use the editor's normal selection keys (normally arrows, Tab or Enter). Accepting a candidate does not submit. Continue composing, then submit normally:
 
 ```text
-用 $grimoire-review 和 $grimoire-test 检查这些修改
+Use $grimoire-review and $grimoire-test to inspect these changes
 ```
 
 - References start at the beginning of text or after whitespace; names match loaded skills exactly. Ordinary closing punctuation is accepted after a reference.
@@ -51,7 +51,7 @@ bun run --filter @wangjq4214/pi-dollar-skills build
 
 Tests cover parsing, non-destructive completion, real SDK/resource/extension submission into an offline provider (including images, failure handling, steering/follow-up and RPC), actual native/Open TUI editor key paths, native multi-card rendering/click/global expansion, snapshot replay, and Open TUI layout adaptation on regular/fullscreen host renderers (including borders, theme/padding/width changes and cleanup). Terminal scheduling and UI mounting are controlled; these are not pixel/IME tests of a live terminal. Open TUI is a test collaborator, not a package runtime dependency. Actual terminal appearance and IME behavior require a local smoke test.
 
-No npm publication or user configuration changes are part of this feature. See [spec 0015](../../.grimoire/spec/0015-dollar-skill-invocation.md) and [ADR 0026](../../.grimoire/adr/0026-independent-dollar-skill-extension.md).
+Runtime contracts are in [spec 0015](../../.grimoire/spec/0015-dollar-skill-invocation.md) and [ADR 0026](../../.grimoire/adr/0026-independent-dollar-skill-extension.md). Public publication is separately authorized by [ADR 0030](../../.grimoire/adr/0030-public-workspace-trusted-publishing.md); see the repository [release guide](../../docs/releasing.md). No account configuration or actual publication is performed by this implementation.
 
 ## License
 

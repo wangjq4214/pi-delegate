@@ -11,7 +11,7 @@
 2. In the interactive editor, `/` command suggestions must omit skill entries while retaining ordinary commands. Hiding suggestions must not unload skills or remove Pi's automatic skill-matching capability.
 3. Typing `$` must offer available skills with their names and descriptions. Continuing to type a skill name must filter the candidates.
 4. Accepting a candidate must insert a `$skill-name` reference into the editor, allowing the user to continue composing the request. Selection alone must not submit the request.
-5. Skill references must work both at the start of a message and within its prose, for example `用 $grimoire-review 检查这些修改`.
+5. Skill references must work both at the start of a message and within its prose, for example `Use $grimoire-review to inspect these changes`.
 6. Submitting a message containing a skill reference must load the corresponding skill's full instructions and inject them into the context delivered to the model, along with its location so relative references can be resolved. Merely passing the name or asking the model to locate the skill does not satisfy this requirement.
 7. A single message must support references to multiple skills. Each referenced skill's instructions and location must reach the model together with the user's request.
 8. Preserve the user's surrounding request and attached images while preparing skill context.
@@ -60,7 +60,7 @@ Use the skills available to the current Pi session rather than treating hiding s
 ### Inline reference
 
 - **Given:** `grimoire-review` is an available fixture skill.
-- **When:** The user submits `用 $grimoire-review 检查这些修改`.
+- **When:** The user submits `Use $grimoire-review to inspect these changes`.
 - **Then:** Its full instructions and location reach the model and the surrounding review request is preserved.
 
 ### Multiple skills and attachments

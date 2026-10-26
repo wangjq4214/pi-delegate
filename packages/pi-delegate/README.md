@@ -1,6 +1,6 @@
 # pi-delegate
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+[English](README.md) | [Simplified Chinese](README.zh-CN.md)
 
 Delegate focused tasks to fresh Pi subagents without leaving your current session.
 

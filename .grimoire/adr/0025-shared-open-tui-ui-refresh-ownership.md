@@ -8,7 +8,7 @@
 
 During review and refinement of [PR #2](https://github.com/wangjq4214/pi-delegate/pull/2), the user requested unified refresh rather than separate animation/timing loops, with reduced redundant work as the goal. Inspected local source has a 250ms Workline interval in `packages/pi-open-tui/src/index.ts` and a 500ms enhanced-tool interval in `src/tool-presentation.ts`. PR head `413a7b065dc26fd63cdfc363fd7fecfa2ca1fe30` additionally introduces an independently owned 80ms thinking interval in `src/peek-controller.ts`.
 
-The user accepted one shared, session-scoped scheduling owner for these three extension-owned UI consumers, demand-based refresh, idle cleanup, timely event-driven updates, and explicit exclusion of external data polling and host/third-party timer ownership. The accepted conversation ended with “可以！” after this boundary was presented. It authorizes knowledge recording and Spec revision, not implementation or QA.
+The user accepted one shared, session-scoped scheduling owner for these three extension-owned UI consumers, demand-based refresh, idle cleanup, timely event-driven updates, and explicit exclusion of external data polling and host/third-party timer ownership. The accepted conversation ended with “Yes!” (translated) after this boundary was presented. It authorizes knowledge recording and Spec revision, not implementation or QA.
 
 Existing `LatestRefresh` in `src/refresh.ts` coalesces asynchronous Git/runtime snapshot requests and rejects superseded results. Existing tool composition also preserves native renderer behavior; for example, the native shell renderer can own a timer. Neither responsibility is equivalent to the extension's periodic UI refresh.
 

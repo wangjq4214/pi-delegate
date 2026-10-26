@@ -3,7 +3,7 @@
 **Spec ID:** 0008
 **Status:** Draft
 **Date:** 2026-10-05
-**Sources:** The settled refinement conversation: the user selected adding `cwd`, excluded scope-conflict warnings and permission/sandbox capabilities from this increment, then confirmed "一起提供，剩下的按照推荐就可以" for the bundled skill and recommended defaults. [ADR 0007](../adr/0007-external-worktree-lifecycle-and-parent-integration.md), [ADR 0008](../adr/0008-generic-per-delegation-working-directory.md), and [ADR 0009](../adr/0009-bundled-worktree-skill-without-plugin-git-management.md).
+**Sources:** The settled refinement conversation: the user selected adding `cwd`, excluded scope-conflict warnings and permission/sandbox capabilities from this increment, then confirmed "Bundle it together and follow the recommendations for the rest" (translated) for the bundled skill and recommended defaults. [ADR 0007](../adr/0007-external-worktree-lifecycle-and-parent-integration.md), [ADR 0008](../adr/0008-generic-per-delegation-working-directory.md), and [ADR 0009](../adr/0009-bundled-worktree-skill-without-plugin-git-management.md).
 
 ## Source and coordination boundary
 

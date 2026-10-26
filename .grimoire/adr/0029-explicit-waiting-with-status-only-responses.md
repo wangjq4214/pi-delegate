@@ -5,7 +5,7 @@
 
 ## Context
 
-During refinement of the first delegation roadmap candidate, the user narrowed the need to letting the parent agent wait and receive status: “后续真的需要加这些吗？只有状态就够了吧 这就是让主agent等等就够了吧？” The discussion had considered both a separate lightweight-query mode and returning result bodies directly from a wait. Neither is needed for the selected waiting responsibility.
+During refinement of the first delegation roadmap candidate, the user narrowed the need to letting the parent agent wait and receive status: “Are those additions really necessary? Status alone should suffice; this only needs to let the parent agent wait” (translated). The discussion had considered both a separate lightweight-query mode and returning result bodies directly from a wait. Neither is needed for the selected waiting responsibility.
 
 Sources:
 

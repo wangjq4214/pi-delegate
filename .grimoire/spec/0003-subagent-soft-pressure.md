@@ -3,7 +3,7 @@
 **Spec ID:** 0003
 **Status:** Implemented
 **Date:** 2026-10-03
-**Sources:** The settled refinement handoff in this conversation: the user accepted Option A, the recommended defaults, reminders only, and the spec-only endpoint by replying “按照推荐”; [ADR 0003](../adr/0003-per-delegation-soft-pressure.md). Baseline and installed-host references are identified below.
+**Sources:** The settled refinement handoff in this conversation: the user accepted Option A, the recommended defaults, reminders only, and the spec-only endpoint by replying “As recommended” (translated); [ADR 0003](../adr/0003-per-delegation-soft-pressure.md). Baseline and installed-host references are identified below.
 
 **Default enablement superseded (2026-10-25):** [ADR 0028](../adr/0028-opt-in-delegation-soft-pressure.md) and the subsequently approved handoff replace this spec's default-on omission behavior: omit `pressure` to disable both stages; explicitly supply `{}` or a custom pressure object to enable them. The threshold defaults, validation and advisory semantics below now apply only when pressure is explicitly enabled. Historical implementation evidence is retained.
 
@@ -28,7 +28,7 @@ These sources describe settled requirements, existing behavior, and host feasibi
 
 ### Confirmed validation boundary (2026-10-03)
 
-The implementation checkpoint asked how to validate custom policies; the user replied “可以” to the recommended rules:
+The implementation checkpoint asked how to validate custom policies; the user replied “Yes” (translated) to the recommended rules:
 
 - Supplied time thresholds must be positive finite numbers, and supplied turn thresholds must be positive integers. `0` and `null` are not disabling values.
 - After per-value default resolution, urgent time and turn thresholds must each be strictly greater than their warning counterparts. Do not reorder, normalize, or silently replace contradictory settings.

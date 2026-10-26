@@ -22,3 +22,6 @@ In repositories indexed by CodeGraph (a `.codegraph/` directory exists at the re
 If there is no `.codegraph/` directory, skip CodeGraph entirely — indexing is the user's decision.
 <!-- CODEGRAPH_END -->
 
+## Documentation language
+
+Write documentation in English, including examples and quoted discussions. Chinese is allowed only in explicitly designated Chinese-language documents, such as `README.zh-CN.md`.

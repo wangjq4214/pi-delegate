@@ -12,7 +12,7 @@ The user selected adding `cwd` after the refinement recommendation of an optiona
 
 Sources:
 
-- This refinement conversation: the recommended optional generic `cwd` and the user's response, "增加一个cwd".
+- This refinement conversation: the recommended optional generic `cwd` and the user's response, "Add a cwd" (translated).
 - `src/delegate.ts`: public tool parameters, `DelegationOptions.cwd`, invocation construction and RPC process startup.
 - `src/inheritance.ts`: parent resource-path reconstruction and inherited-tool validation.
 - [ADR 0001](./0001-rpc-subagents-and-parent-only-delegation.md) and [ADR 0002](./0002-session-owned-background-delegation.md): existing working-directory and initialization contract.
@@ -37,6 +37,6 @@ Only the mandatory same-working-directory part of ADR 0001 is replaced. The runt
 
 ## Follow-up (2026-10-04)
 
-The user subsequently excluded scope-conflict warnings, permission controls and an OS sandbox from the current delivery scope, then accepted the recommended working-directory defaults and skill handoff with "一起提供，剩下的按照推荐就可以". [ADR 0009](./0009-bundled-worktree-skill-without-plugin-git-management.md) records the additive skill-distribution decision. The accepted ordinary directory-validation, result-metadata and workflow requirements are retained in the refinement handoff for the selected spec stage, not new architectural commitments here.
+The user subsequently excluded scope-conflict warnings, permission controls and an OS sandbox from the current delivery scope, then accepted the recommended working-directory defaults and skill handoff with "Bundle it together and follow the recommendations for the rest" (translated). [ADR 0009](./0009-bundled-worktree-skill-without-plugin-git-management.md) records the additive skill-distribution decision. The accepted ordinary directory-validation, result-metadata and workflow requirements are retained in the refinement handoff for the selected spec stage, not new architectural commitments here.
 
 The accepted directory resolution, validation, initialization and result requirements are now expressed in [spec 0008](../spec/0008-delegation-cwd-and-bundled-worktree-skill.md), drafted on 2026-10-05. This adds the requirements reference without changing the recorded architectural decision or its Proposed status.

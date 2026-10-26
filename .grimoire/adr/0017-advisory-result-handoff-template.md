@@ -7,7 +7,7 @@
 
 The [roadmap](../../packages/pi-delegate/docs/roadmap.md#2-reviewable-traceable-result-handoff) recommends an optional lightweight result template before result schemas. Task discovery already makes work inspectable; the next selected increment helps the parent find completed/unfinished work, changes, artifacts, check evidence and decisions in child reports.
 
-In refinement, the user selected the lightweight handoff candidate and then confirmed the recommendations with “按推荐写spec”: opt-in per delegation, unchanged default free-text behavior, a prompt-level reporting convention rather than mandatory result validation, and the existing execution/output channels. The selected endpoint is a requirements specification, not implementation or QA.
+In refinement, the user selected the lightweight handoff candidate and then confirmed the recommendations with “Write the spec as recommended” (translated): opt-in per delegation, unchanged default free-text behavior, a prompt-level reporting convention rather than mandatory result validation, and the existing execution/output channels. The selected endpoint is a requirements specification, not implementation or QA.
 
 Sources:
 

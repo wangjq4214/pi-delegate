@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | [`@wangjq4214/pi-delegate`](packages/pi-delegate/README.zh-CN.md) | 通过 RPC 委派子代理的 Pi 扩展 | 保留现有扩展、npm 包名和行为 |
 | [`@wangjq4214/pi-open-tui`](packages/pi-open-tui/README.zh-CN.md) | 从 OldSuns/pi-open-tui 导入的可配置 Pi 终端 UI 扩展 | 公开 npm 包，基于上游 v0.3.11 |
-| [`@wangjq4214/pi-dollar-skills`](packages/pi-dollar-skills/README.zh-CN.md) | `$` skill 补全与完整指令注入 | 本地 private 扩展，针对 Pi 1.4.0 验证 |
+| [`@wangjq4214/pi-dollar-skills`](packages/pi-dollar-skills/README.zh-CN.md) | `$` skill 补全与完整指令注入 | 可公开发布，首次 npm 发布需要维护者初始化；针对 Pi 1.4.0 验证 |
 
 `pi-open-tui` 不是 delegate UI 的抽取。各包没有相互的运行时依赖，本次不引入共享运行时包或 Turbo/Nx。
 
@@ -51,6 +51,10 @@ pi install npm:@wangjq4214/pi-delegate
 ```
 
 根目录是 private workspace，不是 Pi package。各包的构建、打包和发布分别在 `packages/` 下各自目录中进行；delegate 的 manifest 保留扩展入口和随包提供的 worktree skill。
+
+## 发布
+
+三个包统一版本后，推送正式版 `vX.Y.Z` tag。GitHub Actions 检查、构建并打包该 tag 对应的代码，通过 npm Trusted Publishing 发布，再创建带三个 tarball 的 GitHub Release。维护者需先配置 npm trust，并对新包完成一次人工首次发布；添加流水线不等于已完成配置或发布。配置、版本准备和失败恢复见 [发布指南](docs/releasing.md)。
 
 ## 目录结构
 

@@ -7,7 +7,7 @@
 
 ## Context
 
-The user requested refinement of “Task listing and details” in [the roadmap](../../packages/pi-delegate/docs/roadmap.md). The recommended design makes synchronous and background delegations discoverable and inspectable together, while preserving the existing execution ownership and background-only independent controls. The user accepted the recommendations with “其他的按照推荐就行”, required a floating TUI panel, and suggested using `packages/pi-open-tui/` as a visual reference.
+The user requested refinement of “Task listing and details” in [the roadmap](../../packages/pi-delegate/docs/roadmap.md). The recommended design makes synchronous and background delegations discoverable and inspectable together, while preserving the existing execution ownership and background-only independent controls. The user accepted the recommendations with “Follow the recommendations for the rest” (translated), required a floating TUI panel, and suggested using `packages/pi-open-tui/` as a visual reference.
 
 Existing Agents rows cover both execution modes, but task-addressed query/control currently belongs to background tasks. The visual owner contains execution observations and removes terminal rows after five seconds. A task discovery capability must not depend on those rows or on completion-message delivery.
 

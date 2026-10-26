@@ -17,7 +17,7 @@ bun run --filter @wangjq4214/pi-dollar-skills build
 pi -e ./packages/pi-dollar-skills/dist/index.js
 ```
 
-当前包为 private，尚未发布。以上命令不安装扩展、不修改全局设置。不要同时加载源码与构建产物。
+包已配置为可公开发布到 npm；首次发布和 Trusted Publisher 配置仍需维护者完成，以上命令不会执行这些操作。发布后可用 `pi install npm:@wangjq4214/pi-dollar-skills` 安装。不要同时加载源码与构建产物。
 
 ## 使用方式
 
@@ -51,7 +51,7 @@ bun run --filter @wangjq4214/pi-dollar-skills build
 
 测试覆盖解析、无损补全、真实 SDK/资源加载/扩展提交流程向离线 provider 发送上下文（含图片、失败处理、steering/follow-up 与 RPC），原生/Open TUI 编辑器按键路径，原生多卡片渲染、独立点击/统一展开、快照回放，以及常规/全屏宿主渲染器中的 Open TUI 布局适配（含边框、主题/边距/宽度变化和清理）。测试控制终端调度与 UI 挂载，不等于真实终端的像素或输入法验证。Open TUI 仅作为测试协作者，不是运行时依赖；实际显示和输入法表现需本地试用。
 
-本次不发布 npm 包、不修改用户配置。契约见 [spec 0015](../../.grimoire/spec/0015-dollar-skill-invocation.md) 和 [ADR 0026](../../.grimoire/adr/0026-independent-dollar-skill-extension.md)。
+运行时契约见 [spec 0015](../../.grimoire/spec/0015-dollar-skill-invocation.md) 和 [ADR 0026](../../.grimoire/adr/0026-independent-dollar-skill-extension.md)。公开发布由 [ADR 0030](../../.grimoire/adr/0030-public-workspace-trusted-publishing.md) 单独授权，操作步骤见仓库 [发布指南](../../docs/releasing.md)。本次实现不执行实际发布或修改账号配置。
 
 ## 许可证
 

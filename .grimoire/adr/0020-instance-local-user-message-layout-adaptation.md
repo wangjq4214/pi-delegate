@@ -7,7 +7,7 @@
 
 The user accepted an optional compact layout for User and Tool messages while retaining normal Assistant output and space between messages. Inspection of Pi 1.1.0 found public tool renderer composition with self-rendered shells, but no public replacement renderer for ordinary User messages. Custom-message renderer registration does not cover ordinary User messages.
 
-The coordinator proposed a recoverable adapter limited to the current TUI instance, with no installed-file or global-prototype changes, native fallback on incompatible hosts, and restoration on mode-off, disable and reload. The user explicitly accepted this compatibility approach with “接受”.
+The coordinator proposed a recoverable adapter limited to the current TUI instance, with no installed-file or global-prototype changes, native fallback on incompatible hosts, and restoration on mode-off, disable and reload. The user explicitly accepted this compatibility approach with “Accepted” (translated).
 
 Sources: the accepted conversation; `packages/pi-open-tui/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts`; the inspected host's `dist/modes/interactive/components/user-message.js`; and [ADR 0018](./0018-public-host-tool-renderer-composition.md).
 
