@@ -11,23 +11,15 @@ This document records future capability candidates and their suggested priority,
 <a id="1-task-listing-and-details"></a>
 <a id="2-reviewable-traceable-result-handoff"></a>
 <a id="5-optional-execution-budgets"></a>
+<a id="1-explicit-waiting-and-incremental-queries"></a>
 
 Delivered capabilities are documented in [Usage](usage.md) and [Runtime and safety](runtime.md); their decisions and requirements remain in the [grimoire](../../../.grimoire/). Remove delivered candidates from this roadmap rather than accumulating a completed-feature inventory. Removal does not imply new verification or user acceptance; see [verification boundaries](development.md#testing).
 
+Status-only [explicit waiting](usage.md#explicit-waiting) is documented as current behavior. A separate lightweight-query mode or revision/cursor protocol is not scheduled; neither is required by the waiting contract.
+
 ## Prioritized candidates
 
-### 1. Explicit waiting and incremental queries
-
-**Value:** Reduce polling and repeated result text when the parent has no other work, without restoring automatic completion messages.
-
-- [ ] Offer bounded, explicit waiting, such as `delegate_wait`, for any or all tasks in a caller-selected set.
-- [ ] On timeout, return observed state rather than cancelling child work.
-- [ ] Support metadata-only queries and optionally changes since a caller-held revision/cursor, so checking status need not return the same large result repeatedly.
-- [ ] Define behavior for already-terminal, unknown, and invalidated IDs, concurrent completion, and expired query cursors before settling the interface.
-
-**Boundaries:** Waiting observes existing tasks; it does not acquire execution ownership. Cancelling a wait must not cancel accepted background tasks. Scope invalidation must end obsolete waits. Keep bounded responses, unchanged usage accounting, and no unsolicited result delivery or idle-parent wake-up. An explicit wait returning is not automatic completion delivery.
-
-### 2. Bounded execution observability
+### 1. Bounded execution observability
 
 **Value:** Help the parent decide whether to keep waiting, steer, or cancel using observed activity rather than guesses.
 
@@ -38,7 +30,7 @@ Delivered capabilities are documented in [Usage](usage.md) and [Runtime and safe
 
 **Boundaries:** Silence means no recently observed event, not a proven hang. A steering receipt does not prove model consumption or compliance. Do not expose raw thinking, tool arguments, or full tool output by default, or continuously inject event streams into parent context. Keep observation separate from execution ownership.
 
-### 3. Explicit help and decision handoff
+### 2. Explicit help and decision handoff
 
 **Value:** Let a child identify a decision it cannot safely make instead of guessing or burying the blocker in a final report.
 
@@ -49,7 +41,7 @@ Delivered capabilities are documented in [Usage](usage.md) and [Runtime and safe
 
 **Boundaries:** Start with reliable blocker reporting, not implicit pause/resume. A needs-decision indicator must not pretend execution is suspended. Do not add blocking background dialogs, automatic parent wake-up, or change the refusal/cancellation behavior of unsupported background UI requests without a separate interaction contract.
 
-### 4. Explicit follow-up delegation
+### 3. Explicit follow-up delegation
 
 **Value:** Make “verify the second finding” or “continue the unfinished part” cheaper to hand off without reconstructing all context manually.
 
@@ -60,7 +52,7 @@ Delivered capabilities are documented in [Usage](usage.md) and [Runtime and safe
 
 **Boundaries:** A follow-up starts a new child session, not a resumed old execution. Do not automatically copy the full transcript, retry failures, or treat previous reports as verified facts. Previous file changes and external side effects remain; the parent decides whether repeating work is safe. Task relationships do not introduce cross-session persistence or a dependency scheduler.
 
-### 5. Reusable task presets
+### 4. Reusable task presets
 
 **Value:** Reduce repeated setup for review, research, and implementation tasks without introducing an agent-team framework.
 
@@ -73,7 +65,7 @@ Delivered capabilities are documented in [Usage](usage.md) and [Runtime and safe
 
 ## Later candidates
 
-These remain worth evaluating, but come after the core waiting, observation, and handoff improvements.
+These remain worth evaluating, but come after the core observation and handoff improvements.
 
 - [ ] **Optional structured results:** evaluate schemas when there is a concrete machine-consumption need beyond the advisory handoff template. Keep structural validation separate from artifact verification and task acceptance; do not make every task comply with a mandatory format or automatically run repair turns.
 - [ ] **Opt-in execution-record export:** build on bounded observations with explicit content selection, retention, sensitive-data handling, and cleanup rules. Exporting a record is not durable execution or cross-session resume; startup diagnostics alone are not a full execution record.
@@ -100,4 +92,4 @@ The candidates above are recorded proposals, not new implemented guarantees or r
 - [Advisory result handoff](../../../.grimoire/adr/0017-advisory-result-handoff-template.md) — reports and format compliance are not acceptance.
 - [Bundled worktree skill](../../../.grimoire/adr/0009-bundled-worktree-skill-without-plugin-git-management.md) — Git lifecycle and integration remain outside the runtime.
 
-Start with **explicit waiting/incremental queries** and **bounded execution observability**: they improve routine delegation while preserving the current execution and ownership boundaries.
+Start with **bounded execution observability**: it improves routine delegation while preserving the current execution and ownership boundaries.

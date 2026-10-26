@@ -14,6 +14,7 @@ export const DELEGATE_TOOL = "delegate";
 export const DELEGATION_TOOLS = [
 	DELEGATE_TOOL,
 	"delegate_list",
+	"delegate_wait",
 	"delegate_status",
 	"delegate_cancel",
 	"delegate_steer",

@@ -91,9 +91,12 @@ pi install /absolute/path/to/checkout/packages/pi-delegate
 | --- | --- |
 | `delegate` | 启动全新的同步或后台子 agent。 |
 | `delegate_list` | 返回当前会话／分支内的有界任务摘要。 |
+| `delegate_wait` | 等待指定任务，只返回状态，不附带报告。 |
 | `delegate_status` | 使用精确 `taskId` 查看同步或后台任务详情。 |
 | `delegate_cancel` | 取消后台任务并等待资源清理。 |
 | `delegate_steer` | 使用 `taskId` 向活跃后台任务提交纯文本指令。 |
+
+不想反复查询时，可调用 `delegate_wait`，传入 `{ "taskIds": ["<精确 taskId>"] }`。默认等待任一任务结束，超时 30 秒；可选 `condition: "all"` 等待全部，并用正数 `timeoutSeconds` 设置最多 120 秒。完成、失败、取消和不完整都算结束。返回仅含状态，报告仍通过 `delegate_status` 单独获取；超时或取消等待不取消后台任务。详见[显式等待](docs/usage.md#explicit-waiting)。
 
 在 TUI 模式中，`/delegates` 打开单个浮动面板，依次浏览列表、详情、取消确认／指令输入。同步任务 ID 仅供查询，独立取消与 steering 仍只适用于后台任务。记录／结果不会随五秒状态行消失而删除，但会随所属作用域失效；无需安装 pi-open-tui。
 

@@ -91,9 +91,12 @@ Background outcomes do not send automatic completion messages or wake the parent
 | --- | --- |
 | `delegate` | Start a fresh synchronous or background subagent. |
 | `delegate_list` | Discover bounded task summaries in the current session/branch. |
+| `delegate_wait` | Wait for selected tasks; return statuses only, not reports. |
 | `delegate_status` | Inspect a synchronous or background task by exact `taskId`. |
 | `delegate_cancel` | Cancel a background task and wait for resource cleanup. |
 | `delegate_steer` | Submit plain-text instructions to an active background task by `taskId`. |
+
+To wait instead of polling, call `delegate_wait` with `{ "taskIds": ["<exact taskId>"] }`. It defaults to any task ending and 30 seconds; optionally select `condition: "all"` and a positive `timeoutSeconds` up to 120. Completion, failure, cancellation and incomplete outcomes all count as ending. The response contains only statuses; retrieve reports separately with `delegate_status`. Timeout or cancelling a wait does not cancel background work. See [explicit waiting](docs/usage.md#explicit-waiting).
 
 In TUI mode, `/delegates` opens one floating list → details → confirmation/instruction panel. Synchronous IDs are read-only: independent cancellation and steering remain background-only. Records/results survive five-second compact-row expiry, but not scope invalidation; the panel does not require pi-open-tui.
 

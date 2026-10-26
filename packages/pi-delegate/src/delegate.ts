@@ -28,6 +28,11 @@ import { Admission, concurrencyLimit } from "./scheduling.ts";
 import { AgentStatus } from "./status.ts";
 import { registerTaskPanel } from "./task-panel.ts";
 import { taskQuery } from "./task-query.ts";
+import {
+	validateWaitArguments,
+	waitForTasks,
+	waitParameters,
+} from "./task-wait.ts";
 import { type TaskRecord, TaskRecords } from "./tasks.ts";
 import { sumUsage, UsageLedger } from "./usage.ts";
 
@@ -187,7 +192,7 @@ export function registerDelegate(
 			name: DELEGATE_TOOL,
 			label: "Delegate",
 			description:
-				"Run a self-contained task in a fresh subagent with inherited tools except delegation. The parent conversation is not copied; supply necessary context. By default the subagent shares the parent working directory; optional cwd selects another existing directory, not a sandbox. Coordinate file edits. By default, wait for the result. With background:true, return a taskId without waiting; completion does not send an automatic message or wake the parent; use delegate_list to discover tasks and delegate_status for details. delegate_steer/delegate_cancel manage background tasks only. Large results include a full-output file path.",
+				"Run a self-contained task in a fresh subagent with inherited tools except delegation. The parent conversation is not copied; supply necessary context. By default the subagent shares the parent working directory; optional cwd selects another existing directory, not a sandbox. Coordinate file edits. By default, wait for the result. With background:true, return a taskId without waiting; completion does not send an automatic message or wake the parent; use delegate_list to discover tasks, delegate_wait to wait for task statuses, and delegate_status to retrieve reports. delegate_steer/delegate_cancel manage background tasks only. Large results include a full-output file path.",
 			parameters,
 			prepareArguments(args) {
 				return prepareDelegationArguments(args) as Static<typeof parameters>;
@@ -305,7 +310,7 @@ export function registerDelegate(
 			name: "delegate_list",
 			label: "List delegated tasks",
 			description:
-				"Discover synchronous and background tasks in the current session/branch without remembered task IDs. Returns bounded summaries, not results; use delegate_status for details. Observing tasks does not charge usage again.",
+				"Discover synchronous and background tasks in the current session/branch without remembered task IDs. Returns bounded summaries, not results; use delegate_wait to wait without polling, then delegate_status for details. Observing tasks does not charge usage again.",
 			parameters: Type.Object({
 				group: Type.Optional(
 					Type.Union([
@@ -335,6 +340,39 @@ export function registerDelegate(
 					return {
 						content: [{ type: "text", text: JSON.stringify(page) }],
 						details: page,
+					};
+				} catch (error) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: error instanceof Error ? error.message : String(error),
+							},
+						],
+						details: undefined,
+						isError: true,
+					};
+				}
+			},
+		}),
+	);
+	pi.registerTool(
+		defineTool({
+			name: "delegate_wait",
+			label: "Wait for delegated tasks",
+			description:
+				"Wait for any (default) or all selected synchronous/background tasks to end, including failure/cancellation. Default timeout 30 seconds, maximum 120. Returns only task statuses, never reports; use delegate_status to retrieve reports. Timeout or cancelling this wait does not cancel tasks. Scope invalidation ends obsolete waits. Observing tasks does not charge usage again.",
+			parameters: waitParameters,
+			prepareArguments: validateWaitArguments,
+			async execute(_id, params, signal) {
+				try {
+					const details = await waitForTasks(records, params, signal);
+					return {
+						content: [{ type: "text", text: JSON.stringify(details) }],
+						details,
+						isError:
+							details.reason === "cancelled" ||
+							details.reason === "invalidated",
 					};
 				} catch (error) {
 					return {

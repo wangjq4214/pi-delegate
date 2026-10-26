@@ -71,7 +71,7 @@ Keep configuration files stable during child startup. Unobservable host-private 
 
 ## Parent-only delegation
 
-The child loads this extension, but does not register `delegate`, `delegate_list`, `delegate_status`, `delegate_cancel`, or `delegate_steer`. These capabilities are unavailable through direct model declarations, tool search, and nested `codemode` calls.
+The child loads this extension, but does not register `delegate`, `delegate_list`, `delegate_wait`, `delegate_status`, `delegate_cancel`, or `delegate_steer`. These capabilities are unavailable through direct model declarations, tool search, and nested `codemode` calls.
 
 The parent additionally registers `/delegates` for the floating task panel; it is not reconstructed as a child command. Numeric task labels are presentation correlations, not alternative control IDs.
 
@@ -90,6 +90,10 @@ Synchronous tasks have scope-local read-only query IDs and retained results. The
 The non-visual task record is accepted after validation and feeds list/query tools, the compact Agents view and the floating overlay from the same observation reducer. It correlates exact taskId with a session-local increasing label, stores selected versus confirmed startup information, and retains available results until existing scope invalidation. It does not launch children, control RPC or replace the usage ledger.
 
 The five-second terminal-row timer removes only presentation rows. Paging limits each response, not the retained task set; there is no TTL/count eviction or cross-session persistence. Navigation clears records and closes the old panel while generation guards suppress late observations/results. Existing execution cleanup, cumulative/late usage reconciliation and external workspace/full-output-file lifetimes remain independent. Closing or viewing an overlay neither cancels work nor triggers parent inference.
+
+### Explicit waiting
+
+`delegate_wait` observes the shared scope-local records with a bounded invocation timeout, not a child execution budget. It returns statuses only; reports remain separately available through `delegate_status`. It acquires no execution slot and owns no child controller or RPC process. Invocation abort releases only that wait's subscription/timer/listener; existing scope invalidation ends old waits and still performs its normal task cleanup. Independent waits do not cancel one another or charge usage again. Returning from an explicit wait is not automatic completion delivery or idle-parent wake-up.
 
 ### Background tasks
 

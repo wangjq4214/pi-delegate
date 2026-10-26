@@ -20,6 +20,8 @@ interface Outcome {
 			status?: string;
 			result?: { status: string; taskId?: string };
 			accounting?: string;
+			reason?: string;
+			tasks?: { taskId: string; status: string }[];
 		};
 		usage?: { totalTokens: number };
 	};
@@ -37,6 +39,13 @@ interface Probe {
 	queuedBefore: Outcome;
 	queuedCancel: Outcome;
 	queuedAfter: Outcome;
+	waitTimeout: Outcome;
+	waitCancelled: Outcome;
+	waitTerminal: Outcome;
+	waitUnknown: Outcome;
+	invalidWaits: Outcome[];
+	waitAny: Outcome;
+	waitAll: Outcome;
 	finished: { result: { details: TaskPage } };
 }
 
@@ -68,13 +77,18 @@ test("actual parent/child RPC discovers sync while pending, preserves background
 			"--no-prompt-templates",
 			"--no-context-files",
 			"--extension",
-			fileURLToPath(new URL("../src/index.ts", import.meta.url)),
+			process.env.PI_DELEGATE_TEST_ENTRY ??
+				fileURLToPath(new URL("../src/index.ts", import.meta.url)),
 			"--extension",
 			fileURLToPath(
 				new URL("./fixtures/task-center-provider.ts", import.meta.url),
 			),
+			"--extension",
+			"builtin:tool-search",
+			"--extension",
+			"builtin:codemode",
 			"--tools",
-			"delegate,delegate_list,delegate_status,delegate_cancel,delegate_steer,task_center_probe",
+			"delegate,delegate_list,delegate_wait,delegate_status,delegate_cancel,delegate_steer,task_center_probe,tool_search,codemode",
 			"--provider",
 			"task-center-fixture",
 			"--model",
@@ -162,7 +176,7 @@ test("actual parent/child RPC discovers sync while pending, preserves background
 		expect(report.syncResult.result.details.status).toBe("completed");
 		const syncId = report.pending.result.details.taskId;
 		expect(report.syncResult.result.details.taskId).toBe(syncId);
-		expect(report.syncResult.result.usage?.totalTokens).toBe(3);
+		expect(report.syncResult.result.usage?.totalTokens).toBe(6);
 		for (const outcome of [
 			report.finalSync,
 			report.repeatedSync,
@@ -172,8 +186,8 @@ test("actual parent/child RPC discovers sync while pending, preserves background
 			expect(outcome.result.details.task).toMatchObject({
 				resultAvailable: true,
 				status: "completed",
-				turns: 1,
-				usage: { totalTokens: 3 },
+				turns: 2,
+				usage: { totalTokens: 6 },
 				controls: { cancel: false, steer: false },
 			});
 		}
@@ -187,6 +201,72 @@ test("actual parent/child RPC discovers sync while pending, preserves background
 			total: 3,
 			nextOffset: 1,
 		});
+		const selectedIds = [
+			report.pending.result.details.taskId,
+			report.background.result.details.taskId,
+		].map((id) => {
+			if (!id) throw new Error("Missing selected taskId");
+			return id;
+		});
+		expect(report.waitTimeout.result.details.reason).toBe("timeout");
+		expect(
+			report.waitTimeout.result.details.tasks?.map((task) => task.taskId),
+		).toEqual(selectedIds);
+		expect(report.waitTimeout.isError).toBe(false);
+		expect(report.waitCancelled.result.details).toEqual({
+			reason: "cancelled",
+			tasks: [],
+		});
+		expect(report.waitCancelled.isError).toBe(true);
+		expect(report.waitTerminal.result.details).toMatchObject({
+			reason: "completed",
+			tasks: [
+				{
+					taskId: report.queuedCancel.result.details.taskId,
+					status: "cancelled",
+				},
+			],
+		});
+		expect(report.waitTerminal.isError).toBe(false);
+		expect(report.waitUnknown.isError).toBe(true);
+		for (const invalid of report.invalidWaits)
+			expect(invalid.isError).toBe(true);
+		for (const wait of [
+			report.waitAny,
+			report.waitAll,
+			report.waitTimeout,
+			report.waitTerminal,
+			report.waitCancelled,
+		]) {
+			expect(wait.result).not.toHaveProperty("usage");
+			expect(Object.keys(wait.result.details).sort()).toEqual([
+				"reason",
+				"tasks",
+			]);
+			expect(JSON.stringify(wait.result)).not.toContain("child result");
+		}
+		expect(report.waitAny.result.details.reason).toBe("completed");
+		expect(report.waitAll.result.details).toEqual({
+			reason: "completed",
+			tasks: selectedIds.map((taskId) => ({ taskId, status: "completed" })),
+		});
+		await prompt(`WAIT ${JSON.stringify({ taskIds: selectedIds })}`);
+		const directMessages = (
+			await parent.request<{ messages: Message[] }>("get_messages")
+		).messages;
+		const directWait = [...directMessages]
+			.reverse()
+			.find((m) => m.role === "toolResult" && m.toolName === "delegate_wait");
+		expect(
+			directWait?.role === "toolResult" && directWait.details,
+		).toMatchObject({ reason: "completed" });
+		expect(directWait?.role === "toolResult" && directWait.isError).toBe(false);
+		expect(JSON.stringify(directWait)).not.toContain("child result");
+		expect(
+			directMessages.some(
+				(m) => m.role === "custom" && m.customType === "pi-delegate:completed",
+			),
+		).toBe(false);
 		const children = readdirSync(directory).filter((file) =>
 			file.endsWith(".child"),
 		);
@@ -199,12 +279,31 @@ test("actual parent/child RPC discovers sync while pending, preserves background
 			for (const name of [
 				"delegate",
 				"delegate_list",
+				"delegate_wait",
 				"delegate_status",
 				"delegate_cancel",
 				"delegate_steer",
 			])
 				expect(child.tools).not.toContain(name);
 			expect(child.commands).not.toContain("delegates");
+			const probe = JSON.parse(
+				readFileSync(
+					join(directory, file.replace(".child", ".wait-probe")),
+					"utf8",
+				),
+			) as {
+				direct: Outcome;
+				search: Outcome;
+				nested: Outcome;
+			};
+			expect(probe.direct.isError).toBe(true);
+			expect(JSON.stringify(probe.direct)).toContain(
+				"Tool delegate_wait not found",
+			);
+			expect(probe.nested.isError).toBe(true);
+			expect(JSON.stringify(probe.search.result.content)).not.toContain(
+				'"name":"delegate_wait"',
+			);
 		}
 		await parent.request("new_session");
 		await prompt("inspect");

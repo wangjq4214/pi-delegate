@@ -7,7 +7,7 @@ import {
 	Type,
 } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { TaskDetails, TaskPage } from "../../src/tasks.ts";
+import type { TaskPage } from "../../src/tasks.ts";
 
 export default function fixture(pi: ExtensionAPI): void {
 	const directory = process.env.FIXTURE_LOG_DIR;
@@ -29,8 +29,30 @@ export default function fixture(pi: ExtensionAPI): void {
 			name: "task_center_probe",
 			label: "Task center probe",
 			description: "Offline integration probe",
-			parameters: Type.Object({ inspectOnly: Type.Optional(Type.Boolean()) }),
+			parameters: Type.Object({
+				inspectOnly: Type.Optional(Type.Boolean()),
+				childProbe: Type.Optional(Type.Boolean()),
+			}),
 			async execute(_id, params, _signal, _update, ctx) {
+				if (params.childProbe) {
+					const direct = await ctx.executeTool("delegate_wait", {
+						taskIds: ["unknown"],
+					});
+					const search = await ctx.executeTool("tool_search", {
+						query: "delegate_wait",
+					});
+					const nested = await ctx.executeTool("codemode", {
+						code: "text(await tools.delegate_wait({taskIds: ['unknown']}));",
+					});
+					writeFileSync(
+						join(directory, `${process.pid}.wait-probe`),
+						JSON.stringify({ direct, search, nested }),
+					);
+					return {
+						content: [{ type: "text", text: "child probe complete" }],
+						details: undefined,
+					};
+				}
 				if (params.inspectOnly)
 					return (await ctx.executeTool("delegate_list", {})).result;
 				const deadline = Date.now() + 20000;
@@ -81,20 +103,48 @@ export default function fixture(pi: ExtensionAPI): void {
 					taskId: queuedId,
 				});
 				const queuedAfter = await query(queuedId);
-				writeFileSync(join(directory, "release"), "release");
-				const syncResult = await syncPromise;
 				const backgroundId = (background.result.details as { taskId: string })
 					.taskId;
-				let backgroundResult: Awaited<ReturnType<typeof query>>;
-				do {
-					backgroundResult = await query(backgroundId);
-					if (Date.now() > deadline)
-						throw new Error("Background did not finish");
-					await sleep(5);
-				} while (
-					!(backgroundResult.result.details as { task: TaskDetails }).task
-						.resultAvailable
+				const taskIds = [sync.taskId, backgroundId];
+				const waitTimeout = await ctx.executeTool("delegate_wait", {
+					taskIds,
+					timeoutSeconds: 0.02,
+				});
+				const controller = new AbortController();
+				const cancellingWait = ctx.executeTool(
+					"delegate_wait",
+					{ taskIds },
+					{ signal: controller.signal },
 				);
+				await sleep(5); // Let the host enter the wait before aborting its nested invocation.
+				controller.abort();
+				const waitCancelled = await cancellingWait;
+				const waitTerminal = await ctx.executeTool("delegate_wait", {
+					taskIds: [queuedId],
+				});
+				const waitUnknown = await ctx.executeTool("delegate_wait", {
+					taskIds: [queuedId, "unknown"],
+				});
+				const invalidWaits = [];
+				for (const args of [
+					{ taskIds, timeoutSeconds: null },
+					{ taskIds, timeoutSeconds: "1" },
+					{ taskIds, condition: null },
+					{ taskIds: [123] },
+				])
+					invalidWaits.push(await ctx.executeTool("delegate_wait", args));
+				const anyPromise = ctx.executeTool("delegate_wait", { taskIds });
+				const allPromise = ctx.executeTool("delegate_wait", {
+					taskIds,
+					condition: "all",
+				});
+				writeFileSync(join(directory, "release"), "release");
+				const [waitAny, waitAll, syncResult] = await Promise.all([
+					anyPromise,
+					allPromise,
+					syncPromise,
+				]);
+				const backgroundResult = await query(backgroundId);
 				const finished = await ctx.executeTool("delegate_list", {
 					group: "finished",
 					limit: 1,
@@ -115,6 +165,13 @@ export default function fixture(pi: ExtensionAPI): void {
 					queuedBefore,
 					queuedCancel,
 					queuedAfter,
+					waitTimeout,
+					waitCancelled,
+					waitTerminal,
+					waitUnknown,
+					invalidWaits,
+					waitAny,
+					waitAll,
 				};
 				writeFileSync(join(directory, "observed.json"), JSON.stringify(report));
 				return {
@@ -152,11 +209,15 @@ export default function fixture(pi: ExtensionAPI): void {
 							.map((block) => block.text)
 							.join("\n")
 				: "";
-			const ran = context.messages.some(
-				(message) =>
-					message.role === "toolResult" &&
-					message.toolName === "task_center_probe",
-			);
+			const waitRequest = prompt.startsWith("WAIT ");
+			const ran = context.messages
+				.slice(user ? context.messages.indexOf(user) + 1 : 0)
+				.some(
+					(message) =>
+						message.role === "toolResult" &&
+						(message.toolName === "task_center_probe" ||
+							message.toolName === "delegate_wait"),
+				);
 			const message: AssistantMessage = {
 				role: "assistant",
 				api: model.api,
@@ -187,14 +248,18 @@ export default function fixture(pi: ExtensionAPI): void {
 					stream.end();
 					return;
 				}
-				const call = !child && !ran;
+				const call = !ran;
 				message.content = call
 					? [
 							{
 								type: "toolCall",
 								id: "center",
-								name: "task_center_probe",
-								arguments: { inspectOnly: prompt.includes("inspect") },
+								name: waitRequest ? "delegate_wait" : "task_center_probe",
+								arguments: child
+									? { childProbe: true }
+									: waitRequest
+										? JSON.parse(prompt.slice(5))
+										: { inspectOnly: prompt.includes("inspect") },
 							},
 						]
 					: [

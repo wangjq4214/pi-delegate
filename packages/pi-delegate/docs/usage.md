@@ -6,12 +6,13 @@ This guide describes the model-callable tools provided by pi-delegate. Load the 
 
 ## Tools
 
-The parent agent receives five tools:
+The parent agent receives six tools:
 
 | Tool | Purpose |
 | --- | --- |
 | `delegate` | Start a fresh subagent and wait for its outcome, or accept a background task. |
 | `delegate_list` | Discover bounded synchronous/background summaries in the current session/branch. |
+| `delegate_wait` | Wait for any/all selected tasks, returning only statuses or timeout. |
 | `delegate_status` | Retrieve either mode's metadata, observed progress, and available result. |
 | `delegate_cancel` | Cancel a background task and wait for execution-resource cleanup. |
 | `delegate_steer` | Submit additional plain-text instructions to an active background task. |
@@ -182,6 +183,43 @@ Available output follows the existing [preview and full-file rules](#large-outpu
 All records/results remain discoverable through the originating session/branch scope, independent of five-second compact-row expiry. There is no TTL/count eviction or cross-session persistence. Exit, session replacement/forking, reload, and branch-changing navigation invalidate IDs; records are not moved to another session or branch. Paging limits responses, not retention.
 
 Background usage is separate from Pi's parent-session totals. Synchronous usage is reported through the initiating result. Listing, querying, panel viewing and manual controls never return top-level task usage or charge it again.
+
+## Explicit waiting
+
+Use `delegate_wait` when the parent has nothing else to do and wants to wait instead of repeatedly polling:
+
+```json
+{ "taskIds": ["<exact taskId>", "<another exact taskId>"], "condition": "all", "timeoutSeconds": 60 }
+```
+
+| Parameter | Meaning |
+| --- | --- |
+| `taskIds` | Required non-empty array of exact current-scope IDs, synchronous or background. Duplicates count once; first-occurrence order is retained. Unknown/foreign/invalidated IDs fail the whole request, even if another selected task has ended. |
+| `condition` | `any` (default) returns when at least one selected task ends; `all` waits for every selected task. |
+| `timeoutSeconds` | Positive finite seconds, fractions allowed; default **30**, maximum **120**. Invalid values, including null/coerced strings, are rejected. |
+
+Already-ended tasks participate immediately. Completed, incomplete, failed and cancelled outcomes all count as ended; cancellation-in-progress, settlement or cleanup without a terminal result does not. Unrelated tasks cannot satisfy the condition. When waiting again with `any`, select still-active IDs if an immediate return for an already-ended task is not useful.
+
+The model-visible JSON and `details` contain only a return reason and selected task IDs/statuses, for example:
+
+```json
+{
+  "reason": "timeout",
+  "tasks": [
+    { "taskId": "<exact taskId>", "status": "running" },
+    { "taskId": "<another exact taskId>", "status": "completed" }
+  ]
+}
+```
+
+- `reason: "completed"`: the requested wait condition was met, not necessarily task success. Inspect each task's actual status; failed/cancelled tasks still satisfy waiting without making the wait itself an error.
+- `reason: "timeout"`: the wait expired; tasks are not cancelled. Waiting time includes queue residence and initialization and is independent of child execution budgets.
+- `reason: "cancelled"` or `"invalidated"`: the active wait was aborted or its originating scope was invalidated. These return `isError: true` and an empty `tasks` array, not stale/destination snapshots. The host may reject a cancelled invocation before tool execution begins.
+- Completed/timeout waits return `isError: false`; malformed requests and unknown IDs are errors, not fabricated task failures.
+
+No reports, partial output, diagnostics, transcripts or task usage are attached. Call `delegate_status` separately to retrieve the report; its existing full-query behavior remains unchanged. Waiting neither marks results read nor deletes them, and repeated observation does not charge task usage again.
+
+Cancelling a wait does not cancel accepted background work or take ownership of synchronous execution. Existing session replacement, branch invalidation, reload and shutdown still cancel/clean up tasks through their original owners and end obsolete waits. Waiting does not acquire a concurrency slot, introduce notifications or wake an idle parent on its own.
 
 ## Cancelling background tasks
 

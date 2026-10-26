@@ -557,3 +557,109 @@ test("completion publishes once, including repeated results after terminal progr
 	expect(snapshots).toHaveLength(2);
 	expect(snapshots[1]?.usage.input).toBe(42);
 });
+
+for (const [boundary, event] of [
+	[
+		"session_before_tree",
+		{ preparation: { oldLeafId: "old", targetId: "new" } },
+	],
+	["session_tree", { oldLeafId: "old", newLeafId: "new" }],
+	["session_shutdown", {}],
+	["session_start", {}],
+] as const) {
+	test(`public wait ends on ${boundary}, without waiting for its timeout`, async () => {
+		let release: (() => void) | undefined;
+		const host = registration(async (options) => {
+			options.status?.observe({ type: "agent_start" });
+			await new Promise<void>((resolve) => {
+				release = resolve;
+				options.signal?.addEventListener("abort", () => resolve(), {
+					once: true,
+				});
+			});
+			return taskResult(options.signal?.aborted ? "cancelled" : "completed");
+		});
+		try {
+			const start = await host.invoke("delegate", {
+				task: "held",
+				background: true,
+			});
+			await until(() => !!release);
+			const taskId = (start.details as { taskId: string }).taskId;
+			const waiting = host.invoke("delegate_wait", { taskIds: [taskId] });
+			const changed = host.hooks.get(boundary)?.(event, {
+				mode: "rpc",
+				ui: {},
+			});
+			const result = await waiting;
+			expect(result.details).toEqual({ reason: "invalidated", tasks: [] });
+			expect(result.isError).toBe(true);
+			expect(result).not.toHaveProperty("usage");
+			await changed;
+			expect(
+				(await host.invoke("delegate_wait", { taskIds: [taskId] })).isError,
+			).toBe(true);
+			expect(host.messages).toEqual([]);
+		} finally {
+			release?.();
+			await host.hooks.get("session_shutdown")?.({});
+		}
+	});
+}
+
+test("public wait abort keeps the background child alive and full results remain separately queryable", async () => {
+	let release: (() => void) | undefined;
+	let childSignal: AbortSignal | undefined;
+	const host = registration(async (options) => {
+		childSignal = options.signal;
+		options.status?.observe({ type: "agent_start" });
+		await new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const result = taskResult("failed");
+		result.details.error = "PRIVATE DIAGNOSTIC";
+		result.usage.input = 7;
+		result.usage.totalTokens = 7;
+		return result;
+	});
+	try {
+		const start = await host.invoke("delegate", {
+			task: "held",
+			background: true,
+		});
+		await until(() => !!release);
+		const taskId = (start.details as { taskId: string }).taskId;
+		const controller = new AbortController();
+		const waiting = host.invoke(
+			"delegate_wait",
+			{ taskIds: [taskId] },
+			controller.signal,
+		);
+		controller.abort();
+		expect((await waiting).details).toEqual({ reason: "cancelled", tasks: [] });
+		expect(childSignal?.aborted).toBe(false);
+		const next = host.invoke("delegate_wait", { taskIds: [taskId] });
+		release?.();
+		const ended = await next;
+		expect(ended.isError).toBe(false);
+		expect(ended.details).toEqual({
+			reason: "completed",
+			tasks: [{ taskId, status: "failed" }],
+		});
+		expect(ended).not.toHaveProperty("usage");
+		expect(JSON.stringify(ended)).not.toMatch(
+			/PRIVATE|available result|totalTokens/,
+		);
+		const query = await host.invoke("delegate_status", { taskId });
+		expect(query.details).toMatchObject({
+			result: { error: "PRIVATE DIAGNOSTIC" },
+			usage: { totalTokens: 7 },
+		});
+		expect(JSON.stringify(query.content)).toContain("available result");
+		expect(query).not.toHaveProperty("usage");
+		expect(host.messages).toEqual([]);
+	} finally {
+		release?.();
+		await host.hooks.get("session_shutdown")?.({});
+	}
+});
