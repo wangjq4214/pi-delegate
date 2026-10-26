@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { constants, existsSync, readdirSync, readFileSync } from "node:fs";
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type {
@@ -21,6 +21,7 @@ import { AgentStatus } from "../src/status.ts";
 import { processExited } from "./fixtures/process-exit.ts";
 import { statusRecords } from "./fixtures/status-records.ts";
 import { statusUI } from "./fixtures/status-ui.ts";
+import { worktreeGit as git } from "./fixtures/worktree-provider.ts";
 
 function required<T>(value: T | undefined): T {
 	if (value === undefined)
@@ -48,7 +49,7 @@ async function withParent(
 		env: NodeJS.ProcessEnv,
 		logs: string,
 	) => Promise<void>,
-	mcp = false,
+	mcp: boolean | "project" = false,
 	configured = false,
 ) {
 	const directory = await mkdtemp(join(tmpdir(), "delegate-integration-"));
@@ -65,7 +66,7 @@ async function withParent(
 	const args = [
 		"--offline",
 		"--no-session",
-		"--no-approve",
+		mcp === "project" ? "--approve" : "--no-approve",
 		"--no-extensions",
 		"--no-skills",
 		"--no-prompt-templates",
@@ -89,14 +90,17 @@ async function withParent(
 		"configured",
 	];
 	if (mcp) {
+		const configDirectory = mcp === "project" ? join(directory, ".pi") : agent;
+		await mkdir(configDirectory, { recursive: true });
 		await writeFile(
-			join(agent, "mcp.json"),
+			join(configDirectory, "mcp.json"),
 			JSON.stringify({
 				mcpServers: {
 					fixture: {
 						command: "node",
 						args: [resolve("tests/fixtures/mcp.mjs")],
 						exposure: "deferred",
+						...(mcp === "project" ? { cwd: "." } : {}),
 					},
 				},
 			}),
@@ -402,6 +406,123 @@ test("parent shutdown cancels an active delegated child", async () => {
 		verifyCleanup(logs);
 	});
 }, 30_000);
+
+// Execute the skill's explicit preparation in a disposable repo, not a runtime copy hook.
+// The fixture uses an absolute server script and cwd "." so it is valid in either workspace.
+test("worktree MCP preparation: ignored project config restores inherited tools without copying dirty source", async () => {
+	await withParent(async (_parent, state, args, env, logs) => {
+		expect(state.trusted).toBe(true);
+		expect(state.tools.map((tool) => tool.name)).toContain(
+			"mcp__fixture__echo",
+		);
+		const main = state.cwd;
+		const workspace = `${main} task worktree`;
+		const source = join(main, ".pi", "mcp.json");
+		const target = join(workspace, ".pi", "mcp.json");
+		const sourceContents = readFileSync(source, "utf8");
+		git(main, "init");
+		git(main, "config", "user.name", "Fixture");
+		git(main, "config", "user.email", "fixture@example.invalid");
+		await writeFile(join(main, ".gitignore"), ".pi/\n");
+		git(main, "add", "--", ".gitignore", "workspace-proof.txt");
+		git(main, "commit", "-m", "baseline");
+		const baseline = git(main, "rev-parse", "HEAD");
+		await writeFile(join(main, "workspace-proof.txt"), "dirty main only");
+		await writeFile(join(main, ".pi", "settings.json"), "{}\n");
+		const mainState = () => ({
+			head: git(main, "rev-parse", "HEAD"),
+			status: git(main, "status", "--short"),
+			index: git(main, "ls-files", "--stage"),
+			diff: git(main, "diff", "--binary"),
+		});
+		const before = mainState();
+		expect(git(main, "ls-files", "--", ".pi/mcp.json")).toBe("");
+		expect(git(main, "check-ignore", "--", ".pi/mcp.json")).toBe(
+			".pi/mcp.json",
+		);
+		try {
+			git(main, "worktree", "add", "-b", "mcp-task", workspace, baseline);
+			expect(existsSync(target)).toBe(false);
+			// No user-level fallback can mask the missing project configuration.
+			expect(
+				existsSync(join(required(env.PI_CODING_AGENT_DIR), "mcp.json")),
+			).toBe(false);
+			const inheritedOptions = captureInheritance(
+				{
+					getAllTools: () => state.tools,
+					getActiveTools: () => state.active,
+					getCommands: () => state.commands,
+				},
+				{ ...state, isProjectTrusted: () => state.trusted },
+				entry,
+				args,
+				workspace,
+			);
+			const missing = await runDelegation({
+				...inheritedOptions,
+				cwd: workspace,
+				env,
+				task: "exercise-mcp",
+			});
+			expect(missing.details.status).toBe("failed");
+			expect(missing.isError).toBe(true);
+			expect(missing.content[0].text).toContain("mcp__fixture__echo");
+			expect(
+				readdirSync(logs).filter((file) => file.endsWith(".onset")),
+			).toHaveLength(0);
+			expect(existsSync(target)).toBe(false);
+			expect(
+				readdirSync(logs).filter((file) => file.endsWith(".mcp")),
+			).toHaveLength(1);
+
+			// Follow section 2a explicitly; the runtime must not prepare files for us.
+			await mkdir(join(workspace, ".pi"));
+			await copyFile(source, target, constants.COPYFILE_EXCL);
+			expect(git(workspace, "check-ignore", "--", ".pi/mcp.json")).toBe(
+				".pi/mcp.json",
+			);
+			expect(existsSync(join(workspace, ".pi", "settings.json"))).toBe(false);
+			const child = await runDelegation({
+				...inheritedOptions,
+				cwd: workspace,
+				env,
+				task: "exercise-mcp",
+			});
+			expect(child.details.status).toBe("completed");
+			expect(child.isError).toBe(false);
+			expect(child.details.cwd).toBe(workspace);
+			const result = JSON.parse(child.content[0].text);
+			const childServer = readdirSync(logs)
+				.filter((file) => file.endsWith(".mcp"))
+				.map((file) => JSON.parse(readFileSync(join(logs, file), "utf8")))
+				.find((server) => server.child);
+			expect(childServer).toBeDefined();
+			expect(JSON.stringify(result.lastResult)).toContain(
+				`mcp:${childServer.pid}:payload`,
+			);
+			expect(processExited(childServer.pid)).toBe(true);
+
+			// A preexisting target must survive a repeated exclusive-copy attempt.
+			const existing = `${sourceContents}\n`;
+			await writeFile(target, existing);
+			await expect(
+				copyFile(source, target, constants.COPYFILE_EXCL),
+			).rejects.toMatchObject({ code: "EEXIST" });
+			expect(readFileSync(target, "utf8")).toBe(existing);
+			expect(readFileSync(source, "utf8")).toBe(sourceContents);
+			expect(readFileSync(join(workspace, "workspace-proof.txt"), "utf8")).toBe(
+				"workspace proof",
+			);
+			expect(git(workspace, "ls-files", "--", ".pi")).toBe("");
+			expect(git(workspace, "status", "--short")).toBe("");
+			expect(git(workspace, "rev-parse", "HEAD")).toBe(baseline);
+			expect(mainState()).toEqual(before);
+			verifyCleanup(logs);
+		} finally {
+			await rm(workspace, { recursive: true, force: true });
+		}
+	}, "project");
+}, 90_000);
 
 test("inherited built-in read uses the same workspace", async () => {
 	await withParent(async (_parent, state, args, env, logs) => {

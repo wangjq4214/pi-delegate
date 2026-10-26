@@ -13,7 +13,7 @@ Follow the user's scope and write permissions. Do not perform repository/workspa
 
 Inspect repository state with `git status --short` and `git worktree list --porcelain`. Resolve the selected baseline to a definite commit with `git rev-parse --verify '<baseline>^{commit}'` (for example HEAD). Record the full commit ID, main workspace path and its dirty state. Verify that the task's prerequisites exist in that commit.
 
-Do not automatically stash, commit, reset, or copy the main workspace's uncommitted changes. They are not part of the baseline. If the task needs those changes, report the dependency and pause for explicit parent/user handling rather than inventing a transfer policy. A missing Git repository or commit blocks this worktree workflow, not generic cwd delegation.
+Do not automatically stash, commit, reset, or copy the main workspace's uncommitted source changes. They are not part of the baseline. If the task needs those changes, report the dependency and pause for explicit parent/user handling rather than inventing a transfer policy. The narrowly scoped local MCP preparation in section 2a is runtime setup, not a source-change transfer. A missing Git repository or commit blocks this worktree workflow, not generic cwd delegation.
 
 ## 2. Prepare one workspace per independent modification task
 
@@ -24,6 +24,20 @@ git worktree add -b <unique-task-branch> "<absolute-workspace>" <baseline-commit
 ```
 
 Check `git -C "<absolute-workspace>" rev-parse HEAD` and `git worktree list --porcelain`. Record each branch, path and baseline. Verify the main workspace's status is unchanged. Coordinate shared dependencies and likely integration conflicts yourself; independent working files do not guarantee conflict-free integration.
+
+## 2a. Prepare local MCP configuration before delegation
+
+A new worktree contains committed files, not the main workspace's ignored/untracked `.pi/mcp.json`. If the parent uses project-local MCP servers, missing configuration can prevent the child from reconstructing inherited tools and cause initialization failure. `delegate.cwd` does not automatically inherit the parent's MCP configuration.
+
+- Inspect the source `<main>/.pi/mcp.json` and target `<workspace>/.pi/mcp.json` without disclosing credentials in the handoff or report. If no source file exists, there is nothing to copy; do not invent configuration.
+- If the target already exists, preserve it unchanged. Check whether it can reconstruct the inherited MCP tools; report any incompatibility and pause for explicit handling rather than overwriting or merging it.
+- If the source exists and the target is missing, explicitly copy only `.pi/mcp.json` into the worktree within the user's write permissions. Create the target `.pi` directory if needed and use exclusive creation so an intervening target creation fails without overwrite. Do not follow a source/target symlink into a shared configuration file or directory; pause for explicit handling instead. Do not copy the whole `.pi/` directory, settings, extensions, or unrelated uncommitted files. Keep the source unchanged.
+- Keep the prepared file local: do not stage or commit it, force-add an ignored file, or include it in a task patch. Check `git -C "<absolute-workspace>" check-ignore -- .pi/mcp.json`; if it is not ignored, resolve local exclusion explicitly within the user's permissions before proceeding, without changing tracked ignore rules or the main workspace implicitly.
+- Review path-dependent `command`, `args`, and `cwd` values before starting a server. Relative server `cwd` resolves from the child session directory; copied arguments or absolute paths may still reference the main workspace or unavailable files. Confirm the intended worktree resources exist. If adaptation is needed but its meaning is unclear, report the dependency and pause rather than silently rebasing paths or directing task writes to the main workspace.
+- Verify the target project's native Pi trust decision permits loading `.pi/mcp.json`. Parent trust alone does not authorize a different directory, and RPC cannot show the built-in trust prompt. Respect explicit startup trust overrides; do not blindly add `--approve` or change trust settings to make startup succeed. If approval is missing, pause for explicit handling.
+- Check MCP availability from the target directory using native Pi MCP inspection (for example `pi mcp list` in an already trusted target). Confirm the required project servers are loaded, not merely that unrelated user-level servers connect. Record only preparation/availability results and unresolved prerequisites in the handoff, not configuration secrets. Recheck that the main workspace's status and source configuration are unchanged.
+
+This is parent-owned worktree preparation, not a plugin copy hook or a blanket exception for dirty source changes. Keep inherited-tool validation intact: if required MCP tools still cannot be reconstructed, report the initialization failure rather than disabling MCP or reducing the tool set to make the task run.
 
 ## 3. Submit an explicit handoff
 

@@ -58,6 +58,17 @@ test("Pi package discovery loads the bundled worktree skill without a personal c
 			"parent",
 			"unmerged",
 			"sandbox",
+			"Prepare local MCP configuration before delegation",
+			"ignored/untracked `.pi/mcp.json`",
+			"If the target already exists, preserve it unchanged",
+			"use exclusive creation",
+			"Do not copy the whole `.pi/` directory",
+			"do not stage or commit it",
+			"check-ignore",
+			"Relative server `cwd`",
+			"native Pi trust",
+			"do not blindly add `--approve`",
+			"Keep inherited-tool validation intact",
 		])
 			expect(instructions).toContain(required);
 	} finally {
