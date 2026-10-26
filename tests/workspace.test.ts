@@ -17,7 +17,7 @@ test("the private Bun workspace contains independent delegate and UI extension p
 	expect(ui.name).toBe("@wangjq4214/pi-open-tui");
 	expect(ui.private).toBeUndefined();
 	expect(ui.publishConfig.access).toBe("public");
-	expect(ui.version).toBe("0.4.3");
+	expect(ui.version).toBe(delegate.version);
 	expect(ui.license).toBe("MIT");
 	expect(ui.pi.extensions).toEqual(["./dist/index.js"]);
 	expect(ui.scripts.build).toBe("rolldown -c");
@@ -64,7 +64,7 @@ test("the private Bun workspace contains independent delegate and UI extension p
 
 test("delegate retains its public Pi manifest and publication boundary", () => {
 	const delegate = manifest("packages/pi-delegate");
-	expect(delegate.version).toBe("0.4.3");
+	expect(delegate.version).toMatch(/^\d+\.\d+\.\d+$/);
 	expect(delegate.pi).toEqual({
 		extensions: ["./dist/index.js"],
 		skills: ["./skills"],
@@ -84,10 +84,12 @@ test("delegate retains its public Pi manifest and publication boundary", () => {
 	});
 });
 
-test("dollar skills is a private independently loadable Pi extension", () => {
+test("dollar skills is a public independently loadable Pi extension", () => {
 	const dollar = manifest("packages/pi-dollar-skills");
 	expect(dollar.name).toBe("@wangjq4214/pi-dollar-skills");
-	expect(dollar.private).toBe(true);
+	expect(dollar.private).toBeUndefined();
+	expect(dollar.publishConfig.access).toBe("public");
+	expect(dollar.repository.directory).toBe("packages/pi-dollar-skills");
 	expect(dollar.pi.extensions).toEqual(["./dist/index.js"]);
 	expect(dollar.scripts.build).toBe("rolldown -c");
 	expect(dollar.scripts.typecheck).toBe("tsc --noEmit");

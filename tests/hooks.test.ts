@@ -29,6 +29,7 @@ function withRepository(check: (cwd: string) => void) {
 			copyFileSync(join(root, file), join(cwd, file));
 		}
 		cpSync(join(root, "tests"), join(cwd, "tests"), { recursive: true });
+		cpSync(join(root, "scripts"), join(cwd, "scripts"), { recursive: true });
 		cpSync(join(root, "packages"), join(cwd, "packages"), {
 			recursive: true,
 			filter: (path) =>

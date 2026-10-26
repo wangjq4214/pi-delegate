@@ -1,0 +1,73 @@
+name: Stable release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.ref_name }}
+
+jobs:
+  validate:
+    if: github.repository == 'wangjq4214/pi-delegate'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.1'
+      - name: Validate stable tag and public package versions
+        run: node scripts/release.ts validate "$RELEASE_TAG"
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run build
+      - name: Pack and inspect release tarballs
+        run: node scripts/release.ts pack "$RELEASE_TAG"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-tarballs
+          path: dist/release/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install OIDC-capable npm
+        run: npm install --global npm@11
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-tarballs
+          path: dist/release
+      - name: Publish npm packages and complete GitHub Release
+        run: node scripts/release.ts publish "$RELEASE_TAG"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

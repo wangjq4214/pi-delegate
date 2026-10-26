@@ -1,7 +1,14 @@
 {
 	"name": "@wangjq4214/pi-dollar-skills",
 	"version": "0.1.0",
-	"private": true,
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/wangjq4214/pi-delegate.git",
+		"directory": "packages/pi-dollar-skills"
+	},
 	"description": "Codex-style $skill selection and full instruction injection for Pi.",
 	"license": "MIT",
 	"type": "module",
