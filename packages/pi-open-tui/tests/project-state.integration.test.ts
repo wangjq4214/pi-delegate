@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -35,6 +35,7 @@ function fixture(t: TestContext, options: { peek?: boolean; project?: boolean } 
 	let onBranchChange: (() => void) | undefined;
 	let renders = 0;
 	const warnings: string[] = [];
+	const statuses = new Map<string, string>();
 	const hidden = {
 		children: [] as unknown[], label: "Thinking...",
 		setHiddenThinkingLabel(label: string) { this.label = label; },
@@ -55,12 +56,17 @@ function fixture(t: TestContext, options: { peek?: boolean; project?: boolean } 
 		sessionManager: { getCwd: () => cwd, getEntries: () => [], getSessionName: () => undefined },
 		ui: {
 			theme, notify: (message: string) => warnings.push(message),
+			setStatus(key: string, value?: string) {
+				if (value === undefined) statuses.delete(key);
+				else statuses.set(key, value);
+				tui.requestRender();
+			},
 			setHiddenThinkingLabel() { hidden.label = "Thinking..."; },
 			setFooter(factory?: any) {
 				footer?.dispose?.();
 				footer = factory?.(tui, theme, {
 					onBranchChange(callback: () => void) { onBranchChange = callback; return () => { onBranchChange = undefined; }; },
-					getExtensionStatuses: () => new Map(),
+					getExtensionStatuses: () => statuses,
 				});
 			},
 			setEditorComponent(factory?: any) {
@@ -95,6 +101,7 @@ function fixture(t: TestContext, options: { peek?: boolean; project?: boolean } 
 		cwd, path, ctx, tui, hidden, warnings, emit,
 		git: (...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim(),
 		output: () => footer?.render(200).join("\n") ?? "",
+		footerRows: (width: number) => footer?.render(width) ?? [],
 		branchChanged: () => onBranchChange?.(),
 		editorMounted: () => editorMounted,
 		rebuildEditor: () => editorFactory?.(tui, { borderColor: (text: string) => text }, { matches: () => false }),
@@ -268,4 +275,72 @@ test("animation ticks do not request Git/runtime snapshots; settlement keeps eve
 	// Snapshot publication is asynchronous; wait for child-process handles before
 	// the fixture removes its Windows working directory.
 	await Promise.all(reads);
+});
+
+test("entry-point settings integrate host statuses, legacy opt-in, details and saved reload", async (t) => {
+	const f = fixture(t);
+	const original = JSON.parse(readFileSync(f.path, "utf8"));
+	delete original.unifiedFooter;
+	original.unrelated = { preserve: "value" };
+	const legacyBytes = JSON.stringify(original);
+	writeFileSync(f.path, legacyBytes);
+	await f.emit("session_start");
+	f.ctx.ui.setStatus("usage", "USAGE-INITIAL");
+	f.ctx.ui.setStatus("unknown", "UNFAMILIAR");
+	assert.equal(f.footerRows(200).length, 3);
+	assert.equal(readFileSync(f.path, "utf8"), legacyBytes);
+
+	const close = f.openSettings();
+	const ui = f.settings();
+	const select = (label: string) => {
+		for (let i = 0; i < 30; i++) {
+			if (ui.render(100).some((line) => line.includes("→") && line.includes(label))) return;
+			ui.handleInput("\x1b[B");
+		}
+		assert.fail(`setting not found: ${label}\n${ui.render(100).join("\n")}`);
+	};
+	select("Unified two-row footer");
+	ui.handleInput(" ");
+	assert.equal(f.footerRows(200).length, 2);
+	for (let i = 0; i < 6; i++) ui.handleInput("\t");
+	select('"unknown" · Visible');
+	ui.handleInput(" ");
+	assert.doesNotMatch(f.output(), /UNFAMILIAR/);
+	select('"usage" · Row');
+	ui.handleInput(" ");
+	assert.match(f.footerRows(200)[0]!, /USAGE-INITIAL/);
+	assert.doesNotMatch(f.footerRows(200)[1]!, /USAGE-INITIAL/);
+	select('"usage" · Priority');
+	ui.handleInput(" ");
+	ui.handleInput("\x05"); // Move to end before clearing the prefilled priority.
+	ui.handleInput("\x15"); // Input's Ctrl+U clears the previous value.
+	ui.handleInput("17");
+	ui.handleInput("\r");
+	const saved = JSON.parse(readFileSync(f.path, "utf8"));
+	assert.equal(saved.unifiedFooter, true);
+	assert.deepEqual(saved.unrelated, original.unrelated);
+	assert.deepEqual(saved.extensionStatusItems.usage, { visible: true, row: 1, priority: 17 });
+	assert.equal(saved.extensionStatusItems.unknown.visible, false);
+
+	f.ctx.ui.setStatus("usage", "FULL-UPDATED-" + "detail ".repeat(80));
+	assert.match(f.footerRows(30).join("\n"), /\+1/);
+	select("View full current status text");
+	ui.handleInput("\r");
+	const details = ui.render(100).join("\n");
+	assert.match(details, /usage.*folded/);
+	assert.match(details, /FULL-UPDATED-/);
+	f.ctx.ui.setStatus("usage", undefined);
+	assert.doesNotMatch(ui.render(100).join("\n"), /FULL-UPDATED-|"usage"/);
+	assert.doesNotMatch(f.footerRows(30).join("\n"), /\+1/);
+	ui.handleInput("q");
+	ui.handleInput("q");
+	await close;
+	await f.emit("session_shutdown");
+	await f.emit("session_start");
+	f.ctx.ui.setStatus("usage", "REPUBLISHED");
+	f.ctx.ui.setStatus("unknown", "STILL-HIDDEN");
+	assert.equal(f.footerRows(200).length, 2);
+	assert.match(f.footerRows(200)[0]!, /REPUBLISHED/);
+	assert.doesNotMatch(f.output(), /STILL-HIDDEN/);
+	assert.deepEqual(f.warnings, []);
 });

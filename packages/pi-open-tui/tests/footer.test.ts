@@ -14,6 +14,8 @@ import type { Component, TUI } from "@earendil-works/pi-tui";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG } from "../src/config.ts";
 import { installFooter, shortHostname } from "../src/footer.ts";
+import { OpenTuiEditor } from "../src/editor.ts";
+import { fitStatusRow } from "../src/extension-status-layout.ts";
 import { emptyGitStatus, readGitStatus } from "../src/git.ts";
 import { detectNerdFont, resolveGlyphs, resolveIconMode, runtimeSymbol } from "../src/icons.ts";
 import { clearRuntimeCache, readRuntimeInfo } from "../src/runtime.ts";
@@ -289,7 +291,7 @@ test("provides inline footer content without duplicating native rows", () => {
 	const inline = handle.renderInline(100);
 	assert.ok(inline);
 	assert.match(inline.top.left, /session-title · .*main/);
-	assert.match(inline.top.right, /project · .*0\.0%/);
+	assert.match(inline.top.right, /project \| .*0\.0%/);
 	assert.ok(inline.top.right.indexOf("project") < inline.top.right.indexOf("%"));
 	assert.match(inline.bottom.left, /gpt-5/);
 
@@ -588,6 +590,7 @@ test("ASCII footer renders icons as semantic labels", () => {
 		getContextUsage: () => ({ tokens: 250, contextWindow: 1_000, percent: 25 }),
 	} as unknown as ExtensionContext;
 	const config = structuredClone(DEFAULT_CONFIG);
+	config.unifiedFooter = false; // Legacy layout retains the separate extension glyph/rows.
 	config.icons.mode = "ascii";
 	const state: FooterState = {
 		git: { ...emptyGitStatus(), branch: "main", modified: 2 },
@@ -808,10 +811,11 @@ const styledTheme = {
 } as Theme;
 
 function renderStatusLines(statuses: Map<string, string>, width = 160): string[] {
-	const { component } = createFooterFixture({
+	const { config, component } = createFooterFixture({
 		theme: styledTheme,
 		getExtensionStatuses: () => statuses,
 	});
+	config.unifiedFooter = false;
 	// The two main footer rows come first, status rows follow them.
 	return component.render(width).slice(2);
 }
@@ -930,6 +934,7 @@ test("detached Git branch and commit switches are independent in plain and inlin
 
 test("footer renders only the requested layout and keeps extension status work out of inline borders", () => {
 	const { config, handle, component, reads } = footerRegressionFixture();
+	config.unifiedFooter = false;
 	config.inlineFooter = true;
 	assert.match(component.render(100).join("\n"), /extension status/);
 	assert.deepEqual(reads, { model: 0, statuses: 1 });
@@ -950,4 +955,168 @@ test("layout preserves higher-priority context/runtime over cwd and Git, in orig
 	];
 	assert.deepEqual(fitSegmentsByPriority(segments, 11), ["runtime", "ctx"]);
 	assert.deepEqual(fitSegmentsByPriority(segments, 7), ["ctx"]);
+});
+
+test("new unified footer discovers arbitrary statuses on row two without extra rows", () => {
+	const statuses = new Map([["usage", "\x1b[35mUsage 20%\x1b[0m"], ["unfamiliar/key", "Other data"]]);
+	const { config, component, handle } = createFooterFixture({ theme: styledTheme, getExtensionStatuses: () => statuses });
+	assert.equal(config.unifiedFooter, true);
+	const lines = component.render(200);
+	assert.equal(lines.length, 2);
+	assert.doesNotMatch(lines[0]!, /Usage|Other data/);
+	assert.match(lines[1]!, /\x1b\[35mUsage 20%\x1b\[0m/);
+	assert.match(lines[1]!, /Other data/);
+	assert.deepEqual([...handle.getExtensionStatuses().keys()], ["usage", "unfamiliar/key"]);
+	assert.equal(handle.getFoldedStatusKeys().size, 0);
+	config.extensionStatusItems = { usage: { visible: true, row: 1, priority: 10 } };
+	const moved = component.render(200);
+	assert.match(moved[0]!, /Usage/);
+	assert.doesNotMatch(moved[1]!, /Usage/);
+	assert.match(moved[1]!, /Other data/);
+});
+
+test("unified footer counts only current eligible folded items and preserves built-ins", () => {
+	const statuses = new Map([
+		["low", "LOW"], ["high", "HIGH"], ["hidden", "HIDDEN"],
+		["large", "LONG".repeat(80)], ["empty", "\x1b[32m\x1b[0m"],
+	]);
+	const { config, component, handle } = createFooterFixture({ getExtensionStatuses: () => statuses });
+	config.extensionStatusItems = {
+		low: { visible: true, row: 2, priority: -10 },
+		high: { visible: true, row: 2, priority: 10 },
+		hidden: { visible: false, row: 2, priority: 100 },
+	};
+	config.footerSegments.extensionStatuses = false;
+	const builtins = component.render(200)[1]!.trim();
+	const builtinWidth = visibleWidth(builtins.replace(/ {2,}/g, " "));
+	config.footerSegments.extensionStatuses = true;
+	const width = builtinWidth + " | HIGH | +2".length;
+	const lines = component.render(width);
+	assert.equal(lines.length, 2);
+	assert.match(lines[1]!, /HIGH/);
+	assert.doesNotMatch(lines[1]!, /LOW|HIDDEN|LONG/);
+	assert.match(lines[1]!, /\+2/);
+	assert.match(lines[1]!, /gpt-5/);
+	assert.match(lines[1]!, /\$0\.000/);
+	assert.deepEqual(new Set(handle.getFoldedStatusKeys()), new Set(["low", "large"]));
+	statuses.set("high", "UPDATED");
+	assert.doesNotMatch(component.render(width).join("\n"), /HIGH/);
+	assert.equal(handle.getExtensionStatuses().get("high"), "UPDATED");
+	statuses.delete("large");
+	statuses.delete("low");
+	assert.equal(handle.getFoldedStatusKeys().size, 0, "details recompute from live data without a Footer rerender");
+	assert.doesNotMatch(component.render(width).join("\n"), /\+\d/);
+	config.footerSegments.extensionStatuses = false;
+	assert.doesNotMatch(component.render(width).join("\n"), /UPDATED|HIDDEN|\+\d/);
+	assert.equal(handle.getFoldedStatusKeys().size, 0);
+	assert.equal(statuses.get("high"), "UPDATED", "hiding must not clear producer data");
+});
+
+test("unified regular and inline layouts stay bounded with styles, controls and many items", () => {
+	const statuses = new Map(Array.from({ length: 25 }, (_, i) => [`key-${i}`, `\x1b[38;5;123m界e\u0301-${i}\x1b[0m`]));
+	statuses.set("unsafe", "safe\x1b[2J\x1b]0;title\x07tail");
+	const { config, component, handle } = createFooterFixture({ theme: styledTheme, getExtensionStatuses: () => statuses });
+	config.extensionStatusItems = Object.fromEntries([...statuses.keys()].map((key, index) => [key, { visible: true, row: index % 2 ? 1 : 2, priority: index }]));
+	for (const width of [0, 1, 2, 3, 4, 9, 20, 40, 80, 120, 200, 500]) {
+		config.inlineFooter = false;
+		const regular = component.render(width);
+		assert.ok(regular.length <= 2);
+		for (const line of regular) {
+			assert.ok(visibleWidth(line) <= width, `regular width ${width}: ${line}`);
+			assert.doesNotMatch(line, /\x1b\[2J|\x1b\]0;/);
+		}
+		config.inlineFooter = true;
+		assert.deepEqual(component.render(width), []);
+		const inline = handle.renderInline(width)!;
+		for (const line of [inline.top, inline.bottom]) {
+			assert.ok(visibleWidth(line.left) + visibleWidth(line.right) + (line.left && line.right ? 1 : 0) <= width, `inline width ${width}`);
+			assert.doesNotMatch(line.left + line.right, /\x1b\[2J|\x1b\]0;/);
+		}
+	}
+	config.inlineFooter = false;
+	const all = component.render(1000).join("\n");
+	assert.match(all, /\x1b\[38;5;123m界e\u0301/);
+	assert.match(stripAnsi(all), /safe tail/);
+	assert.equal(handle.getFoldedStatusKeys().size, 0);
+});
+
+test("inline folding uses each border's budget and never emits separate status rows", () => {
+	const statuses = new Map([["top", "TOP-STATUS"], ["bottom", "BOTTOM-STATUS"]]);
+	const { config, component, handle } = createFooterFixture({ getExtensionStatuses: () => statuses });
+	config.unifiedFooter = true;
+	config.inlineFooter = true;
+	config.extensionStatusItems = { top: { visible: true, row: 1, priority: 0 } };
+	const top = handle.renderInline(2, "top")!.top;
+	const bottom = handle.renderInline(200, "bottom")!.bottom;
+	assert.match(top.left + top.right, /\+1/);
+	assert.match(bottom.left + bottom.right, /BOTTOM-STATUS/);
+	assert.deepEqual([...handle.getFoldedStatusKeys()], ["top"]);
+	assert.deepEqual(component.render(200), []);
+	config.inlineFooter = false;
+	const plain = component.render(200);
+	assert.match(plain[0]!, /TOP-STATUS/);
+	assert.match(plain[1]!, /BOTTOM-STATUS/);
+	assert.equal(handle.getFoldedStatusKeys().size, 0);
+	config.unifiedFooter = false;
+	assert.ok(component.render(20).length > 2, "legacy extension wrapping remains available");
+	handle.cleanup();
+	assert.equal(handle.getExtensionStatuses().size, 0);
+	assert.equal(handle.getFoldedStatusKeys().size, 0);
+	assert.equal(handle.renderInline(200), undefined);
+});
+
+test("status priority, tie-breaking and digit-changing indicators fit exact column budgets", () => {
+	const items = Array.from({ length: 11 }, (_, i) => ({ key: String(i).padStart(2, "0"), text: String(i).padStart(2, "0"), priority: 0 }));
+	const empty = () => ({ left: "", right: "" });
+	assert.deepEqual(fitStatusRow(items, 3, empty, " | ", (n) => `+${n}`), {
+		line: { left: "+11", right: "" }, foldedKeys: items.map((item) => item.key),
+	});
+	assert.equal(fitStatusRow(items, 12, empty, " | ", (n) => `+${n}`).line.left, "00 | 01 | +9");
+	const changed = [...items].reverse().map((item) => item.key === "09" ? { ...item, priority: 10 } : item);
+	assert.equal(fitStatusRow(changed, 12, empty, " | ", (n) => `+${n}`).line.left, "09 | 00 | +9");
+	assert.equal(fitStatusRow(items, 1, empty, " | ", (n) => `+${n}`).line.left, "");
+});
+
+test("actual editor places unified statuses and overflow within both border budgets", () => {
+	const statuses = new Map([["top", "TOP-STATUS"], ["bottom", "BOTTOM-STATUS"], ["long", "detail ".repeat(200)]]);
+	const { config, handle, component } = createFooterFixture({ getExtensionStatuses: () => statuses });
+	config.inlineFooter = true;
+	config.extensionStatusItems = { top: { visible: true, row: 1, priority: 0 } };
+	const editor = new OpenTuiEditor(
+		{ terminal: { rows: 24 }, requestRender() {} } as TUI,
+		{ borderColor: (text: string) => text } as ConstructorParameters<typeof OpenTuiEditor>[1],
+		{ matches: () => false } as unknown as ConstructorParameters<typeof OpenTuiEditor>[2],
+		"block", { enabled: () => config.inlineFooter, render: handle.renderInline },
+	);
+	editor.setText("input");
+	editor.setWorkingStatusIndicator({ renderInBorder: () => "working", renderSpinnerInBorder: () => "*" });
+	const wide = editor.render(200).map(stripAnsi);
+	assert.match(wide[0]!, /TOP-STATUS/);
+	assert.match(wide.at(-1)!, /BOTTOM-STATUS.*\+1/);
+	assert.doesNotMatch(wide.slice(1, -1).join("\n"), /TOP-STATUS|BOTTOM-STATUS|detail/);
+	for (let width = 2; width <= 160; width++) {
+		for (const line of editor.render(width)) assert.ok(visibleWidth(line) <= width, `editor width ${width}: ${line}`);
+		assert.deepEqual(component.render(width), []);
+	}
+});
+
+test("footer uses dots for left groups and pipes for right groups without rewriting producer text", () => {
+	const statuses = new Map([["a", "PRODUCER | literal"], ["b", "NEXT"]]);
+	const { config, state, handle, component } = createFooterFixture({
+		theme: styledTheme, sessionName: "session", getExtensionStatuses: () => statuses,
+	});
+	config.footerSegments.sessionName = true;
+	state.git.branch = "main";
+	state.runtime = { name: "nodejs", version: "24.6.0" };
+	const regular = component.render(220).map(stripAnsi);
+	assert.match(regular[0]!, /project · .*session · .*main · .*24\.6\.0/);
+	assert.match(regular[0]!, /0\.0% \| 0\/1\.0k/);
+	assert.match(regular[1]!, /gpt-5 · PRODUCER \| literal · NEXT/);
+	assert.match(regular[1]!, /↑ .* \| ↓ .* \| \$ /);
+	config.inlineFooter = true;
+	const inline = handle.renderInline(220)!;
+	assert.match(stripAnsi(inline.top.left), /session · .*main/);
+	assert.match(stripAnsi(inline.top.right), /project \| .*24\.6\.0 \| .*0\.0% \| 0\/1\.0k/);
+	assert.match(stripAnsi(inline.bottom.left), /gpt-5 · PRODUCER \| literal · NEXT/);
+	assert.match(stripAnsi(inline.bottom.right), /↑ .* \| ↓ .* \| \$ /);
 });

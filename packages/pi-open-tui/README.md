@@ -72,12 +72,14 @@ If the font is installed but `auto` still selects ASCII, choose `nerd` explicitl
 
 ## Configuration
 
-Run `/open-tui` to open **General**, **Appearance**, **Footer**, **Telemetry**, **Tools**, and **User / Skill** settings. User/Skill and Tool presentation have separate controls; Appearance no longer has a shared message-layout toggle. Settings are stored in `~/.pi/agent/open-tui.json`. This example is the new-install baseline:
+Run `/open-tui` to open **General**, **Appearance**, **Footer**, **Telemetry**, **Tools**, **User / Skill**, and **Statuses** settings. User/Skill and Tool presentation have separate controls; Appearance no longer has a shared message-layout toggle. Settings are stored in `~/.pi/agent/open-tui.json`. This example is the new-install baseline:
 
 ```json
 {
   "enabled": true,
   "inlineFooter": false,
+  "unifiedFooter": true,
+  "extensionStatusItems": {},
   "toolPresentation": true,
   "settingsLanguage": "en",
   "cursorStyle": "bar",
@@ -138,7 +140,9 @@ Key options:
 | Option | Values | Notes |
 | --- | --- | --- |
 | `settingsLanguage` | `en`, `zh` | Changes the `/open-tui` interface language |
-| `inlineFooter` | `true`, `false` | Moves the two main Footer rows into the editor's top and bottom borders; defaults to `false`. Extension status rows remain below the editor |
+| `inlineFooter` | `true`, `false` | Moves the two main Footer rows into the editor's top and bottom borders; defaults to `false`. Unified mode includes extension statuses in these borders; legacy mode retains separate status rows |
+| `unifiedFooter` | Boolean | General → Unified two-row footer; new installs `true`, existing files without it `false` |
+| `extensionStatusItems` | Keyed preference object | Statuses → per-key `visible`, `row: 1 or 2`, finite numeric `priority`; defaults `true/2/0` |
 | `toolPresentation` | `true`, `false` | Tools → Enhanced presentation; defaults to `true`. Disable for native Tool content; compression and decorative style are separate controls |
 | `cursorStyle` | `block`, `bar`, `underline` | `bar` and `underline` require terminal cursor-shape support |
 | `editorBorderStyle` | `surround`, `minimal` | Appearance → Editor border; Minimal is the new-install default; existing preferences retain their prior behavior. Minimal keeps only horizontal borders with unchanged text inset. Changes apply immediately and are saved; working status and inline footer remain supported |
@@ -157,11 +161,13 @@ Key options:
 
 In **Tools**, the first three rows are **Enhanced presentation**, **Compression**, and **Border style**. The first two are independent On/Off switches; Border style cycles Off, Single, Bold, Double, Dashed and Custom. Off hides all subsequent border controls without erasing their stored choices. **User / Skill** has one **Enabled** switch combining layout and frame activation: Off restores native User/Skill presentation and hides every other setting; On exposes the saved style, colors and edges. Existing compact rails count as enabled without a startup rewrite; explicit User styling edits activate that group’s configured frame. Both groups retain independent four-edge/symbol controls. Fixed-color inputs appear only in fixed mode; stored colors can also affect compact rails, with legacy dormant Tool colors preserved until an explicit Tool presentation edit. Symbol/color inputs use Enter to save, Esc to cancel and empty to reset; symbols must occupy one visible column. Right edges remain optional and off by default.
 
-`sessionName` appears only when the session has a name. `hostname` shows the short host name (first label of the machine's host name, e.g. `mba` from `mba.example.com`) with a server icon. `gitCommit` independently controls the short hash and tag in detached HEAD state; `gitBranch` controls the branch name or `HEAD` label. Disabling `extensionStatuses` hides the entire extension status line, including MCP status. Each status keeps the colours its extension applied with `ctx.ui.theme.fg()`. A status without colours renders in the muted theme colour.
+`sessionName` appears only when the session has a name. `hostname` shows the short host name (first label of the machine's host name, e.g. `mba` from `mba.example.com`) with a server icon. `gitCommit` independently controls the short hash and tag in detached HEAD state; `gitBranch` controls the branch name or `HEAD` label. Disabling `extensionStatuses` hides all extension statuses, including MCP status. Each status keeps the colours its extension applied with `ctx.ui.theme.fg()`. A status without colours renders in the muted theme colour.
 
-With `inlineFooter` enabled, the two normal Footer rows are rendered inside the editor frame to save vertical space. The top border places the Git branch on the left and CWD first in the right-hand group; the session title appears on the left too when `sessionName` is enabled. The native Pi header and extension status rows remain separate; narrow terminals truncate lower-priority Footer data first, keeping the right-hand statistics and the border corner.
+With `inlineFooter` enabled, the two normal Footer rows are rendered inside the editor frame to save vertical space. The top border places the Git branch on the left and CWD first in the right-hand group; the session title appears on the left too when `sessionName` is enabled. The native Pi header remains separate; extension status rows remain separate only in legacy mode; narrow terminals truncate lower-priority Footer data first, keeping the right-hand statistics and the border corner.
 
 Top-row data compacts before it is truncated: CWD has priority 0, hostname 1, session name 2, Git 3, and runtime/context 4 (higher survives longer; equal priorities shed earlier items first). The inline border fits its left and right groups separately. Bottom-row statistics survive before the model label.
+
+Footer-owned left-side items use ` · ` separators; right-side items use ` | ` in both regular and inline layouts. Separators inside producer-published status text are preserved.
 
 Git supports unborn branches, simultaneous ahead/behind counts, stashes and detached HEAD. Snapshots refresh on session start, branch changes, tool completion, settled runs and settings changes. Reads are single-flight and pending requests coalesce; superseded results and old-session results cannot overwrite newer state. This is not a general filesystem watcher: edits made outside Pi are observed at the next refresh trigger.
 
@@ -179,6 +185,18 @@ The single **Workline** merges Pi's editor working message with elapsed run time
 Nerd Font mode also uses four distinct glyphs. `done` describes normal host completion, not proof that the user's task succeeded. A failed tool call alone does not make the run failed. Unresolved length-truncated responses and recovery cancellations without decisive evidence show neutral `ended`. Pi 1.1.0's public `agent_settled.aborted` flag also identifies retry or post-loop before-settle cancellation as `interrupted`; older hosts without that flag retain the earlier lifecycle-evidence limitation. This is not exhaustive final-cause diagnosis.
 
 The footer no longer shows a second working/result timer, regardless of `inlineFooter`. Both Workline switches apply immediately and are saved. Native retry/compaction status messages keep their own meaning, styling and display priority; narrow borders may compact or truncate the Workline to fit.
+
+### Unified footer and extension statuses
+
+New installations use a two-row footer. Existing files without `unifiedFooter` keep their separate, wrapping status rows until you enable **General → Unified two-row footer**. Enabling it preserves every unrelated setting, including a disabled **Footer → Extension status line** switch.
+
+**Statuses** automatically lists current Pi `setStatus(key, text)` items, including unfamiliar extensions. Each key has independent **Visible**, **Row** (1 or 2), and **Priority** controls. Defaults are visible, row 2, priority 0. Enter/Space toggles visibility or row; Priority opens a finite-number input (negative and fractional values allowed, empty resets to 0). Higher priorities survive before lower ones; ties use stable key order. Built-in information is fitted first. Saved preferences apply again when the same key is republished, but never turn on a hidden status group.
+
+Unified mode folds whole items that cannot fit and shows `+N` for the number omitted for space—not deliberately hidden or cleared items. It never adds status rows. With inline footer, logical rows 1 and 2 use the top and bottom editor borders, including overflow. Very narrow widths may leave no room for the indicator.
+
+Open **Statuses → View full current status text** even if no `+N` fits. This panel shows all currently published statuses by key, labels folded entries, and wraps full available text without footer clipping. Use ↑/↓, PgUp/PgDn or Home/End to scroll; Esc/q returns to the list. Producer updates and clears are reflected on subsequent renders. Colors are retained while unsafe terminal controls are sanitized. Keys identify status channels, not verified packages; content already omitted by a producer cannot be recovered.
+
+This manages presentation only while Open TUI owns the footer: no provider-specific parsing, fetching or refresh timers, and no takeover of independent Widgets or another extension's whole-footer replacement.
 
 ## Compact message layout
 

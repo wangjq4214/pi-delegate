@@ -7,6 +7,8 @@ import type { IconGlyphs } from "./icons.ts";
 import { resolveGlyphs, resolveIconMode, runtimeSymbol } from "./icons.ts";
 import type { GitStatus } from "./git.ts";
 import type { RuntimeInfo } from "./runtime.ts";
+import { getExtensionStatusPreference } from "./config.ts";
+import { fitStatusRow, type StatusSegment } from "./extension-status-layout.ts";
 import {
 	alignRight,
 	basenamePath,
@@ -144,7 +146,7 @@ function renderContextBar(
 	// never forces the left segments out before compact/drop logic kicks in.
 	const reserved = visibleWidth(contextIcon) + visibleWidth(pctText) + visibleWidth(ctxText) + 5 + 2;
 	const barWidth = Math.max(4, Math.min(12, width - reserved));
-	return `${contextIcon} ${renderBar(theme, contextPct, barWidth, resolveIconMode(iconMode) === "ascii")} ${pctText} ${theme.fg("dim", "·")} ${ctxText}`;
+	return `${contextIcon} ${renderBar(theme, contextPct, barWidth, resolveIconMode(iconMode) === "ascii")} ${pctText} ${theme.fg("dim", "|")} ${ctxText}`;
 }
 
 function renderStatsBlock(
@@ -223,7 +225,9 @@ function fitInlineLine(left: string, right: string, width: number, theme: Theme)
 }
 
 export interface FooterHandle {
-	renderInline(width: number): InlineFooterLines | undefined;
+	renderInline(width: number, kind?: keyof InlineFooterLines): InlineFooterLines | undefined;
+	getExtensionStatuses(): ReadonlyMap<string, string>;
+	getFoldedStatusKeys(): ReadonlySet<string>;
 	cleanup(): void;
 }
 
@@ -231,8 +235,8 @@ function fitInlineSegments(
 	parts: readonly PrioritizedSegment[],
 	width: number,
 	theme: Theme,
+	separator = theme.fg("dim", " · "),
 ): string {
-	const separator = theme.fg("dim", " · ");
 	const separatorReserve = Math.max(0, parts.length - 1) * Math.max(0, visibleWidth(separator) - 1);
 	return fitSegmentsByPriority(
 		parts,
@@ -332,14 +336,16 @@ function renderFooterContent(
 	if (inline) {
 		const left = fitInlineSegments(inlineTopLeftParts, Math.floor(width * 0.45), theme);
 		const rightBudget = Math.max(0, width - visibleWidth(left) - (left ? 1 : 0));
-		top = { left, right: fitInlineSegments(inlineTopRightParts, rightBudget, theme) };
+		top = { left, right: fitInlineSegments(inlineTopRightParts, rightBudget, theme, theme.fg("dim", " | ")) };
 	} else {
 		// Higher numeric priority survives longer: context/runtime outrank cwd.
 		const allParts = [...leftParts];
 		if (contextText) allParts.push({ text: contextText, compactText: contextCompact, priority: 4 });
-		const fitted = fitSegmentsByPriority(allParts, width, theme.fg("dim", "..."));
+		// The fitter budgets single spaces; left-group dots need two more columns per gap.
+		const separatorReserve = Math.max(0, leftParts.length - 1) * 2;
+		const fitted = fitSegmentsByPriority(allParts, Math.max(0, width - separatorReserve), theme.fg("dim", "..."));
 		const right = contextText ? fitted.pop() ?? "" : "";
-		top = { left: fitted.join(" "), right };
+		top = { left: fitted.join(theme.fg("dim", " · ")), right };
 	}
 	const modelParts: string[] = [];
 	modelParts.push(theme.fg("mdLink", glyphs.model));
@@ -362,7 +368,14 @@ export function installFooter(
 	getModelMeta: () => ModelMeta,
 	hooks: FooterHooks,
 ): FooterHandle {
-	let renderInline: (width: number) => InlineFooterLines | undefined = () => undefined;
+	let renderInline: FooterHandle["renderInline"] = () => undefined;
+	let getExtensionStatuses: FooterHandle["getExtensionStatuses"] = () => new Map();
+	let getFoldedStatusKeys: FooterHandle["getFoldedStatusKeys"] = () => new Set();
+	const clearAccess = () => {
+		renderInline = () => undefined;
+		getExtensionStatuses = () => new Map();
+		getFoldedStatusKeys = () => new Set();
+	};
 
 	ctx.ui.setFooter((tui, theme, footerData) => {
 		hooks.setRequestRender(() => tui.requestRender());
@@ -370,33 +383,71 @@ export function installFooter(
 			hooks.scheduleGitRefresh();
 			tui.requestRender();
 		});
-		const getContent = (width: number, inline: boolean) => renderFooterContent(
-			ctx,
-			getState,
-			getConfig,
-			getModelMeta,
-			theme,
-			width,
-			inline,
-		);
+		getExtensionStatuses = () => footerData.getExtensionStatuses();
+		let regularWidth = 0;
+		const inlineWidths = { top: 0, bottom: 0 };
+		const getContent = (width: number, inline: boolean) => {
+			const renderBuiltins = (budget: number) => renderFooterContent(
+				ctx, getState, getConfig, getModelMeta, theme, budget, inline,
+			);
+			const content = renderBuiltins(width);
+			const foldedKeys: string[] = [];
+			const config = getConfig();
+			if (!config.unifiedFooter || !config.footerSegments.extensionStatuses) return { content, foldedKeys };
+			const rows: Record<keyof InlineFooterLines, StatusSegment[]> = { top: [], bottom: [] };
+			for (const [key, value] of getExtensionStatuses()) {
+				const preference = getExtensionStatusPreference(config, key);
+				if (!preference.visible) continue;
+				const text = sanitizeStatusPreservingStyles(value);
+				if (visibleWidth(text) === 0) continue;
+				rows[preference.row === 1 ? "top" : "bottom"].push({
+					key, text: renderStatusText(theme, text), priority: preference.priority,
+				});
+			}
+			for (const kind of ["top", "bottom"] as const) {
+				const fitted = fitStatusRow(rows[kind], width,
+					(budget) => budget === width ? content[kind] : renderBuiltins(budget)[kind],
+					theme.fg("dim", " · "), (count) => theme.fg("muted", `+${count}`));
+				content[kind] = fitted.line;
+				foldedKeys.push(...fitted.foldedKeys);
+			}
+			return { content, foldedKeys };
+		};
 
-		renderInline = (width) => getContent(width, true);
+		renderInline = (width, kind) => {
+			// The top border can have a smaller budget (working/scroll indicators).
+			if (kind) inlineWidths[kind] = width;
+			else inlineWidths.top = inlineWidths.bottom = width;
+			return getContent(width, true).content;
+		};
+		getFoldedStatusKeys = () => {
+			if (!getConfig().inlineFooter) return new Set(getContent(regularWidth, false).foldedKeys);
+			const keys = new Set<string>();
+			for (const kind of ["top", "bottom"] as const) {
+				for (const key of getContent(inlineWidths[kind], true).foldedKeys) {
+					if (getExtensionStatusPreference(getConfig(), key).row === (kind === "top" ? 1 : 2)) keys.add(key);
+				}
+			}
+			return keys;
+		};
 
 		return {
 			dispose() {
 				unsubBranch();
 				hooks.setRequestRender(undefined);
-				renderInline = () => undefined;
+				clearAccess();
 			},
 			invalidate() {},
 			render(width: number): string[] {
-				if (width <= 0) return [""];
+				regularWidth = width;
 				const config = getConfig();
-				const extensionLines = config.footerSegments.extensionStatuses
-					? renderExtensionStatusLines(theme, footerData.getExtensionStatuses(), resolveGlyphs(config.icons.mode), width)
+				if (config.inlineFooter && config.unifiedFooter) return [];
+				if (width <= 0) return [""];
+				const extensionLines = !config.unifiedFooter && config.footerSegments.extensionStatuses
+					? renderExtensionStatusLines(theme, getExtensionStatuses(), resolveGlyphs(config.icons.mode), width)
 					: [];
 				if (config.inlineFooter) return extensionLines;
-				const { top, bottom } = getContent(width, false);
+				const { top, bottom } = getContent(width, false).content;
 				const mainLines = [top, bottom].map((line) =>
 					truncateToWidth(alignRight(line.left, line.right, width, theme), width, theme.fg("dim", "...")));
 				return [...mainLines, ...extensionLines];
@@ -405,8 +456,11 @@ export function installFooter(
 	});
 
 	return {
-		renderInline: (width) => renderInline(width),
+		renderInline: (width, kind) => renderInline(width, kind),
+		getExtensionStatuses: () => getExtensionStatuses(),
+		getFoldedStatusKeys: () => getFoldedStatusKeys(),
 		cleanup() {
+			clearAccess();
 			ctx.ui.setFooter(undefined);
 		},
 	};

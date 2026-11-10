@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
-import { DEFAULT_CONFIG, LEGACY_DEFAULT_CONFIG, getUserMessageLayout, getToolMessageLayout, loadConfig, saveConfig } from "../src/config.ts";
+import { DEFAULT_CONFIG, LEGACY_DEFAULT_CONFIG, getExtensionStatusPreference, getUserMessageLayout, getToolMessageLayout, loadConfig, saveConfig } from "../src/config.ts";
 
 function fixture(t: TestContext) {
 	const dir = mkdtempSync(join(tmpdir(), "open-tui-config-"));
@@ -184,4 +184,50 @@ test("normalizes new independent layouts and all User/Skill border fields withou
 	assert.equal(config.userBoxBorder?.right?.char, "#");
 	config.userBoxBorder!.left.enabled = false;
 	assert.equal(DEFAULT_CONFIG.userBoxBorder!.left.enabled, true);
+});
+
+test("unified footer defaults preserve legacy bytes and explicit choices", (t) => {
+	const { path } = fixture(t);
+	assert.equal(loadConfig().unifiedFooter, true);
+	assert.deepEqual(loadConfig().extensionStatusItems, {});
+	for (const unifiedFooter of [undefined, false, true, "invalid"]) {
+		const raw = JSON.stringify({ unifiedFooter, footerSegments: { extensionStatuses: false }, future: 7 }, null, 3);
+		writeFileSync(path, raw);
+		const config = loadConfig();
+		assert.equal(config.unifiedFooter, unifiedFooter === true);
+		assert.equal(config.footerSegments.extensionStatuses, false);
+		assert.equal(readFileSync(path, "utf8"), raw);
+		saveConfig({ ...config, unifiedFooter: true });
+		assert.equal(loadConfig().unifiedFooter, true);
+		assert.equal(loadConfig().footerSegments.extensionStatuses, false);
+		assert.equal(JSON.parse(readFileSync(path, "utf8")).future, 7);
+	}
+});
+
+test("status preferences normalize independently and retain arbitrary own keys and unknown fields", (t) => {
+	const { path } = fixture(t);
+	const raw = '{"extensionStatusItems":{"__proto__":{"visible":false,"row":1,"priority":8,"future":{"keep":true}},"constructor":{"priority":-2.5},"toString":null,"bad":{"visible":"no","row":3,"priority":1e999},"array":[],"good":{"visible":true,"row":2,"priority":4}}}';
+	writeFileSync(path, raw);
+	const config = loadConfig();
+	assert.equal(readFileSync(path, "utf8"), raw);
+	assert.deepEqual(getExtensionStatusPreference(config, "__proto__"), { visible: false, row: 1, priority: 8, future: { keep: true } });
+	assert.deepEqual(getExtensionStatusPreference(config, "constructor"), { visible: true, row: 2, priority: -2.5 });
+	for (const key of ["toString", "bad", "array", "missing", "hasOwnProperty"]) {
+		assert.deepEqual(getExtensionStatusPreference(config, key), { visible: true, row: 2, priority: 0 });
+	}
+	assert.deepEqual(getExtensionStatusPreference(DEFAULT_CONFIG, "__proto__"), { visible: true, row: 2, priority: 0 });
+	assert.equal(Object.getPrototypeOf(config.extensionStatusItems), Object.prototype);
+	assert.equal(Object.hasOwn(config.extensionStatusItems, "__proto__"), true);
+	assert.equal(Object.hasOwn(Object.prototype, "visible"), false);
+	saveConfig(config);
+	assert.deepEqual(loadConfig().extensionStatusItems, config.extensionStatusItems);
+	for (const priority of [NaN, Infinity, -Infinity]) {
+		config.extensionStatusItems.good!.priority = priority;
+		assert.equal(getExtensionStatusPreference(config, "good").priority, 0);
+	}
+	const inherited = { ...config, extensionStatusItems: Object.create({ inherited: { visible: false, row: 1, priority: 9 } }) };
+	assert.deepEqual(getExtensionStatusPreference(inherited, "inherited"), { visible: true, row: 2, priority: 0 });
+	const fresh = getExtensionStatusPreference(config, "missing");
+	fresh.visible = false;
+	assert.equal(getExtensionStatusPreference(config, "missing").visible, true);
 });

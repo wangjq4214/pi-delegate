@@ -48,7 +48,7 @@ export interface InlineFooterLines {
 
 export interface InlineFooterRenderer {
 	enabled(): boolean;
-	render(width: number): InlineFooterLines | undefined;
+	render(width: number, kind?: keyof InlineFooterLines): InlineFooterLines | undefined;
 }
 
 function removeSoftwareCursor(line: string, cursorMarker = ""): string {
@@ -314,7 +314,7 @@ export class OpenTuiEditor extends CustomEditor {
 		const result: string[] = [...prefix];
 		const inlineFooter = this.inlineFooter?.enabled() === true;
 		const renderInlineLine = (kind: "top" | "bottom", budget: number): InlineFooterLine | undefined =>
-			this.inlineFooter?.render(budget)?.[kind];
+			this.inlineFooter?.render(budget, kind)?.[kind];
 		result.push(inlineFooter
 			? inlineBorder(width, "top", borderPaint, (budget) => renderInlineLine("top", budget), baseLines[0], borderIndicator, this.borderStyle)
 			: roundedBorder(width, "top", borderPaint, baseLines[0], borderIndicator, this.borderStyle));

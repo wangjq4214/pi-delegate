@@ -73,9 +73,33 @@ export interface WorklineConfig {
 	attachToBorder: boolean;
 }
 
+export interface ExtensionStatusPreference {
+	visible: boolean;
+	row: 1 | 2;
+	priority: number;
+}
+
+function normalizeExtensionStatusPreference(value: unknown): ExtensionStatusPreference {
+	const input = isRecord(value) ? value : {};
+	return {
+		...input,
+		visible: typeof input.visible === "boolean" ? input.visible : true,
+		row: input.row === 1 ? 1 : 2,
+		priority: typeof input.priority === "number" && Number.isFinite(input.priority) ? input.priority : 0,
+	};
+}
+
+/** Missing keys (including Object.prototype names) inherit independent defaults. */
+export function getExtensionStatusPreference(config: OpenTuiConfig, key: string): ExtensionStatusPreference {
+	const items = config.extensionStatusItems;
+	return normalizeExtensionStatusPreference(items && Object.hasOwn(items, key) ? items[key] : undefined);
+}
+
 export interface OpenTuiConfig {
 	enabled: boolean;
 	inlineFooter: boolean;
+	unifiedFooter: boolean;
+	extensionStatusItems: Record<string, ExtensionStatusPreference>;
 	toolPresentation: boolean;
 	settingsLanguage: SettingsLanguage;
 	cursorStyle: CursorStyle;
@@ -98,6 +122,8 @@ export interface OpenTuiConfig {
 export const LEGACY_DEFAULT_CONFIG: OpenTuiConfig = {
 	enabled: true,
 	inlineFooter: false,
+	unifiedFooter: false,
+	extensionStatusItems: {},
 	toolPresentation: true,
 	settingsLanguage: "en",
 	cursorStyle: "block",
@@ -155,6 +181,7 @@ export const LEGACY_DEFAULT_CONFIG: OpenTuiConfig = {
 /** New installs only. Existing files normalize against the historical defaults above. */
 export const DEFAULT_CONFIG: OpenTuiConfig = {
 	...structuredClone(LEGACY_DEFAULT_CONFIG),
+	unifiedFooter: true,
 	cursorStyle: "bar", editorBorderStyle: "minimal", messageLayout: "compact",
 	userMessageLayout: "compact", toolMessageLayout: "compact",
 	userBoxBorder: structuredClone(DEFAULT_USER_BORDER),
@@ -204,6 +231,9 @@ function enumValue<T>(value: unknown, choices: readonly T[], fallback: T): T {
 
 function normalizeConfig(value: unknown): OpenTuiConfig {
 	const config = normalizeFields(LEGACY_DEFAULT_CONFIG, value);
+	// fromEntries defines own properties rather than invoking the __proto__ setter.
+	config.extensionStatusItems = Object.fromEntries(Object.entries(config.extensionStatusItems)
+		.map(([key, preference]) => [key, normalizeExtensionStatusPreference(preference)]));
 	config.settingsLanguage = enumValue(config.settingsLanguage, ["en", "zh"], LEGACY_DEFAULT_CONFIG.settingsLanguage);
 	config.cursorStyle = enumValue(config.cursorStyle, ["block", "bar", "underline"], LEGACY_DEFAULT_CONFIG.cursorStyle);
 	config.editorBorderStyle = enumValue(config.editorBorderStyle, ["surround", "minimal"], LEGACY_DEFAULT_CONFIG.editorBorderStyle);

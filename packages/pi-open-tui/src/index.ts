@@ -58,7 +58,7 @@ export default function (pi: ExtensionAPI) {
 	let lastCtx: ExtensionContext | undefined;
 	let requestFooterRender: (() => void) | undefined;
 	let stopWorklineRefresh: (() => void) | undefined;
-	let cleanupFooter: (() => void) | undefined;
+	let footer: ReturnType<typeof installFooter> | undefined;
 	let editor: ReturnType<typeof installEditor> | undefined;
 	let pendingUiChange: PendingUiChange | undefined;
 
@@ -92,7 +92,7 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 		if (!active) {
-			const footer = installFooter(
+			footer = installFooter(
 				ctx,
 				() => state,
 				() => config,
@@ -106,7 +106,6 @@ export default function (pi: ExtensionAPI) {
 					},
 				},
 			);
-			cleanupFooter = footer.cleanup;
 			editor = installEditor(
 				pi,
 				ctx,
@@ -134,9 +133,9 @@ export default function (pi: ExtensionAPI) {
 		if (!isTuiContext(ctx)) return;
 		if (active) {
 			stopWorkingTimer();
-			cleanupFooter?.();
+			footer?.cleanup();
 			editor?.cleanup();
-			cleanupFooter = undefined;
+			footer = undefined;
 			editor = undefined;
 			requestFooterRender = undefined;
 			peekController.resetAndClear(ctx);
@@ -347,6 +346,8 @@ export default function (pi: ExtensionAPI) {
 
 	registerSettingsCommand(pi, {
 		getConfig: () => config,
+		getExtensionStatuses: () => footer?.getExtensionStatuses() ?? new Map(),
+		getFoldedStatusKeys: () => footer?.getFoldedStatusKeys() ?? new Set(),
 		onConfigChanged: (newConfig) => {
 			const cursorStyleChanged = config.cursorStyle !== newConfig.cursorStyle;
 			const borderStyleChanged = config.editorBorderStyle !== newConfig.editorBorderStyle;

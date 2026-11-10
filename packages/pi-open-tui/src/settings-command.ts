@@ -13,6 +13,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { getUserBoxBorder, getUserMessageLayout, getToolMessageLayout, type CursorStyle, type IconMode, type OpenTuiConfig, type SettingsLanguage, type ToolBoxBorderConfig, type ToolBoxBorderStyle, type UserBoxBorderConfig } from "./config.ts";
 import { resolveBorderGlyphs } from "./message-layout.ts";
+import { ExtensionStatusSettings, type ExtensionStatusSettingsHooks } from "./extension-status-settings.ts";
 
 interface SettingItem {
 	id: string;
@@ -20,14 +21,14 @@ interface SettingItem {
 	currentValue: string;
 }
 
-type Tab = "features" | "icons" | "segments" | "telemetry" | "toolBorder" | "userBorder";
+type Tab = "features" | "icons" | "segments" | "telemetry" | "toolBorder" | "userBorder" | "statuses";
 
-const TABS: Tab[] = ["features", "icons", "segments", "telemetry", "toolBorder", "userBorder"];
+const TABS: Tab[] = ["features", "icons", "segments", "telemetry", "toolBorder", "userBorder", "statuses"];
 
 const COPY = {
 	en: {
 		title: "Open TUI Settings",
-		tabs: { features: "General", icons: "Appearance", segments: "Footer", telemetry: "Telemetry", toolBorder: "Tools", userBorder: "User / Skill" },
+		tabs: { features: "General", icons: "Appearance", segments: "Footer", telemetry: "Telemetry", toolBorder: "Tools", userBorder: "User / Skill", statuses: "Statuses" },
 		scope: { toolBorder: "Enhanced presentation adds summaries and details. Compression reduces spacing and hides successful previews when enhanced. Border style is independent; Off hides border options.", userBorder: "Applies to User messages and Skill cards; preserves Skill expansion. Off restores native presentation and hides all styling options." },
 		hint: "Tab/Shift+Tab/←/→: tabs · ↑/↓: move · Enter/Space: change · Esc/q: close",
 		editHint: "Enter: save · Esc: cancel · Empty: reset to default",
@@ -38,6 +39,7 @@ const COPY = {
 		labels: {
 			enabled: "Enabled",
 			inlineFooter: "Inline footer",
+			unifiedFooter: "Unified two-row footer",
 			thinkingPeek: "Thinking titles",
 			toolPresentation: "Enhanced presentation",
 			language: "Language",
@@ -88,7 +90,7 @@ const COPY = {
 	},
 	zh: {
 		title: "Open TUI 设置",
-		tabs: { features: "常规", icons: "外观", segments: "Footer", telemetry: "遥测", toolBorder: "工具卡片", userBorder: "用户 / Skill" },
+		tabs: { features: "常规", icons: "外观", segments: "Footer", telemetry: "遥测", toolBorder: "工具卡片", userBorder: "用户 / Skill", statuses: "扩展状态" },
 		scope: { toolBorder: "增强展示提供摘要和详情；压缩展示减少留白，并在增强模式下隐藏成功预览。边框样式独立，关闭时隐藏边框选项。", userBorder: "同时影响用户消息和 Skill 卡片，保留 Skill 展开交互。关闭时恢复原生展示并隐藏全部样式选项。" },
 		hint: "Tab/Shift+Tab/←/→：切页 · ↑/↓：移动 · Enter/Space：更改 · Esc/q：关闭",
 		editHint: "Enter：保存 · Esc：取消 · 留空：恢复默认",
@@ -99,6 +101,7 @@ const COPY = {
 		labels: {
 			enabled: "启用",
 			inlineFooter: "内联底栏",
+			unifiedFooter: "统一双行底栏",
 			thinkingPeek: "思考标题",
 			toolPresentation: "增强展示",
 			language: "语言",
@@ -205,6 +208,7 @@ function buildFeaturesItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 		{ id: "settingsLanguage", label: copy.labels.language, currentValue: copy.values.languages[config.settingsLanguage] },
 		{ id: "thinkingPeek", label: copy.labels.thinkingPeek, currentValue: flag(config.thinkingPeek.lines > 0) },
 		{ id: "inlineFooter", label: copy.labels.inlineFooter, currentValue: flag(config.inlineFooter) },
+		{ id: "unifiedFooter", label: copy.labels.unifiedFooter, currentValue: flag(config.unifiedFooter) },
 	];
 }
 
@@ -299,6 +303,7 @@ function buildBorderItems(tab: Tab, config: OpenTuiConfig, copy: SettingsCopy): 
 function buildItems(tab: Tab, config: OpenTuiConfig): SettingItem[] {
 	const copy = COPY[config.settingsLanguage];
 	switch (tab) {
+		case "statuses": return []; // The live status panel owns its list.
 		case "features": return buildFeaturesItems(config, copy);
 		case "icons": return buildIconsItems(config, copy);
 		case "segments": return buildSegmentsItems(config, copy);
@@ -316,6 +321,7 @@ function handleSettingChange(
 	if (tab === "features") {
 		if (itemId === "enabled") return toggleEnabled(config);
 		if (itemId === "inlineFooter") return { ...config, inlineFooter: !config.inlineFooter };
+		if (itemId === "unifiedFooter") return { ...config, unifiedFooter: !config.unifiedFooter };
 		if (itemId === "settingsLanguage") return toggleLanguage(config);
 		if (itemId === "thinkingPeek") return cycleThinkingPeek(config);
 	}
@@ -370,6 +376,7 @@ class SettingsUi implements SettingsUiHandle {
 	private tab: Tab = "features";
 	private config: OpenTuiConfig;
 	private selectList!: SelectList;
+	private readonly statusSettings: ExtensionStatusSettings;
 	private readonly selectedItemByTab: Partial<Record<Tab, string>> = {};
 	private readonly container: Box;
 	private readonly theme: Theme;
@@ -385,6 +392,7 @@ class SettingsUi implements SettingsUiHandle {
 	set focused(value: boolean) {
 		this.hasFocus = value;
 		if (this.editing) this.editing.input.focused = value;
+		this.statusSettings.focused = value;
 		this.invalidate();
 	}
 
@@ -393,12 +401,18 @@ class SettingsUi implements SettingsUiHandle {
 		config: OpenTuiConfig,
 		onChange: (config: OpenTuiConfig) => void,
 		onClose: () => void,
+		statusHooks: ExtensionStatusSettingsHooks,
+		getRows: () => number,
 	) {
 		this.theme = theme;
 		this.config = config;
 		this.onChange = onChange;
 		this.onClose = onClose;
 		this.container = new Box(1, 1, (s: string) => theme.bg("customMessageBg", s));
+		this.statusSettings = new ExtensionStatusSettings(theme, () => this.config, (next) => {
+			this.config = next;
+			this.onChange(next);
+		}, statusHooks, getRows);
 		this.rebuild();
 	}
 
@@ -487,6 +501,11 @@ class SettingsUi implements SettingsUiHandle {
 			this.cachedLines = undefined;
 			return;
 		}
+		if (this.tab === "statuses") {
+			this.container.addChild(this.statusSettings);
+			this.invalidate();
+			return;
+		}
 		const items = buildItems(this.tab, this.config).map((item) => ({
 			value: item.id,
 			label: this.compact ? `${item.label}: ${item.currentValue}` : item.label,
@@ -520,6 +539,11 @@ class SettingsUi implements SettingsUiHandle {
 	}
 
 	handleInput(data: string): void {
+		if (this.tab === "statuses" && this.statusSettings.capturesInput) {
+			this.statusSettings.handleInput(data);
+			this.invalidate();
+			return;
+		}
 		if (this.editing) {
 			this.editing.input.handleInput(data);
 			this.invalidate();
@@ -539,6 +563,11 @@ class SettingsUi implements SettingsUiHandle {
 			this.onClose();
 			return;
 		}
+		if (this.tab === "statuses") {
+			this.statusSettings.handleInput(data);
+			this.invalidate();
+			return;
+		}
 		if (matchesKey(data, Key.space) || data === " ") {
 			const selected = this.selectList.getSelectedItem();
 			if (selected) this.applySetting(selected.value);
@@ -553,6 +582,13 @@ class SettingsUi implements SettingsUiHandle {
 		if (compact !== this.compact) {
 			this.compact = compact;
 			this.rebuild();
+		}
+		// Host publication can change without settings input or explicit invalidation.
+		if (this.tab === "statuses") {
+			// Details/editing own their hints and viewport, without the long tab header.
+			if (this.statusSettings.capturesInput) return this.statusSettings.render(width);
+			this.container.invalidate();
+			return this.container.render(width);
 		}
 		if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
 		this.cachedWidth = width;
@@ -569,7 +605,7 @@ class SettingsUi implements SettingsUiHandle {
 
 export function registerSettingsCommand(
 	pi: ExtensionAPI,
-	hooks: {
+	hooks: ExtensionStatusSettingsHooks & {
 		getConfig: () => OpenTuiConfig;
 		onConfigChanged: (config: OpenTuiConfig) => void;
 		onOverlayClosed?: () => void;
@@ -585,8 +621,11 @@ export function registerSettingsCommand(
 				hooks.getConfig(),
 				(config) => hooks.onConfigChanged(config),
 				() => done(undefined),
+				hooks,
+				() => Math.max(1, Math.min(12, (tui.terminal?.rows ?? 24) - 10)),
 			);
 			return {
+				capturesViewportInput: true,
 				get focused() { return ui.focused; },
 				set focused(value: boolean) { ui.focused = value; },
 				render: (w: number) => ui.render(w),

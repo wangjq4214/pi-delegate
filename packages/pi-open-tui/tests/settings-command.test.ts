@@ -5,10 +5,12 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type Component, type Focusable, type KeybindingsManager, type TUI } from "@earendil-works/pi-tui";
-import { LEGACY_DEFAULT_CONFIG as DEFAULT_CONFIG, DEFAULT_CONFIG as NEW_DEFAULT_CONFIG, DEFAULT_USER_BORDER, getUserMessageLayout, getToolMessageLayout, loadConfig, saveConfig, type OpenTuiConfig } from "../src/config.ts";
+import { LEGACY_DEFAULT_CONFIG as DEFAULT_CONFIG, DEFAULT_CONFIG as NEW_DEFAULT_CONFIG, DEFAULT_USER_BORDER, getExtensionStatusPreference, getUserMessageLayout, getToolMessageLayout, loadConfig, saveConfig, type OpenTuiConfig } from "../src/config.ts";
 import { installEditor, OpenTuiEditor } from "../src/editor.ts";
 import { getPendingUiChange } from "../src/index.ts";
 import { registerSettingsCommand } from "../src/settings-command.ts";
+import type { ExtensionStatusSettingsHooks } from "../src/extension-status-settings.ts";
+import { stripAnsi } from "../src/utils.ts";
 
 interface SettingsComponent extends Component, Focusable {
 	handleInput(data: string): void;
@@ -24,6 +26,7 @@ async function openSettings(
 	initialConfig = structuredClone(DEFAULT_CONFIG),
 	onChange?: (config: OpenTuiConfig) => void,
 	settingsTheme: Theme = theme,
+	statusHooks: ExtensionStatusSettingsHooks = {},
 ): Promise<{
 	component: SettingsComponent;
 	getConfig: () => OpenTuiConfig;
@@ -44,6 +47,7 @@ async function openSettings(
 	} as unknown as ExtensionAPI;
 
 	registerSettingsCommand(pi, {
+		...statusHooks,
 		getConfig: () => config,
 		onConfigChanged: (nextConfig) => {
 			config = nextConfig;
@@ -414,8 +418,8 @@ test("remembers the selection for each tab", async () => {
 	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput("\x1b[B");
 	settings.component.handleInput("\x1b[B");
-	// Wrap through all six tabs, preserving the Footer selection.
-	for (let i = 0; i < 6; i++) settings.component.handleInput("\t");
+	// Wrap through all seven tabs, preserving the Footer selection.
+	for (let i = 0; i < 7; i++) settings.component.handleInput("\t");
 
 	assert.match(selectedLine(settings.component), /Git branch/);
 });
@@ -862,4 +866,143 @@ test("User/Skill border controls, right symbols and legacy explicit saves are in
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
 		rmSync(agentDir, { recursive: true, force: true });
 	}
+});
+
+function statusTab(component: SettingsComponent): void {
+	for (let i = 0; i < 6; i++) component.handleInput("\t");
+	component.render(80);
+}
+
+test("unified opt-in and per-key edits persist independently without enabling a hidden group", async () => {
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-open-tui-status-settings-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	let settings: Awaited<ReturnType<typeof openSettings>> | undefined;
+	try {
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		writeFileSync(join(agentDir, "open-tui.json"), '{"footerSegments":{"extensionStatuses":false},"extensionStatusItems":{"__proto__":{"future":7}},"future":"keep"}');
+		const initial = loadConfig();
+		const statuses = new Map([["__proto__", "one"], ["constructor", "two"]]);
+		settings = await openSettings(initial, saveConfig, theme, { getExtensionStatuses: () => statuses });
+		selectSetting(settings.component, /Unified two-row footer/);
+		settings.component.handleInput("\r");
+		assert.equal(loadConfig().unifiedFooter, true);
+		statusTab(settings.component);
+		selectSetting(settings.component, /__proto__.*Visible/); settings.component.handleInput(" ");
+		selectSetting(settings.component, /constructor.*Row/); settings.component.handleInput("\r");
+		selectSetting(settings.component, /constructor.*Priority/); settings.component.handleInput("\r");
+		settings.component.focused = true;
+		clearTextInput(settings.component); settings.component.handleInput("-2.5"); settings.component.handleInput("\r");
+		const config = loadConfig();
+		assert.deepEqual(getExtensionStatusPreference(config, "__proto__"), { visible: false, row: 2, priority: 0, future: 7 });
+		assert.deepEqual(getExtensionStatusPreference(config, "constructor"), { visible: true, row: 1, priority: -2.5 });
+		assert.equal(config.footerSegments.extensionStatuses, false);
+		assert.deepEqual(config.toolBoxBorder, initial.toolBoxBorder);
+		assert.deepEqual(config.icons, initial.icons);
+		assert.equal((config as unknown as { future: string }).future, "keep");
+		assert.equal(getExtensionStatusPreference(initial, "__proto__").visible, true);
+		statuses.clear();
+		assert.doesNotMatch(settings.component.render(80).join("\n"), /__proto__|constructor/);
+		statuses.set("constructor", "republished");
+		assert.match(settings.component.render(80).join("\n"), /constructor.*-2.5/);
+	} finally {
+		settings?.component.handleInput("q"); await settings?.waitForClose();
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		rmSync(agentDir, { recursive: true, force: true });
+	}
+});
+
+test("status selection uses full opaque keys across discovery, reordering and clears", async () => {
+	const statuses = new Map([["full", "one"], ['a:visible/["row"]', "two"], ["line\nkey", "three"]]);
+	const settings = await openSettings(undefined, undefined, theme, { getExtensionStatuses: () => statuses });
+	statusTab(settings.component);
+	selectSetting(settings.component, /full.*Visible/);
+	statuses.set("aaa", "new before selection");
+	assert.match(selectedLine(settings.component), /full.*Visible/);
+	settings.component.handleInput("\r");
+	assert.equal(getExtensionStatusPreference(settings.getConfig(), "full").visible, false);
+	assert.equal(getExtensionStatusPreference(settings.getConfig(), "aaa").visible, true);
+	selectSetting(settings.component, /a:visible.*Row/); settings.component.handleInput("\r");
+	assert.equal(getExtensionStatusPreference(settings.getConfig(), 'a:visible/["row"]').row, 1);
+	statuses.delete('a:visible/["row"]');
+	assert.match(selectedLine(settings.component), /View full current/);
+	settings.component.handleInput("\r");
+	assert.doesNotMatch(settings.component.render(80).join("\n"), /a:visible/);
+	settings.component.handleInput("\x1b"); settings.component.handleInput("q"); await settings.waitForClose();
+});
+
+test("priority editor validates finite values, supports reset/cancel and bilingual labels", async () => {
+	for (const language of ["en", "zh"] as const) {
+		const config = structuredClone(DEFAULT_CONFIG); config.settingsLanguage = language;
+		let changes = 0;
+		const settings = await openSettings(config, () => changes++, theme, { getExtensionStatuses: () => new Map([["usage", "live"]]) });
+		selectSetting(settings.component, language === "en" ? /Unified two-row footer/ : /统一双行底栏/);
+		settings.component.handleInput("\r"); assert.equal(settings.getConfig().unifiedFooter, true);
+		statusTab(settings.component);
+		selectSetting(settings.component, language === "en" ? /usage.*Priority/ : /usage.*优先级/);
+		settings.component.handleInput("\r"); clearTextInput(settings.component);
+		settings.component.handleInput("Infinity"); settings.component.handleInput("\r");
+		assert.equal(changes, 1);
+		assert.match(settings.component.render(80).join("\n"), language === "en" ? /Enter a finite number/ : /请输入有限数字/);
+		settings.component.handleInput("\x1b");
+		assert.equal(settings.isClosed(), false);
+		settings.component.handleInput("\r"); clearTextInput(settings.component);
+		settings.component.handleInput("3.25"); settings.component.handleInput("\r");
+		assert.equal(getExtensionStatusPreference(settings.getConfig(), "usage").priority, 3.25);
+		settings.component.render(80);
+		settings.component.handleInput("\r"); clearTextInput(settings.component); settings.component.handleInput("\r");
+		assert.equal(getExtensionStatusPreference(settings.getConfig(), "usage").priority, 0);
+		assert.equal(changes, 3);
+		settings.component.handleInput("q"); await settings.waitForClose();
+	}
+});
+
+test("full status panel wraps, scrolls, preserves SGR and reflects live replacements and clears without invalidation", async () => {
+	let statuses = new Map([["usage", "\x1b[31mSTART " + "wide界 e\u0301 ".repeat(180) + " END\x1b[0m\x1b[2J\x1b]0;unsafe-title\x07\r\t\x1b[3C"]]);
+	let folded = new Set(["usage"]);
+	const settings = await openSettings(undefined, undefined, theme, {
+		getExtensionStatuses: () => statuses, getFoldedStatusKeys: () => folded,
+	});
+	statusTab(settings.component); settings.component.handleInput("\r");
+	const first = settings.component.render(40);
+	assert.match(first.join("\n"), /usage.*folded/);
+	assert.match(first.join("\n"), /\x1b\[31m/);
+	assert.match(first.join("\n"), /START/);
+	assert.doesNotMatch(first.join("\n"), /END/);
+	assert.ok(first.every((line) => visibleWidth(line) <= 40));
+	settings.component.handleInput("\x1b[6~");
+	const page = settings.component.render(40);
+	assert.notDeepEqual(page, first);
+	assert.match(page.join("\n"), /\x1b\[31m/, "continuation rows retain producer color");
+	settings.component.handleInput("\x1b[F");
+	const last = settings.component.render(40);
+	assert.match(stripAnsi(last.join("\n")), /END/);
+	assert.doesNotMatch(last.join("\n"), /unsafe-title|\x1b\[2J|\x1b\[3C|\r|\t/);
+	settings.component.handleInput("\x1b[H");
+	assert.deepEqual(settings.component.render(40), first);
+	for (const width of [1, 2, 8, 24, 80]) {
+		assert.ok(settings.component.render(width).every((line) => visibleWidth(line) <= width));
+		settings.component.handleInput("\x1b[F");
+		assert.ok(settings.component.render(width).every((line) => visibleWidth(line) <= width), `last page at width ${width}`);
+		settings.component.handleInput("\x1b[H");
+	}
+	statuses = new Map([["usage", "\x1b[32mUPDATED\x1b[0m"], ["new-key", "fresh value"]]); folded = new Set();
+	const updated = settings.component.render(80).join("\n");
+	assert.match(updated, /UPDATED/); assert.match(updated, /fresh value/);
+	assert.doesNotMatch(updated, /START|folded/);
+	statuses.clear();
+	const cleared = settings.component.render(80).join("\n");
+	assert.match(cleared, /No current extension statuses/);
+	assert.doesNotMatch(cleared, /UPDATED|fresh value/);
+	settings.component.handleInput("\x1b");
+	assert.match(selectedLine(settings.component), /View full current/);
+	settings.component.handleInput("q"); await settings.waitForClose();
+});
+
+test("full status entry remains reachable without host getters or a footer indicator", async () => {
+	const settings = await openSettings();
+	statusTab(settings.component); settings.component.handleInput("\r");
+	assert.match(settings.component.render(40).join("\n"), /No current extension statuses/);
+	settings.component.handleInput("q");
+	assert.equal(settings.isClosed(), false);
+	settings.component.handleInput("q"); await settings.waitForClose();
 });
