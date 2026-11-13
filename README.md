@@ -2,15 +2,16 @@
 
 [English](README.md) | [Simplified Chinese](README.zh-CN.md)
 
-A Bun + TypeScript monorepo with three independent packages:
+A Bun + TypeScript monorepo with four packages:
 
 | Package | Purpose | Status |
 | --- | --- | --- |
 | [`@wangjq4214/pi-delegate`](packages/pi-delegate/README.md) | Pi extension for RPC subagent delegation | Existing extension; npm name and behavior preserved |
 | [`@wangjq4214/pi-open-tui`](packages/pi-open-tui/README.md) | Configurable Pi terminal UI extension imported from OldSuns/pi-open-tui | Public npm package; based on upstream v0.3.11 |
 | [`@wangjq4214/pi-dollar-skills`](packages/pi-dollar-skills/README.md) | Dollar skill autocomplete and full instruction injection | Public-publishable extension; initial npm publication requires maintainer setup; tested with Pi 1.4.0 |
+| [`@wangjq4214/pi-goal`](packages/pi-goal/README.md) | Bounded goals with global persistence and independent review, built on delegate | Private local workspace package; not enrolled in the release pipeline |
 
-`pi-open-tui` is not a delegate UI extraction. The packages have no runtime dependency on one another. No shared runtime package or Turbo/Nx layer is introduced.
+`pi-open-tui` is not a delegate UI extraction. Goal depends on delegate's public consumer API; the other packages remain independent. No shared runtime package or Turbo/Nx layer is introduced.
 
 ## Development
 
@@ -63,6 +64,7 @@ packages/
   pi-delegate/       Extension source, tests, skills, docs and build config
   pi-open-tui/       Imported UI extension, tests and docs
   pi-dollar-skills/  Independent dollar skill extension, tests and docs
+  pi-goal/          Goal coordination, global JSONL storage, tests and docs
 tests/               Repository-level Git-hook and workspace tests
 .grimoire/           Project requirements and architectural records
 package.json         Private workspace root and shared development tools

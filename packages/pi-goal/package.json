@@ -1,0 +1,39 @@
+{
+	"name": "@wangjq4214/pi-goal",
+	"version": "0.5.1",
+	"private": true,
+	"license": "MIT",
+	"type": "module",
+	"description": "Bounded, globally persisted goals coordinated through pi-delegate.",
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"pi": {
+		"extensions": [
+			"./dist/index.js"
+		]
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "rolldown -c",
+		"dev": "pi -e ./src/index.ts",
+		"start": "pi -e ./dist/index.js",
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@wangjq4214/pi-delegate": "workspace:*"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-ai": "1.1.0",
+		"@earendil-works/pi-coding-agent": "1.1.0",
+		"typebox": "1.3.27"
+	}
+}

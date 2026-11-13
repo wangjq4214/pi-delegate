@@ -46,6 +46,22 @@
         "@earendil-works/pi-tui",
       ],
     },
+    "packages/pi-goal": {
+      "name": "@wangjq4214/pi-goal",
+      "version": "0.5.1",
+      "dependencies": {
+        "@wangjq4214/pi-delegate": "workspace:*",
+      },
+      "devDependencies": {
+        "@earendil-works/pi-ai": "1.1.0",
+        "@earendil-works/pi-coding-agent": "1.1.0",
+        "typebox": "1.3.27",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-ai": "*",
+        "@earendil-works/pi-coding-agent": "*",
+      },
+    },
     "packages/pi-open-tui": {
       "name": "@wangjq4214/pi-open-tui",
       "version": "0.5.1",
@@ -315,6 +331,8 @@
     "@wangjq4214/pi-delegate": ["@wangjq4214/pi-delegate@workspace:packages/pi-delegate"],
 
     "@wangjq4214/pi-dollar-skills": ["@wangjq4214/pi-dollar-skills@workspace:packages/pi-dollar-skills"],
+
+    "@wangjq4214/pi-goal": ["@wangjq4214/pi-goal@workspace:packages/pi-goal"],
 
     "@wangjq4214/pi-open-tui": ["@wangjq4214/pi-open-tui@workspace:packages/pi-open-tui"],
 

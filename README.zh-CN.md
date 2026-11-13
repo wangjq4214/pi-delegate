@@ -2,15 +2,16 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-这是一个使用 Bun + TypeScript 的 monorepo，包含三个独立包：
+这是一个使用 Bun + TypeScript 的 monorepo，包含四个包：
 
 | 包 | 用途 | 状态 |
 | --- | --- | --- |
 | [`@wangjq4214/pi-delegate`](packages/pi-delegate/README.zh-CN.md) | 通过 RPC 委派子代理的 Pi 扩展 | 保留现有扩展、npm 包名和行为 |
 | [`@wangjq4214/pi-open-tui`](packages/pi-open-tui/README.zh-CN.md) | 从 OldSuns/pi-open-tui 导入的可配置 Pi 终端 UI 扩展 | 公开 npm 包，基于上游 v0.3.11 |
 | [`@wangjq4214/pi-dollar-skills`](packages/pi-dollar-skills/README.zh-CN.md) | `$` skill 补全与完整指令注入 | 可公开发布，首次 npm 发布需要维护者初始化；针对 Pi 1.4.0 验证 |
+| [`@wangjq4214/pi-goal`](packages/pi-goal/README.md) | 基于 delegate 的有限目标推进、全局持久化与独立审查 | 本地 private workspace 包，尚未加入发布流水线 |
 
-`pi-open-tui` 不是 delegate UI 的抽取。各包没有相互的运行时依赖，本次不引入共享运行时包或 Turbo/Nx。
+`pi-open-tui` 不是 delegate UI 的抽取。goal 依赖 delegate 的公开消费接口，其余包仍保持独立；不引入共享运行时包或 Turbo/Nx。
 
 ## 开发
 
@@ -63,6 +64,7 @@ packages/
   pi-delegate/       扩展源码、测试、skills、文档和构建配置
   pi-open-tui/       导入的 UI 扩展、测试和文档
   pi-dollar-skills/  独立的 $ skill 扩展、测试和文档
+  pi-goal/          目标协调、全局 JSONL 存储、测试和文档
 tests/               仓库级 Git-hook 和 workspace 测试
 .grimoire/           项目需求和架构记录
 package.json         Private workspace 根配置和共享开发工具
