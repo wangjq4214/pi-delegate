@@ -110,6 +110,8 @@ pi install /absolute/path/to/checkout/packages/pi-delegate
 
 参数、结果状态、催促配置和状态 UI 的详细说明请参阅[使用指南](docs/usage.md)。
 
+扩展作者可通过受支持的[公开消费接口](docs/api.md)提交任务。接口发现并复用现有运行时，不创建重复的任务管理器，并支持声明仅限父代理的消费方工具。
+
 ## 限制
 
 - 后台执行需要长期运行的 TUI 或 RPC 会话。退出、重载、替换会话或分支导航后，任务不会继续运行。

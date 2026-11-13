@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { defineConfig } from "rolldown";
 
 export default defineConfig({
-	input: "src/index.ts",
+	input: { index: "src/index.ts", api: "src/api.ts" },
 	platform: "node",
 	external: [/^node:/, /^@earendil-works\//],
 	plugins: [

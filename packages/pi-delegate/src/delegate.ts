@@ -3,10 +3,18 @@ import { type Static, Type, type Usage } from "@earendil-works/pi-ai";
 import {
 	defineTool,
 	type ExtensionAPI,
-	type ExtensionToolContext,
+	type ExtensionContext,
 	type RpcExtensionUIRequest,
 	type RpcExtensionUIResponse,
 } from "@earendil-works/pi-coding-agent";
+import type {
+	DelegateClient,
+	DelegateInput,
+	DelegateListInput,
+	DelegateObservation,
+	DelegateWaitInput,
+} from "./api.ts";
+import { hasDelegateService, publishDelegateService } from "./api-service.ts";
 import {
 	prepareDelegationArguments,
 	validatePreparedArguments,
@@ -47,7 +55,7 @@ export type {
 export { resolveCli, runDelegation } from "./runner.ts";
 
 async function forwardUi(
-	ctx: ExtensionToolContext,
+	ctx: ExtensionContext,
 	signal: AbortSignal,
 	request: RpcExtensionUIRequest,
 ): Promise<RpcExtensionUIResponse | undefined> {
@@ -94,7 +102,19 @@ export function registerDelegate(
 	pi: ExtensionAPI,
 	run: typeof runDelegation = runDelegation,
 ): void {
+	if (hasDelegateService(pi)) return;
+	let closed = false;
+	const assertOpen = () => {
+		if (closed)
+			throw new Error(
+				"pi-delegate runtime has shut down; rediscover in the new session",
+			);
+	};
 	const active = new Map<AbortController, Promise<unknown>>();
+	const cancelActive = async () => {
+		for (const controller of active.keys()) controller.abort();
+		await Promise.allSettled([...active.values()]);
+	};
 	const status = new AgentStatus();
 	const updateStatus = (update: () => void): void => {
 		try {
@@ -187,6 +207,89 @@ export function registerDelegate(
 		pressure: Type.Optional(pressureParameters),
 		budget: Type.Optional(budgetParameters),
 	});
+	const execute = async (
+		params: DelegateInput,
+		ctx: ExtensionContext,
+		signal?: AbortSignal,
+	) => {
+		const controller = new AbortController();
+		const uiController = new AbortController();
+		const combined = signal
+			? AbortSignal.any([signal, controller.signal])
+			: controller.signal;
+		let record: TaskRecord | undefined;
+		try {
+			combined.throwIfAborted();
+			assertOpen();
+			const budget = validatePreparedArguments({ ...params });
+			if (!params.task.trim())
+				throw new Error("Delegation task must not be blank");
+			if (params.background && ctx.mode !== "tui" && ctx.mode !== "rpc")
+				throw new Error(
+					"Background delegation requires a long-lived TUI or RPC parent session",
+				);
+			const policy = resolvePressure(params.pressure);
+			const requestedConfiguration = captureConfiguration(
+				ctx,
+				params.model,
+				params.thinkingLevel,
+			);
+			const cwd = selectCwd(ctx.cwd, params.cwd);
+			const inherited = captureInheritance(
+				pi,
+				ctx,
+				entryPath,
+				process.argv.slice(2),
+				cwd,
+			);
+			record = records.accept({
+				task: params.task,
+				title: params.title,
+				mode: params.background ? "background" : "synchronous",
+				cwd,
+				configuration: requestedConfiguration,
+				pressure: policy,
+				budget,
+			});
+			const progress = record.progress;
+			updateStatus(() => status.show(progress));
+			const options: DelegationOptions = {
+				...inherited,
+				requestedConfiguration,
+				cwd,
+				task: params.task,
+				context: params.context,
+				resultFormat: params.resultFormat,
+				pressure: policy,
+				budget,
+				signal: combined,
+				status: record.progress,
+				taskRecord: record,
+				onCwd: record.spawned,
+				onSteeringControl: record.controlled,
+			};
+			if (params.background) return background.start(options);
+			const operation = observedRun({
+				...options,
+				ui: (request) =>
+					forwardUi(
+						ctx,
+						AbortSignal.any([combined, uiController.signal]),
+						request,
+					),
+			});
+			active.set(controller, operation);
+			return await operation;
+		} catch (error) {
+			const result = failedResult(error, combined.aborted);
+			return record?.complete(result) ?? result;
+		} finally {
+			// Dialogs belong to this invocation, including when the child fails.
+			// Do not abort the execution signal and turn a completed result into cancellation.
+			uiController.abort();
+			active.delete(controller);
+		}
+	};
 	pi.registerTool(
 		defineTool({
 			name: DELEGATE_TOOL,
@@ -197,84 +300,8 @@ export function registerDelegate(
 			prepareArguments(args) {
 				return prepareDelegationArguments(args) as Static<typeof parameters>;
 			},
-			async execute(_id, params, signal, _onUpdate, ctx) {
-				const controller = new AbortController();
-				const uiController = new AbortController();
-				const combined = signal
-					? AbortSignal.any([signal, controller.signal])
-					: controller.signal;
-				let record: TaskRecord | undefined;
-				try {
-					combined.throwIfAborted();
-					const budget = validatePreparedArguments(params);
-					if (!params.task.trim())
-						throw new Error("Delegation task must not be blank");
-					if (params.background && ctx.mode !== "tui" && ctx.mode !== "rpc")
-						throw new Error(
-							"Background delegation requires a long-lived TUI or RPC parent session",
-						);
-					const policy = resolvePressure(params.pressure);
-					const requestedConfiguration = captureConfiguration(
-						ctx,
-						params.model,
-						params.thinkingLevel,
-					);
-					const cwd = selectCwd(ctx.cwd, params.cwd);
-					const inherited = captureInheritance(
-						pi,
-						ctx,
-						entryPath,
-						process.argv.slice(2),
-						cwd,
-					);
-					record = records.accept({
-						task: params.task,
-						title: params.title,
-						mode: params.background ? "background" : "synchronous",
-						cwd,
-						configuration: requestedConfiguration,
-						pressure: policy,
-						budget,
-					});
-					const progress = record.progress;
-					updateStatus(() => status.show(progress));
-					const options: DelegationOptions = {
-						...inherited,
-						requestedConfiguration,
-						cwd,
-						task: params.task,
-						context: params.context,
-						resultFormat: params.resultFormat,
-						pressure: policy,
-						budget,
-						signal: combined,
-						status: record.progress,
-						taskRecord: record,
-						onCwd: record.spawned,
-						onSteeringControl: record.controlled,
-					};
-					if (params.background) return background.start(options);
-					const operation = observedRun({
-						...options,
-						ui: (request) =>
-							forwardUi(
-								ctx,
-								AbortSignal.any([combined, uiController.signal]),
-								request,
-							),
-					});
-					active.set(controller, operation);
-					return await operation;
-				} catch (error) {
-					const result = failedResult(error, combined.aborted);
-					return record?.complete(result) ?? result;
-				} finally {
-					// Dialogs belong to this invocation, including when the child fails.
-					// Do not abort the execution signal and turn a completed result into cancellation.
-					uiController.abort();
-					active.delete(controller);
-				}
-			},
+			execute: (_id, params, signal, _onUpdate, ctx) =>
+				execute(params, ctx, signal),
 		}),
 	);
 	const query = (taskId: string) => {
@@ -302,6 +329,7 @@ export function registerDelegate(
 				result: record.result,
 				usage: task.usage,
 			},
+
 			"record",
 		);
 	};
@@ -334,26 +362,7 @@ export function registerDelegate(
 					}),
 				),
 			}),
-			async execute(_id, params) {
-				try {
-					const page = records.list(params);
-					return {
-						content: [{ type: "text", text: JSON.stringify(page) }],
-						details: page,
-					};
-				} catch (error) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: error instanceof Error ? error.message : String(error),
-							},
-						],
-						details: undefined,
-						isError: true,
-					};
-				}
-			},
+			execute: async (_id, params) => list(params),
 		}),
 	);
 	pi.registerTool(
@@ -364,29 +373,7 @@ export function registerDelegate(
 				"Wait for any (default) or all selected synchronous/background tasks to end, including failure/cancellation. Default timeout 30 seconds, maximum 120. Returns only task statuses, never reports; use delegate_status to retrieve reports. Timeout or cancelling this wait does not cancel tasks. Scope invalidation ends obsolete waits. Observing tasks does not charge usage again.",
 			parameters: waitParameters,
 			prepareArguments: validateWaitArguments,
-			async execute(_id, params, signal) {
-				try {
-					const details = await waitForTasks(records, params, signal);
-					return {
-						content: [{ type: "text", text: JSON.stringify(details) }],
-						details,
-						isError:
-							details.reason === "cancelled" ||
-							details.reason === "invalidated",
-					};
-				} catch (error) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: error instanceof Error ? error.message : String(error),
-							},
-						],
-						details: undefined,
-						isError: true,
-					};
-				}
-			},
+			execute: (_id, params, signal) => wait(params, signal),
 		}),
 	);
 	for (const cancel of [false, true]) {
@@ -405,21 +392,7 @@ export function registerDelegate(
 					}),
 				}),
 				async execute(_id, params) {
-					if (!cancel) return query(params.taskId);
-					const record = records.get(params.taskId);
-					if (record?.input.mode === "synchronous")
-						return {
-							content: [
-								{
-									type: "text",
-									text: "Synchronous tasks are read-only; cancel the initiating call instead.",
-								},
-							],
-							details: { taskId: params.taskId },
-							isError: true,
-						};
-					if (record?.result) return query(params.taskId);
-					return background.cancel(params.taskId);
+					return cancel ? cancelTask(params.taskId) : query(params.taskId);
 				},
 			}),
 		);
@@ -461,6 +434,100 @@ export function registerDelegate(
 			},
 		}),
 	);
+	const client: DelegateClient = {
+		version: 1,
+		async execute(input, ctx, signal) {
+			assertOpen();
+			if (input.background)
+				return failedResult(
+					new Error(
+						"DelegateClient v1 execute is synchronous; background:true is unsupported",
+					),
+				);
+			const result = await execute(input, ctx, signal);
+			if (!("usage" in result))
+				throw new Error("Unexpected background acknowledgement");
+			return result;
+		},
+		status(taskId) {
+			assertOpen();
+			return query(taskId);
+		},
+		list(input = {}) {
+			assertOpen();
+			return list(input);
+		},
+		wait(input, signal) {
+			assertOpen();
+			return wait(input, signal);
+		},
+		cancel(taskId) {
+			assertOpen();
+			return cancelTask(taskId);
+		},
+	};
+	const withdrawService = publishDelegateService(pi, client);
+	function list(params: DelegateListInput): DelegateObservation {
+		try {
+			const page = records.list(params);
+			return {
+				content: [{ type: "text", text: JSON.stringify(page) }],
+				details: page,
+			};
+		} catch (error) {
+			return {
+				content: [
+					{
+						type: "text",
+						text: error instanceof Error ? error.message : String(error),
+					},
+				],
+				details: undefined,
+				isError: true,
+			};
+		}
+	}
+	async function wait(
+		params: DelegateWaitInput,
+		signal?: AbortSignal,
+	): Promise<DelegateObservation> {
+		try {
+			const details = await waitForTasks(records, params, signal);
+			return {
+				content: [{ type: "text", text: JSON.stringify(details) }],
+				details,
+				isError:
+					details.reason === "cancelled" || details.reason === "invalidated",
+			};
+		} catch (error) {
+			return {
+				content: [
+					{
+						type: "text",
+						text: error instanceof Error ? error.message : String(error),
+					},
+				],
+				details: undefined,
+				isError: true,
+			};
+		}
+	}
+	async function cancelTask(taskId: string): Promise<DelegateObservation> {
+		const record = records.get(taskId);
+		if (record?.input.mode === "synchronous")
+			return {
+				content: [
+					{
+						type: "text",
+						text: "Synchronous tasks are read-only; cancel the initiating call instead.",
+					},
+				],
+				details: { taskId: taskId },
+				isError: true,
+			};
+		if (record?.result) return query(taskId);
+		return background.cancel(taskId);
+	}
 	registerTaskPanel(pi, records, {
 		cancel: (taskId) => background.cancel(taskId),
 		steer: (taskId, message) => background.steer(taskId, message),
@@ -473,7 +540,7 @@ export function registerDelegate(
 		if (event.preparation.targetId !== event.preparation.oldLeafId) {
 			updateStatus(() => status.clear());
 			records.invalidate();
-			await background.invalidate();
+			await Promise.allSettled([cancelActive(), background.invalidate()]);
 		}
 	});
 	pi.on("session_tree", async (event) => {
@@ -482,10 +549,12 @@ export function registerDelegate(
 		if (event.newLeafId !== event.oldLeafId) {
 			updateStatus(() => status.clear());
 			records.invalidate();
-			await background.invalidate();
+			await Promise.allSettled([cancelActive(), background.invalidate()]);
 		}
 	});
 	pi.on("session_shutdown", async () => {
+		closed = true;
+		withdrawService();
 		updateStatus(() => status.close());
 		records.invalidate();
 		ledger.close();

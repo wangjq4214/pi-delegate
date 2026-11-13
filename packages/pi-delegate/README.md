@@ -110,6 +110,8 @@ Each omitted dimension is unlimited; no default hard budget is added. Seconds mu
 
 See the [usage guide](docs/usage.md) for parameters, result states, pressure settings, and the status UI.
 
+Extension authors can submit work through the supported [public consumer API](docs/api.md). It discovers the existing runtime without duplicate task ownership and supports parent-only consumer tool declarations.
+
 ## Limitations
 
 - Background execution requires a long-lived TUI or RPC session. Tasks do not survive exit, reload, session replacement, or branch navigation.

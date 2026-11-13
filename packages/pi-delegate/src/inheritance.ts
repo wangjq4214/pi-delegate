@@ -116,7 +116,8 @@ function resolveCliResource(path: string): string {
 }
 
 export function captureInheritance(
-	pi: Pick<ExtensionAPI, "getAllTools" | "getActiveTools" | "getCommands">,
+	pi: Pick<ExtensionAPI, "getAllTools" | "getActiveTools" | "getCommands"> &
+		Partial<Pick<ExtensionAPI, "events">>,
 	ctx: Pick<
 		ExtensionContext,
 		"cwd" | "model" | "thinkingLevel" | "isProjectTrusted"
@@ -130,9 +131,14 @@ export function captureInheritance(
 	requestedConfiguration?: TaskConfiguration;
 } {
 	const parsed = parseArgs(argv);
-	const tools = pi
-		.getAllTools()
-		.filter((tool) => !DELEGATION_TOOLS.includes(tool.name));
+	const excluded = new Set(DELEGATION_TOOLS);
+	pi.events?.emit("@wangjq4214/pi-delegate:parent-only-tools", {
+		version: 1,
+		add: (names: readonly string[]) => {
+			for (const name of names) excluded.add(name);
+		},
+	});
+	const tools = pi.getAllTools().filter((tool) => !excluded.has(tool.name));
 	const paths = new Set<string>();
 	const addSource = (path: string, owner: string) => {
 		if (path.startsWith("builtin:")) {
@@ -196,7 +202,7 @@ export function captureInheritance(
 	if (tools.length)
 		args.push("--tools", tools.map((tool) => tool.name).join(","));
 	else args.push("--no-tools");
-	args.push("--exclude-tools", DELEGATION_TOOLS.join(","));
+	args.push("--exclude-tools", [...excluded].join(","));
 	// Model IDs are not CLI patterns: the shared runner selects and verifies via exact RPC.
 	if (parsed.offline) args.push("--offline");
 	if (parsed.noContextFiles) args.push("--no-context-files");
@@ -223,9 +229,7 @@ export function captureInheritance(
 		snapshot: {
 			version: 1,
 			tools: tools.map(snapshotTool),
-			active: pi
-				.getActiveTools()
-				.filter((name) => !DELEGATION_TOOLS.includes(name)),
+			active: pi.getActiveTools().filter((name) => !excluded.has(name)),
 		},
 	};
 }

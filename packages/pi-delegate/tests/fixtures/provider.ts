@@ -237,6 +237,22 @@ export default function fixture(pi: ExtensionAPI): void {
 					stream.push({ type: "done", reason: "toolUse", message });
 					stream.end();
 				};
+				if (prompt.includes("exercise-parent-boundary")) {
+					if (!last) {
+						toolCall("fixture_parent_direct", {});
+						return;
+					}
+					if (last.toolName === "fixture_parent_direct") {
+						toolCall("tool_search", { query: "fixture_parent_deferred" });
+						return;
+					}
+					if (last.toolName === "tool_search") {
+						toolCall("codemode", {
+							code: "text(await tools.fixture_parent_deferred({}));",
+						});
+						return;
+					}
+				}
 				const currentResults = context.messages.slice(
 					user ? context.messages.indexOf(user) + 1 : 0,
 				);
@@ -317,6 +333,9 @@ export default function fixture(pi: ExtensionAPI): void {
 									prompt,
 									userCount: users.length,
 									lastResult: last?.content,
+									...(prompt.includes("exercise-parent-boundary")
+										? { boundaryResults: results }
+										: {}),
 									child: process.env.PI_DELEGATE_CHILD === "1",
 								});
 				message.content = [{ type: "text", text }];

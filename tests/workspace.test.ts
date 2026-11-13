@@ -36,7 +36,11 @@ test("the private Bun workspace contains independent delegate and UI extension p
 	expect(ui.files).toContain("dist");
 	expect(ui.files).not.toContain("extensions/");
 	for (const pkg of [delegate, ui]) {
-		expect(pkg.scripts.build).toBe("rolldown -c");
+		expect(pkg.scripts.build).toBe(
+			pkg === delegate
+				? "rolldown -c && tsc -p tsconfig.api.json"
+				: "rolldown -c",
+		);
 		expect(pkg.scripts["build:watch"]).toBe("rolldown -c --watch");
 		expect(pkg.scripts.prepack).toBe("bun run build");
 		expect(pkg.scripts.start).toBe("pi -e ./dist/index.js");

@@ -18,6 +18,13 @@
 		"access": "public"
 	},
 	"type": "module",
+	"exports": {
+		"./api": {
+			"types": "./dist/api.d.ts",
+			"import": "./dist/api.js",
+			"default": "./dist/api.js"
+		}
+	},
 	"description": "A Pi extension for parent-only RPC subagent delegation.",
 	"keywords": [
 		"pi-package"
@@ -35,7 +42,7 @@
 		]
 	},
 	"scripts": {
-		"build": "rolldown -c",
+		"build": "rolldown -c && tsc -p tsconfig.api.json",
 		"build:watch": "rolldown -c --watch",
 		"dev": "pi -e ./src/index.ts",
 		"start": "pi -e ./dist/index.js",

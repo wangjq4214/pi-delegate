@@ -93,7 +93,7 @@ This is a tool-registration boundary, not an operating-system sandbox. A child w
 
 ### Synchronous tasks
 
-The initiating delegation call owns the child. Cancelling that call or shutting down the parent session terminates the child and cleans up owned initialization resources.
+The initiating delegation call owns the child. Cancelling that call, branch-changing navigation or shutting down the parent session terminates the child and cleans up owned initialization resources. The supported [public consumer API](api.md) uses this same path; its caller owns the supplied AbortSignal.
 
 Synchronous tasks have scope-local read-only query IDs and retained results. The record does not own a second controller, extend the call's lifetime or send completion notifications. Task-addressed cancellation/steering against these IDs rejects without aborting the initiating call.
 

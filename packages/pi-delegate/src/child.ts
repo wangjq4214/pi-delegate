@@ -13,6 +13,19 @@ import {
 } from "./initialization-progress.ts";
 
 export function registerChild(pi: ExtensionAPI): void {
+	// Source and bundled copies may both be replayed from the parent's CLI.
+	if (pi.events) {
+		const channel = "@wangjq4214/pi-delegate:child-registration";
+		let registered = false;
+		pi.events.emit(channel, () => {
+			registered = true;
+		});
+		if (registered) return;
+		const off = pi.events.on(channel, (reply) => {
+			if (typeof reply === "function") reply();
+		});
+		pi.on("session_shutdown", off);
+	}
 	const path = process.env[SNAPSHOT_ENV];
 	const report = createInitializationProgressReporter(path);
 	pi.registerCommand(INIT_COMMAND, {
