@@ -21,6 +21,7 @@ export default function fixture(pi: ExtensionAPI): void {
 	if (!logs) throw new Error("Missing isolated GOAL_HOST_LOGS");
 	const child = process.env.PI_DELEGATE_CHILD === "1";
 	let calls = 0;
+	let lastDraft = false;
 	const trace = (type: string, data: object = {}) =>
 		appendFileSync(
 			join(logs, `${process.pid}.jsonl`),
@@ -39,6 +40,7 @@ export default function fixture(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", () => trace("shutdown"));
 	pi.on("agent_before_settle", (e) => {
 		trace("boundary", {
+			draft: lastDraft,
 			outcome: e.outcome,
 			canContinue: e.context.canContinue,
 			continue: e.continue,
@@ -49,6 +51,7 @@ export default function fixture(pi: ExtensionAPI): void {
 	pi.on("agent_before_settle", async (e) => {
 		if (
 			child ||
+			lastDraft ||
 			process.env.GOAL_HOST_SCENARIO !== "boundary-pause" ||
 			!e.continue
 		)
@@ -61,7 +64,26 @@ export default function fixture(pi: ExtensionAPI): void {
 		}
 		trace("boundary-released", { continue: e.continue });
 	});
-	pi.on("agent_settled", (e) => trace("settled", { aborted: e.aborted }));
+	pi.on("agent_settled", (e) =>
+		trace("settled", { aborted: e.aborted, draft: lastDraft }),
+	);
+	pi.on("agent_before_settle", async (e) => {
+		if (
+			child ||
+			!lastDraft ||
+			!e.continue ||
+			process.env.GOAL_HOST_SCENARIO !== "creation-boundary-hold"
+		)
+			return;
+		trace("creation-boundary-held");
+		const deadline = Date.now() + 25000;
+		while (!existsSync(join(logs, "creation-boundary.release"))) {
+			if (Date.now() > deadline)
+				throw new Error("Creation boundary release timed out");
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+		trace("creation-boundary-released");
+	});
 	pi.on("tool_execution_end", (e) =>
 		trace("tool-end", {
 			name: e.toolName,
@@ -166,6 +188,30 @@ export default function fixture(pi: ExtensionAPI): void {
 					partial: message,
 				});
 				message.stopReason = "toolUse";
+				if (
+					!child &&
+					name === "goal_propose" &&
+					process.env.GOAL_HOST_SCENARIO === "mixed-creation"
+				) {
+					const sibling: ToolCall = {
+						type: "toolCall",
+						id: `host-${call}-status`,
+						name: "goal_status",
+						arguments: {},
+					};
+					message.content.push(sibling);
+					stream.push({
+						type: "toolcall_start",
+						contentIndex: 1,
+						partial: message,
+					});
+					stream.push({
+						type: "toolcall_end",
+						contentIndex: 1,
+						toolCall: sibling,
+						partial: message,
+					});
+				}
 				stream.push({ type: "done", reason: "toolUse", message });
 				stream.end();
 			};
@@ -197,8 +243,17 @@ export default function fixture(pi: ExtensionAPI): void {
 					const results = context.messages.filter(
 						(m) => m.role === "toolResult",
 					);
+					const draftContext = context.messages
+						.map(textOf)
+						.filter((value) =>
+							value.startsWith("Goal creation discussion only:"),
+						)
+						.at(-1);
+					lastDraft = Boolean(draftContext);
 					trace("model", {
 						call,
+						draft: lastDraft,
+						draftId: draftContext?.match(/Draft ID: ([^\n]+)/)?.[1],
 						users,
 						tools: getCurrentTools(context.messages).map((t) => t.name),
 						results: results.map((m) => ({
@@ -243,12 +298,12 @@ export default function fixture(pi: ExtensionAPI): void {
 						if (call === 0)
 							invoke("tool_search", {
 								query:
-									"goal_status goal_plan goal_work goal_accept goal_review goal_reinspect goal_block",
+									"goal_propose goal_status goal_plan goal_work goal_accept goal_review goal_reinspect goal_block",
 								limit: 50,
 							});
 						else if (call === 1)
 							invoke("codemode", {
-								code: 'const names = ["goal_status","goal_plan","goal_work","goal_accept","goal_review","goal_reinspect","goal_block"]; text({ registered: ALL_TOOLS.filter(t => names.includes(t.name)), search: await searchTools("goal", {limit:100}), attempts: await Promise.all(names.map(async n => { try { await tools[n]({}); return {name:n, reachable:true}; } catch(e) { return {name:n, reachable:false, error:String(e)}; } })) });',
+								code: 'const names = ["goal_propose","goal_status","goal_plan","goal_work","goal_accept","goal_review","goal_reinspect","goal_block"]; text({ registered: ALL_TOOLS.filter(t => names.includes(t.name)), search: await searchTools("goal", {limit:100}), attempts: await Promise.all(names.map(async n => { try { await tools[n]({}); return {name:n, reachable:true}; } catch(e) { return {name:n, reachable:false, error:String(e)}; } })) });',
 							});
 						else if (call === 2) invoke("host_evidence", { write: !reviewer });
 						else {
@@ -278,6 +333,36 @@ export default function fixture(pi: ExtensionAPI): void {
 						)
 							invoke(request.name, request.args ?? {});
 						else respond("call finished");
+						return;
+					}
+					if (draftContext) {
+						const supplied = users
+							.filter(
+								(value) => !value.startsWith("Goal creation discussion only:"),
+							)
+							.map(
+								(value) =>
+									value.match(/Allow at most (\d+) goal dispatches\./)?.[1],
+							)
+							.filter(Boolean)
+							.at(-1);
+						if (!supplied)
+							respond(
+								"What positive integer allowance should this goal use? Clarification is ordinary chat; nothing has started.",
+							);
+						else {
+							const proposed = {
+								draftId: draftContext.match(/Draft ID: ([^\n]+)/)?.[1] ?? "",
+								objective: "Create and independently verify artifact.txt",
+								criteria: ["artifact.txt contains goal artifact verified"],
+								allowance: Number(supplied),
+							};
+							if (process.env.GOAL_HOST_SCENARIO === "codemode-creation")
+								invoke("codemode", {
+									code: `text(await tools.goal_propose(${JSON.stringify(proposed)}));`,
+								});
+							else invoke("goal_propose", proposed);
+						}
 						return;
 					}
 					if (

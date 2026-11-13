@@ -11,10 +11,7 @@ import {
 } from "./fixtures/host.ts";
 
 async function launchGoal(host: Host, allowance = 5) {
-	await host.prompt(
-		`/goal ${JSON.stringify({ objective: "Create and independently verify artifact.txt", criteria: ["artifact.txt contains goal artifact verified"], allowance })}`,
-		false,
-	);
+	await host.start(allowance, false);
 }
 async function held(host: Host, reviewer = false) {
 	return required(
@@ -78,7 +75,9 @@ for (const scenario of ["hold", "review-hold"] as const) {
 			const attempts = host.state().attempts.length;
 			const status = await host.call("delegate_status", { taskId: ordinaryId });
 			expect(status.details.status).toBe("running");
-			const before = host.trace().filter((e) => e.type === "model").length;
+			const before = host
+				.trace()
+				.filter((e) => e.type === "model" && !e.draft).length;
 			await writeFile(join(host.logs, `${unrelated.pid}.release`), "release");
 			await eventually(
 				() => host.trace(unrelated.pid).some((e) => e.type === "shutdown"),
@@ -86,9 +85,9 @@ for (const scenario of ["hold", "review-hold"] as const) {
 				"ordinary background cleanup",
 			);
 			await Bun.sleep(100);
-			expect(host.trace().filter((e) => e.type === "model")).toHaveLength(
-				before,
-			); // no unsolicited ordinary-result wake
+			expect(
+				host.trace().filter((e) => e.type === "model" && !e.draft),
+			).toHaveLength(before); // no unsolicited ordinary-result wake
 			expect(host.state().attempts).toHaveLength(attempts);
 			const wait = await host.call("delegate_wait", {
 				taskIds: [ordinaryId],
@@ -159,7 +158,9 @@ test("SOURCE orderly host shutdown cancels actual work; fresh host only inspects
 		const count = host.children().length;
 		await host.launch();
 		await Bun.sleep(100);
-		expect(host.trace().filter((e) => e.type === "model")).toHaveLength(0);
+		expect(
+			host.trace().filter((e) => e.type === "model" && !e.draft),
+		).toHaveLength(0);
 		expect(host.children()).toHaveLength(count);
 		const result = await host.call("goal_status", { id: saved.id });
 		expect(result.details.runtimeActive).toBe(false);
@@ -187,7 +188,9 @@ for (const built of [false, true]) {
 					),
 				).toBe(true);
 				await host.cleaned();
-				const calls = host.trace().filter((e) => e.type === "model").length;
+				const calls = host
+					.trace()
+					.filter((e) => e.type === "model" && !e.draft).length;
 				const attempts = host.state().attempts.length;
 				expect(host.state().run?.used).toBe(3); // initial coordinator, worker, proposed coordinator
 				expect(host.children()).toHaveLength(1);
@@ -196,16 +199,17 @@ for (const built of [false, true]) {
 				await writeFile(join(host.logs, "boundary.release"), "release");
 				await waitIdle(host);
 				await eventually(
-					() => host.trace().filter((e) => e.type === "settled"),
+					() => host.trace().filter((e) => e.type === "settled" && !e.draft),
 					(e) => e.length === 1,
 					"single final settlement",
 				);
 				await Bun.sleep(150);
-				expect(host.trace().filter((e) => e.type === "model")).toHaveLength(
-					calls,
-				);
 				expect(
-					host.trace().filter((e) => e.type === "settled")[0]?.aborted,
+					host.trace().filter((e) => e.type === "model" && !e.draft),
+				).toHaveLength(calls);
+				expect(
+					host.trace().filter((e) => e.type === "settled" && !e.draft)[0]
+						?.aborted,
 				).toBe(true);
 				expect(host.state().attempts).toHaveLength(attempts);
 				expect(host.state().run?.used).toBe(3);

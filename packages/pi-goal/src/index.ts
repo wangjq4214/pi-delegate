@@ -10,9 +10,15 @@ import {
 	registerParentOnlyTools,
 } from "@wangjq4214/pi-delegate/api";
 import { allowanceValue, GoalController } from "./controller.ts";
+import {
+	confirmationText,
+	GoalCreation,
+	type GoalProposal,
+} from "./creation.ts";
 import { GoalStore } from "./store.ts";
 
 export const GOAL_TOOLS = [
+	"goal_propose",
 	"goal_status",
 	"goal_plan",
 	"goal_work",
@@ -27,11 +33,17 @@ export default function goal(pi: ExtensionAPI): void {
 	registerParentOnlyTools(pi, GOAL_TOOLS);
 	const store = new GoalStore(join(getAgentDir(), "goals"));
 	let context: ExtensionContext | undefined;
+	const creation = new GoalCreation();
+	let activating: GoalProposal | undefined;
+	const clearDraft = () => {
+		creation.cancel();
+	};
 	const controller = new GoalController(store, (input, signal) => {
 		if (!context) throw new Error("No current parent context is available");
 		return getDelegateClient(pi).execute(input, context, signal);
 	});
 	const report = () => ({
+		draft: creation.status(),
 		state: controller.status(),
 		runtimeActive: controller.active,
 		reinspectionRequired: controller.needsReinspection,
@@ -56,7 +68,10 @@ export default function goal(pi: ExtensionAPI): void {
 
 	// Retain ownership until the host admits the run, not merely until our handler returns.
 	let pendingCoordinator = false;
+	let initialCoordinatorCharged = false;
 	const pause = (ctx: ExtensionContext, reason?: string): Promise<void> => {
+		initialCoordinatorCharged = false;
+		clearDraft();
 		const cleanup = controller.pause(reason); // Revoke authority synchronously first.
 		if (pendingCoordinator) {
 			pendingCoordinator = false;
@@ -67,6 +82,135 @@ export default function goal(pi: ExtensionAPI): void {
 		return cleanup;
 	};
 
+	const dispatchInitial = async (
+		ctx: ExtensionContext,
+		current = () => true,
+	) => {
+		const checkpoint = await controller.coordination();
+		if (!checkpoint || !controller.active) return;
+		if (!current() || !ctx.isIdle()) {
+			await pause(
+				ctx,
+				"Goal authorization changed or parent became busy before initial dispatch",
+			);
+			return;
+		}
+		pendingCoordinator = true;
+		pi.sendMessage(
+			{
+				customType: "pi-goal:continue",
+				content: `Coordinate goal ${controller.status()?.id}. Use the current goal context.`,
+				display: false,
+			},
+			{ triggerTurn: true },
+		);
+	};
+	const activate = async (
+		proposal: GoalProposal,
+		ctx: ExtensionContext,
+		signal: AbortSignal,
+	) => {
+		getDelegateClient(pi);
+		activating = proposal;
+		// Keep confirmation and persistence inside the live native tool run. An
+		// approval must never outlive that run while waiting for an idle callback.
+		const abort = () => {
+			void pause(ctx, "Goal activation was interrupted").catch((error) =>
+				notice(ctx, error),
+			);
+		};
+		signal.addEventListener("abort", abort, { once: true });
+		try {
+			signal.throwIfAborted();
+			const input = creation.consume(proposal, ctx.cwd);
+			await controller.create(input);
+			if (signal.aborted || !creation.isCurrent(proposal, ctx.cwd)) {
+				await pause(ctx, "Goal draft changed during activation");
+				throw new Error("Goal activation was invalidated");
+			}
+			// Meter before returning authority to sibling tools or codemode. A nested
+			// terminate flag is not guaranteed to end the outer native tool batch.
+			const checkpoint = await controller.coordination();
+			if (
+				!checkpoint ||
+				signal.aborted ||
+				!creation.isCurrent(proposal, ctx.cwd)
+			) {
+				await pause(ctx, "Initial goal coordination was invalidated");
+				throw new Error("Initial goal coordination was invalidated");
+			}
+			initialCoordinatorCharged = true;
+		} catch (error) {
+			if (activating === proposal)
+				await pause(ctx, "Confirmed goal activation failed");
+			throw error;
+		} finally {
+			signal.removeEventListener("abort", abort);
+			if (activating === proposal) activating = undefined;
+		}
+	};
+
+	pi.registerTool({
+		name: "goal_propose",
+		label: "Confirm a goal draft",
+		description:
+			"Submit the current conversational goal draft after obtaining an explicit allowance from the user. Shows a runtime-owned Start/Cancel choice; proposed data and chat assent do not authorize execution. Never dispatch work during drafting.",
+		executionMode: "sequential",
+		parameters: Type.Object({
+			draftId: Type.String({ minLength: 1 }),
+			objective: Type.String({ minLength: 1 }),
+			criteria: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+			allowance: Type.Integer({ minimum: 1 }),
+		}),
+		async execute(_id, params, signal, _update, ctx) {
+			context = ctx;
+			let proposal: GoalProposal | undefined;
+			let approved = false;
+			try {
+				signal?.throwIfAborted();
+				if (controller.active || activating)
+					throw new Error("Pause the current goal before proposing another");
+				if (!creation.status())
+					throw new Error("Use /goal <objective> to begin a goal discussion");
+				proposal = creation.prepare(params.draftId, params, ctx.cwd);
+				if (!ctx.hasUI)
+					throw new Error(
+						"User confirmation UI is unavailable; the goal has not started",
+					);
+				const cancellation = signal
+					? AbortSignal.any([signal, proposal.signal])
+					: proposal.signal;
+				const choice = await ctx.ui.select(
+					confirmationText(proposal),
+					["Start", "Cancel"],
+					{ signal: cancellation },
+				);
+				cancellation.throwIfAborted();
+				if (choice !== "Start") {
+					if (creation.isCurrent(proposal, ctx.cwd)) clearDraft();
+					return {
+						...result({
+							started: false,
+							reason:
+								"Goal creation cancelled. Use /goal <objective> to discuss another draft.",
+						}),
+						terminate: true,
+					};
+				}
+				creation.approve(proposal, ctx.cwd);
+				approved = true;
+				await activate(proposal, ctx, cancellation);
+				clearDraft();
+				// End the draft tool run. The existing metered actionable boundary
+				// admits the first coordinator, just as it admits later continuations.
+				return { ...result({ started: true, ...report() }), terminate: true };
+			} catch (error) {
+				if (approved || proposal?.signal.aborted || signal?.aborted)
+					return { ...errorResult(error), terminate: true };
+				return errorResult(error);
+			}
+		},
+	});
 	pi.registerTool({
 		name: "goal_status",
 		label: "Goal status",
@@ -150,6 +294,10 @@ export default function goal(pi: ExtensionAPI): void {
 			signal?.addEventListener("abort", abort, { once: true });
 			try {
 				signal?.throwIfAborted();
+				if (activating)
+					throw new Error(
+						"Goal creation is still settling; wait before dispatching work or review",
+					);
 				await controller.work({
 					...params,
 					thinkingLevel: params.thinkingLevel as Parameters<
@@ -203,6 +351,10 @@ export default function goal(pi: ExtensionAPI): void {
 			signal?.addEventListener("abort", abort, { once: true });
 			try {
 				signal?.throwIfAborted();
+				if (activating)
+					throw new Error(
+						"Goal creation is still settling; wait before dispatching work or review",
+					);
 				await controller.review();
 				return result(report());
 			} catch (error) {
@@ -245,10 +397,10 @@ export default function goal(pi: ExtensionAPI): void {
 
 	pi.registerCommand("goal", {
 		description:
-			"Goal: JSON {objective,criteria,allowance}, status [id], list, pause, or resume <id> <allowance>",
+			"Goal: <natural-language objective>, status [id], list, pause, or resume <id> <allowance>",
 		async handler(args, ctx) {
 			context = ctx;
-			let started = false;
+			let resumed = false;
 			try {
 				const input = args.trim();
 				if (!input || input === "status") {
@@ -285,7 +437,10 @@ export default function goal(pi: ExtensionAPI): void {
 					throw new Error(
 						"Start or resume a goal only when the parent is idle",
 					);
+				if (controller.active || activating)
+					throw new Error("Pause the current goal before starting another");
 				getDelegateClient(pi);
+				clearDraft();
 				if (input.startsWith("resume ")) {
 					const parts = input.split(/\s+/);
 					if (parts.length !== 3)
@@ -295,60 +450,37 @@ export default function goal(pi: ExtensionAPI): void {
 						allowanceValue(Number(parts[2])),
 						ctx.cwd,
 					);
+					resumed = true;
+					await dispatchInitial(ctx);
 				} else {
-					const value = JSON.parse(input) as {
-						objective: string;
-						criteria: string[];
-						allowance: number;
-					};
-					if (!value || typeof value !== "object")
-						throw new Error(
-							"Expected goal JSON {objective, criteria, allowance}",
-						);
-					await controller.create({
-						...value,
-						cwd: ctx.cwd,
-						allowance: allowanceValue(value.allowance),
-					});
+					creation.begin(input, ctx.cwd);
+					pi.sendUserMessage(
+						`Discuss this goal draft; do not execute it yet:\n${input}`,
+					);
 				}
-				started = true;
-				const checkpoint = await controller.coordination();
-				if (!checkpoint || !controller.active) return;
-				if (!ctx.isIdle()) {
-					await pause(ctx, "Parent became busy before initial goal dispatch");
-					return;
-				}
-				pendingCoordinator = true;
-				pi.sendMessage(
-					{
-						customType: "pi-goal:continue",
-						content: `Coordinate goal ${controller.status()?.id}. Use the current goal context.`,
-						display: false,
-					},
-					{ triggerTurn: true },
-				);
 			} catch (error) {
-				if (started && controller.active) {
-					try {
-						await pause(ctx, "Initial goal dispatch failed");
-					} catch (cleanupError) {
-						notice(ctx, cleanupError);
-					}
-				}
+				if (resumed && controller.active)
+					await pause(ctx, "Initial goal dispatch failed");
 				notice(ctx, error);
 			}
 		},
 	});
 
+	pi.on("input", async (_event, ctx) => {
+		creation.invalidate();
+		if (activating)
+			await pause(ctx, "New user input invalidated pending goal activation");
+	});
 	pi.on("context", async (event) => {
-		if (!controller.active) return;
+		const prompt = controller.active ? controller.prompt() : creation.prompt();
+		if (!prompt) return;
 		return {
 			messages: [
 				...event.messages,
 				{
 					role: "custom" as const,
 					customType: "pi-goal:context",
-					content: controller.prompt(),
+					content: prompt,
 					display: false,
 					timestamp: Date.now(),
 				},
@@ -356,13 +488,17 @@ export default function goal(pi: ExtensionAPI): void {
 		};
 	});
 	pi.on("agent_before_settle", async (event, ctx) => {
+		if (event.outcome !== "completed") creation.invalidate();
 		if (!controller.active) return;
 		try {
 			if (event.outcome !== "completed") {
 				await pause(ctx, `Parent ended: ${event.outcome}`);
 				return;
 			}
-			const checkpoint = await controller.coordination();
+			const checkpoint = initialCoordinatorCharged
+				? controller.prompt()
+				: await controller.coordination();
+			initialCoordinatorCharged = false;
 			if (!checkpoint || !controller.active) return;
 			// canContinue describes the old projection; our new user-role draft enables it.
 			pendingCoordinator = true;
@@ -381,6 +517,11 @@ export default function goal(pi: ExtensionAPI): void {
 		} catch (error) {
 			notice(ctx, error);
 		}
+	});
+	pi.on("turn_start", () => {
+		// A mixed batch or codemode may continue straight into a model turn,
+		// consuming the precharged initial coordinator without a host boundary.
+		initialCoordinatorCharged = false;
 	});
 	pi.on("agent_start", () => {
 		pendingCoordinator = false;
@@ -402,6 +543,8 @@ export default function goal(pi: ExtensionAPI): void {
 				"Committed branch navigation invalidated goal execution",
 			);
 	});
+	pi.on("session_before_switch", clearDraft);
+	pi.on("session_before_fork", clearDraft);
 	pi.on("session_shutdown", async (_event, ctx) => {
 		await pause(ctx, "Session runtime stopped; resume explicitly");
 		pendingCoordinator = false;

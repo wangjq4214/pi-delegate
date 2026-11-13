@@ -22,6 +22,7 @@ export function required<T>(
 export const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const goal = join(root, "packages/pi-goal");
 export const names = [
+	"goal_propose",
 	"goal_status",
 	"goal_plan",
 	"goal_work",
@@ -35,6 +36,9 @@ export interface Options {
 	goalFirst?: boolean;
 	scenario?:
 		| "complete"
+		| "mixed-creation"
+		| "codemode-creation"
+		| "creation-boundary-hold"
 		| "boundary"
 		| "boundary-pause"
 		| "idle"
@@ -43,6 +47,7 @@ export interface Options {
 	reject?: boolean;
 	defaultRoot?: boolean;
 	noDelegate?: boolean;
+	confirmation?: "Start" | "Cancel" | "dismiss" | "hold";
 }
 export async function eventually<T>(
 	observe: () => T | Promise<T>,
@@ -64,6 +69,11 @@ export class Host {
 	readonly cwd: string;
 	readonly agentDir: string;
 	parent!: RpcProcess;
+	readonly confirmations: {
+		title: string;
+		options: string[];
+		answer(value?: string): void;
+	}[] = [];
 	constructor(
 		readonly temp: string,
 		readonly options: Options,
@@ -158,6 +168,37 @@ export class Host {
 					PI_DELEGATE_SNAPSHOT: undefined,
 				},
 			},
+			undefined,
+			async (request) => {
+				if (
+					request.method !== "select" ||
+					!request.title?.startsWith("Start this goal?")
+				)
+					return undefined;
+				return new Promise((resolve) => {
+					const answer = (value?: string) =>
+						resolve(
+							value === undefined
+								? {
+										type: "extension_ui_response",
+										id: request.id,
+										cancelled: true,
+									}
+								: { type: "extension_ui_response", id: request.id, value },
+						);
+					this.confirmations.push({
+						title: request.title ?? "",
+						options: request.options ?? [],
+						answer,
+					});
+					if (this.options.confirmation !== "hold")
+						answer(
+							this.options.confirmation === "dismiss"
+								? undefined
+								: (this.options.confirmation ?? "Start"),
+						);
+				});
+			},
 		);
 		this.parent.subscribe((e) => this.events.push(e));
 		try {
@@ -225,9 +266,28 @@ export class Host {
 			);
 		return result;
 	}
-	async start(allowance: number) {
+	async start(allowance: number, settle = true) {
 		await this.prompt(
-			`/goal ${JSON.stringify({ objective: "Create and independently verify artifact.txt", criteria: ["artifact.txt contains goal artifact verified"], allowance })}`,
+			`/goal Create and independently verify artifact.txt; acceptance: artifact.txt contains goal artifact verified. Allow at most ${allowance} goal dispatches.`,
+			false,
+		);
+		await eventually(
+			async () => {
+				try {
+					const state = this.state();
+					const parent = await this.parent.request<{ isStreaming: boolean }>(
+						"get_state",
+					);
+					return Boolean(
+						state.run &&
+							(!settle || (state.status !== "active" && !parent.isStreaming)),
+					);
+				} catch {
+					return false;
+				}
+			},
+			Boolean,
+			"confirmed goal activates and reaches the requested boundary",
 		);
 	}
 	journalPath(): string {

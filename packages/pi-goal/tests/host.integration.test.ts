@@ -28,7 +28,9 @@ function assertChildIsolation(host: Host) {
 			expect(child.active).not.toContain(name);
 		}
 		expect(child.commands).not.toContain("goal");
-		const models = host.trace(child.pid).filter((e) => e.type === "model");
+		const models = host
+			.trace(child.pid)
+			.filter((e) => e.type === "model" && !e.draft);
 		expect(models).toHaveLength(4);
 		for (const m of models)
 			for (const name of names) expect(m.tools).not.toContain(name);
@@ -162,7 +164,9 @@ for (const built of [false, true]) {
 					"coordinator",
 					"reviewer",
 				]);
-				const boundaries = host.trace().filter((e) => e.type === "boundary");
+				const boundaries = host
+					.trace()
+					.filter((e) => e.type === "boundary" && !e.draft);
 				expect(
 					boundaries.filter((e) =>
 						e.entries.some(
@@ -172,9 +176,9 @@ for (const built of [false, true]) {
 						),
 					),
 				).toHaveLength(1);
-				expect(host.trace().filter((e) => e.type === "settled")).toHaveLength(
-					1,
-				);
+				expect(
+					host.trace().filter((e) => e.type === "settled" && !e.draft),
+				).toHaveLength(1);
 			},
 		);
 	}, 120000);
@@ -192,9 +196,13 @@ test("SOURCE worker consumes last dispatch; no reviewer child, late wake or relo
 		]);
 		expect(saved.run?.used).toBe(2);
 		expect(host.children()).toHaveLength(1);
-		const calls = host.trace().filter((e) => e.type === "model").length;
+		const calls = host
+			.trace()
+			.filter((e) => e.type === "model" && !e.draft).length;
 		await Bun.sleep(150);
-		expect(host.trace().filter((e) => e.type === "model")).toHaveLength(calls);
+		expect(
+			host.trace().filter((e) => e.type === "model" && !e.draft),
+		).toHaveLength(calls);
 		await host.prompt("/host-reload", false);
 		await eventually(
 			() => host.trace().filter((e) => e.type === "start").length,
@@ -202,7 +210,9 @@ test("SOURCE worker consumes last dispatch; no reviewer child, late wake or relo
 			"native reload completes",
 		);
 		expect(host.state()).toEqual(saved);
-		expect(host.trace().filter((e) => e.type === "model")).toHaveLength(calls);
+		expect(
+			host.trace().filter((e) => e.type === "model" && !e.draft),
+		).toHaveLength(calls);
 		const status = await host.call("goal_status", { id: saved.id });
 		expect(status.details.runtimeActive).toBe(false);
 		expect(status.details.state.run.used).toBe(2);
@@ -229,7 +239,9 @@ for (const built of [false, true]) {
 				await host.start(2);
 				expect(host.state().status).toBe("paused");
 				expect(host.state().run).toMatchObject({ allowance: 2, used: 2 });
-				expect(host.trace().filter((e) => e.type === "model")).toHaveLength(2);
+				expect(
+					host.trace().filter((e) => e.type === "model" && !e.draft),
+				).toHaveLength(2);
 				expect(host.children()).toHaveLength(0);
 				expect(
 					host
@@ -252,9 +264,13 @@ test("SOURCE torn global journal inspection/resume fails closed with no new exec
 		expect(text(status)).toMatch(
 			/recover|journal|tail|incomplete|unterminated/i,
 		);
-		const calls = host.trace().filter((e) => e.type === "model").length;
+		const calls = host
+			.trace()
+			.filter((e) => e.type === "model" && !e.draft).length;
 		await host.prompt(`/goal resume ${saved.id} 2`, false);
-		expect(host.trace().filter((e) => e.type === "model")).toHaveLength(calls);
+		expect(
+			host.trace().filter((e) => e.type === "model" && !e.draft),
+		).toHaveLength(calls);
 		expect(readFileSync(host.journalPath(), "utf8")).toBe(
 			`${before}{"type":"checkpoint"`,
 		);
@@ -262,12 +278,9 @@ test("SOURCE torn global journal inspection/resume fails closed with no new exec
 	});
 }, 60000);
 
-test("SOURCE missing integration, invalid initial JSON allowance and global storage failures never launch work", async () => {
+test("SOURCE missing integration, missing allowance and global storage failures never launch execution", async () => {
 	await withHost({ noDelegate: true, scenario: "idle" }, async (host) => {
-		await host.prompt(
-			'/goal {"objective":"fixture","criteria":["condition"],"allowance":2}',
-			false,
-		);
+		await host.prompt("/goal Create the fixture artifact", false);
 		expect(
 			host.events.some(
 				(e) =>
@@ -275,36 +288,39 @@ test("SOURCE missing integration, invalid initial JSON allowance and global stor
 					String(e.message).includes("Missing pi-delegate runtime"),
 			),
 		).toBe(true);
-		expect(host.trace().filter((e) => e.type === "model")).toHaveLength(0);
+		expect(
+			host.trace().filter((e) => e.type === "model" && !e.draft),
+		).toHaveLength(0);
 		expect(existsSync(join(host.agentDir, "goals"))).toBe(false);
 	});
 	await withHost({ scenario: "idle" }, async (host) => {
-		await host.prompt(
-			'/goal {"objective":"fixture","criteria":["condition"]}',
-			false,
-		);
+		await host.prompt("/goal Create the fixture artifact");
+		expect(host.confirmations).toHaveLength(0);
 		expect(
-			host.events.some(
-				(e) =>
-					e.type === "extension_ui_request" &&
-					String(e.message).includes("explicit positive safe integer"),
-			),
-		).toBe(true);
-		expect(host.trace().filter((e) => e.type === "model")).toHaveLength(0);
+			host.trace().filter((e) => e.type === "model" && e.draft),
+		).toHaveLength(1);
 		expect(existsSync(join(host.agentDir, "goals"))).toBe(false);
 		await writeFile(join(host.agentDir, "goals"), "blocked global namespace");
-		await host.prompt(
-			'/goal {"objective":"fixture","criteria":["condition"],"allowance":1}',
-			false,
+		await host.prompt("Allow at most 1 goal dispatches.");
+		await eventually(
+			() =>
+				host
+					.trace()
+					.some(
+						(e) =>
+							e.type === "tool-end" &&
+							e.name === "goal_propose" &&
+							e.isError &&
+							/EEXIST|ENOTDIR|not a directory/i.test(JSON.stringify(e.result)),
+					),
+			Boolean,
+			"storage error after confirmed draft",
 		);
+		expect(host.confirmations).toHaveLength(1);
 		expect(
-			host.events.some(
-				(e) =>
-					e.type === "extension_ui_request" &&
-					/EEXIST|ENOTDIR|not a directory/i.test(String(e.message)),
-			),
-		).toBe(true);
-		expect(host.trace().filter((e) => e.type === "model")).toHaveLength(0);
+			host.trace().filter((e) => e.type === "model" && !e.draft),
+		).toHaveLength(0);
+		expect(host.children()).toHaveLength(0);
 		expect(readFileSync(join(host.agentDir, "goals"), "utf8")).toBe(
 			"blocked global namespace",
 		);

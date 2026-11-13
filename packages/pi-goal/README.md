@@ -24,16 +24,22 @@ For source development, load both `src/index.ts` paths instead. Build delegate f
 
 ## Commands
 
-Create and start only when the parent is idle, with explicit acceptance criteria and a finite allowance:
+Begin a goal discussion while the parent is idle, using natural language:
 
 ```text
-/goal {"objective":"Fix the parser regression","criteria":["The supplied reproduction passes","Existing parser tests pass"],"allowance":12}
+/goal Fix the parser regression and ensure the reproduction and existing parser tests pass
 /goal status
 /goal list
 /goal status <goal-id>
 /goal pause
 /goal resume <goal-id> 8
 ```
+
+The current parent agent organizes the objective and acceptance conditions, asking only about necessary ambiguity or missing information. Supply an explicit positive integer allowance in the request or a follow-up, for example, `Allow at most 12 goal dispatches.` There is no numeric default. Draft discussion is ordinary chat with normal model usage; it does not activate a goal, dispatch workers/reviewers or enter automatic continuation.
+
+When the draft is ready, a native **Start / Cancel** selection displays the objective, acceptance conditions, allowance and working directory. Only choosing **Start** authorizes that displayed draft. Chat replies such as “go ahead” and model-generated approval fields are not substitutes. After confirmation the runtime rechecks and activates the displayed draft inside the live creation-tool invocation, so native abort still covers activation. The existing metered turn boundary admits the first coordinator after the draft tool finishes; no detached approval waits for an idle callback. Cancel/dismissal, new input, draft changes, pause, abort or scope teardown invalidate pending confirmation; late answers cannot start an outdated draft. Use `/goal pause` to discard a pending draft. Drafts are session-local and are not saved as active goals.
+
+Structured JSON remains an internal tool/storage representation, not a user-facing creation requirement or an approval shortcut. Confirmation requires a dialog-capable TUI or participating RPC client; unavailable or unanswered confirmation never silently starts execution.
 
 The numbers are examples, not defaults. `/goal list` lists globally saved records; a saved `active` status is **not proof of a live process**. Start/resume never silently replaces another active goal; pause it first.
 
@@ -49,6 +55,7 @@ Pause revokes new scheduling immediately, requests cancellation of only goal-own
 
 | Tool | Responsibility |
 | --- | --- |
+| `goal_propose` | Submit the current draft's objective, conditions and explicit user-supplied allowance for native Start/Cancel confirmation. Parent-only proposal data is not user authorization. |
 | `goal_status` | Read current runtime state or a saved global goal by ID. |
 | `goal_plan` | Upsert logical work items with acceptance conditions and a checkpoint. |
 | `goal_work` | Run one planned item through the shared delegate runtime, optionally selecting model/thinking level and a per-worker time/turn budget. |
