@@ -46,6 +46,18 @@ The shared runner owns abort, bounded best-effort final-entry readback and proce
 
 The terminal result retains effective limits and an explicit `budgetStop` cause/dimension/configured limit/observed seconds or count. Observed text deltas and message-end text are retained through shutdown and labelled partial, using existing preview/full-output artifacts. Reported streaming/tool usage is retained when final readback fails; readable entries replace corresponding observations rather than adding them twice, with additional available observations retained. Budget-cancelled usage may still be partial. Retained results/queries are observations, not new usage contributions; background usage stays separate from parent totals.
 
+Manual `AbortSignal` cancellation uses the same shared runner retention path,
+without inventing a budget-stop cause or requesting a wrap-up generation. Results
+remain cancelled/errors, with available assistant text labelled partial and
+reported usage conservatively marked possibly partial, even when no text/usage
+was observed. Observation continues through owned bounded process cleanup; manual
+cancellation does not add final-entry readback after the transport has closed.
+Cancellation retention is limited to a 256 Ki UTF-16-code-unit assistant-text
+prefix, plus an explicit notice if later text was omitted. Thinking, tool logs and
+session entries are not copied. Normal successful final-answer collection is not
+capped by this cancellation buffer. Existing preview/full-output formatting still
+applies to retained text; artifacts do not recover omitted/unreported output.
+
 These are observed stop triggers, not instantaneous process-stop deadlines or strict provider-request ceilings. Provider cancellation, event delivery and bounded process cleanup can lag the threshold; no file/external effect is undone, and neither the selected workspace nor separately retained output artifacts is deleted. Upfront disclosure cannot guarantee completion/compliance, a final report, or task acceptance.
 
 ## Tool and configuration inheritance

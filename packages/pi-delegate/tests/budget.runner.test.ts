@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionToolContext,
+	JsonAgentSessionEvent,
 } from "@earendil-works/pi-coding-agent";
 import { BackgroundTasks } from "../src/background.ts";
 import {
@@ -128,6 +129,62 @@ test("settlement closes timer; successful unbudgeted and budgeted results remain
 		}
 	});
 });
+for (const scenario of ["time", "held-acceptance", "late-readback", "large"])
+	for (const budget of [undefined, { maxSeconds: 10 }])
+		test(`${scenario}: manual cancellation retains available output without an enabled/reached budget (${!!budget})`, async () => {
+			await fixture(scenario, async (options, log) => {
+				const controller = new AbortController();
+				const result = await runDelegation({
+					...options,
+					budget,
+					signal: controller.signal,
+					status: {
+						observe(record) {
+							const event = record as JsonAgentSessionEvent;
+							if (
+								event.type === "message_update" &&
+								event.assistantMessageEvent?.type === "text_delta" &&
+								event.assistantMessageEvent.delta !== "partial "
+							)
+								controller.abort();
+						},
+						accepted() {},
+						finish() {},
+					},
+				});
+				expect(result.details.status).toBe("cancelled");
+				expect(result.isError).toBe(true);
+				expect(result.details.error).toBe("Delegation cancelled");
+				expect(result.details.budgetStop).toBeUndefined();
+				expect(result.details.stopReason).toBeUndefined();
+				expect(result.details.partialOutput).toBe(true);
+				expect(result.details.usagePartial).toBe(true);
+				expect(result.content[0].text).toContain("Partial output");
+				expect(result.content[0].text).toContain(
+					"first observed answer\n\npartial ",
+				);
+				expect(result.usage.input).toBe(scenario === "late-readback" ? 9 : 7);
+				const trace = log();
+				expect(trace.filter((r) => r.type === "prompt")).toHaveLength(2);
+				expect(trace.some((r) => r.type === "steer")).toBe(false);
+				expect(trace.some((r) => r.kind === "closed")).toBe(true);
+				const spawned = trace.find((r) => r.kind === "spawn");
+				expect(processExited(Number(spawned?.pid))).toBe(true);
+				expect(existsSync(dirname(String(spawned?.snapshot)))).toBe(false);
+				expect(existsSync(options.cwd)).toBe(true);
+				if (scenario === "large") {
+					expect(result.details.truncation?.truncated).toBe(true);
+					const path = result.details.fullOutputPath;
+					expect(path).toBeDefined();
+					if (path) {
+						expect(readFileSync(path, "utf8")).toBe(
+							`first observed answer\n\npartial ${"line\n".repeat(3000)}`,
+						);
+						await rm(dirname(path), { recursive: true, force: true });
+					}
+				}
+			});
+		});
 test("manual cancellation wins before budget and preserves existing cause semantics", async () => {
 	await fixture("time", async (options) => {
 		const controller = new AbortController();
@@ -168,6 +225,61 @@ test("background budget result is query-only and repeated reads retain one usage
 		} finally {
 			await owner.invalidate(true);
 		}
+	});
+});
+test("manual background cancellation retains output query-only and keeps initiating-signal ownership", async () => {
+	await fixture("time", async (options, log) => {
+		const owner = new BackgroundTasks(runDelegation, () => {
+			throw new Error("Unexpected runner throw");
+		});
+		const initiating = new AbortController();
+		const ack = owner.start({ ...options, signal: initiating.signal });
+		try {
+			for (
+				let i = 0;
+				i < 300 && owner.query(ack.details.taskId).details.usage?.input !== 7;
+				i++
+			)
+				await Bun.sleep(10);
+			expect(owner.query(ack.details.taskId).details.usage?.input).toBe(7);
+			initiating.abort();
+			expect(owner.query(ack.details.taskId).details.status).toBe("running");
+			const result = await owner.cancel(ack.details.taskId);
+			expect(result.details.status).toBe("cancelled");
+			expect(result.details.result?.partialOutput).toBe(true);
+			expect(result.details.result?.usagePartial).toBe(true);
+			expect(result.details.result?.budgetStop).toBeUndefined();
+			expect(result.content[0].text).toContain(
+				"first observed answer\n\npartial answer",
+			);
+			expect(result.details.usage?.input).toBe(7);
+			expect(result).not.toHaveProperty("usage"); // Observation is not a host usage charge.
+			expect(owner.query(ack.details.taskId)).toEqual(result);
+			const trace = log();
+			expect(trace.filter((r) => r.type === "prompt")).toHaveLength(2);
+			const spawned = trace.find((r) => r.kind === "spawn");
+			expect(processExited(Number(spawned?.pid))).toBe(true);
+			expect(existsSync(dirname(String(spawned?.snapshot)))).toBe(false);
+		} finally {
+			await owner.invalidate(true);
+		}
+	});
+});
+
+test("pre-aborted runner cancellation does not invent available text or reported usage", async () => {
+	await fixture("time", async (options, log) => {
+		const controller = new AbortController();
+		controller.abort();
+		const result = await runDelegation({
+			...options,
+			signal: controller.signal,
+		});
+		expect(result.details.status).toBe("cancelled");
+		expect(result.details.partialOutput).toBe(true);
+		expect(result.details.usagePartial).toBe(true);
+		expect(result.content[0].text).not.toContain("first observed answer");
+		expect(result.usage.totalTokens).toBe(0);
+		expect(log()).toEqual([]);
 	});
 });
 test("invalid raw budgets fail in sync/background before runner invocation; diagnostics cannot be spoofed", async () => {

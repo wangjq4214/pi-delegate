@@ -86,6 +86,7 @@ export async function runDelegation(
 	let unsubscribeEvents: (() => void) | undefined;
 	let steering: TaskSteering | undefined;
 	let usage: Usage | undefined;
+	let result: DelegationResult | undefined;
 	let observedUsage = new ObservedUsage();
 	const details: Omit<DelegationDetails, "status" | "error"> =
 		options.requestedConfiguration
@@ -96,7 +97,6 @@ export async function runDelegation(
 				}
 			: {};
 	try {
-		let result: DelegationResult;
 		try {
 			options.signal?.throwIfAborted();
 			validateResultFormat(options.resultFormat);
@@ -217,7 +217,7 @@ export async function runDelegation(
 				// Keep usage even if cancellation/transport failure prevents get_entries.
 				// Streaming updates are cumulative; only message_end commits a message.
 				const event = record as JsonAgentSessionEvent;
-				if (effectiveBudget) observedOutput.observe(event);
+				observedOutput.observe(event);
 				observedUsage.observe(event);
 				if (usage === undefined) options.onUsage?.(observedUsage.snapshot());
 				if (record.type === "agent_start") {
@@ -358,7 +358,8 @@ export async function runDelegation(
 			if (steering)
 				options.signal?.removeEventListener("abort", steering.close);
 			pressure?.dispose();
-			if (!details.budgetStop) {
+			// Drain available cancellation text/usage through owned bounded shutdown.
+			if (!details.budgetStop && !options.signal?.aborted) {
 				unsubscribeEvents?.();
 				unsubscribeEvents = undefined;
 			}
@@ -376,15 +377,23 @@ export async function runDelegation(
 			}
 		}
 		options.signal?.throwIfAborted();
+		if (!result) throw new Error("Child completed without a collected result");
 		return result;
 	} catch (error) {
-		if (details.budgetStop) {
+		if (details.budgetStop || options.signal?.aborted) {
 			const stop = details.budgetStop;
-			const message = `Execution budget reached: ${stop.dimension} limit ${stop.limit}, observed ${stop.observed}`;
-			const { text, ...outputDetails } = await formatDelegationOutput(
-				observedOutput.text(),
-			);
-			const finalUsage = observedUsage.retained();
+			const message = stop
+				? `Execution budget reached: ${stop.dimension} limit ${stop.limit}, observed ${stop.observed}`
+				: "Delegation cancelled";
+			// Cleanup can be cancelled after final output has already been formatted.
+			// Preserve that authoritative preview/path rather than replacing it with an
+			// empty or shorter stream-observation buffer.
+			const { text, ...outputDetails } = result
+				? { ...result.details, text: result.content[0].text }
+				: await formatDelegationOutput(observedOutput.text());
+			const finalUsage = details.budgetStop
+				? observedUsage.retained()
+				: (usage ?? observedUsage.snapshot());
 			options.onUsage?.(finalUsage);
 			return {
 				content: [

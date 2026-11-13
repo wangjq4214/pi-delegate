@@ -1,4 +1,9 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	appendFileSync,
+	existsSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import {
 	type AssistantMessage,
@@ -164,6 +169,27 @@ export default function fixture(pi: ExtensionAPI): void {
 					stream.end();
 				};
 				if (/\bhang\b/.test(prompt) && !prompt.startsWith("DELEGATE ")) {
+					if (prompt.includes("partial-hang")) {
+						const text =
+							"Available finding: inspected the worker boundary; implementation remains unfinished.";
+						stream.push({ type: "start", partial: message });
+						stream.push({
+							type: "text_start",
+							contentIndex: 0,
+							partial: message,
+						});
+						message.content = [{ type: "text", text }];
+						stream.push({
+							type: "text_delta",
+							contentIndex: 0,
+							delta: text,
+							partial: message,
+						});
+						appendFileSync(
+							join(process.env.FIXTURE_LOG_DIR ?? "", "partial-generations"),
+							`${process.pid}\n`,
+						);
+					}
 					options?.signal?.addEventListener(
 						"abort",
 						() => terminalError("aborted", "fixture aborted"),
