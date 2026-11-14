@@ -1,8 +1,26 @@
 # pi-goal
 
-A bounded goal coordinator built on pi-delegate. The parent plans and assesses evidence; fresh delegate workers execute bounded work and a separate reviewer assesses completion. Inspired by [pi-goal-x](https://github.com/tmonk/pi-goal-x), not a port of its runtime or project-local storage.
+Coordinate bounded goals through fresh pi-delegate workers, with durable progress and mandatory independent completion review.
 
-This is a **private local workspace package**, not yet included in npm/tag publishing. It has a runtime dependency on delegate's new public consumer API. Both extensions must be loaded in the same parent session; installing an npm dependency does not automatically load its Pi extension.
+The parent discusses the objective, plans work, and assesses evidence; delegate executes bounded work and a separate reviewer checks completion. Inspired by [pi-goal-x](https://github.com/tmonk/pi-goal-x), not a port of its runtime or project-local storage.
+
+This is a **private local workspace package**, not yet included in npm/tag publishing. Both goal and delegate must be loaded in the same parent session; installing an npm dependency does not automatically load its Pi extension.
+
+## Features
+
+- **Conversational creation:** describe an objective in natural language, clarify acceptance conditions with the current parent, and authorize the displayed draft through native Start/Cancel confirmation.
+- **Bounded continuation:** explicitly supply a finite allowance shared by coordinator, worker, and reviewer dispatches; no numeric default or automatic replenishment.
+- **Evidence-based progress:** keep logical work items distinct from execution attempts; worker completion alone is not acceptance.
+- **Independent completion review:** a fresh reviewer must approve the current objective and evidence before the goal completes.
+- **Global persistence and deliberate recovery:** save goal-specific JSONL records under the global Pi agent root; resume explicitly after inspecting actual effects.
+- **Shared delegate runtime:** use delegate's supported public API, admission, task records, cancellation, and usage accounting instead of another executor.
+
+## Requirements
+
+- Git and Bun 1.4.1 or later for local setup.
+- Node.js 22.19 or later; `node` must be available on `PATH` when a Bun-hosted Pi launches delegate children.
+- A compatible Pi host. Current implementation evidence targets Pi 1.1.0; other host versions are not currently verified.
+- Both workspace extensions, plus a dialog-capable TUI or participating RPC client for creation confirmation.
 
 ## Local setup
 
@@ -20,14 +38,21 @@ Start Pi in the project you want to work on, loading both extensions (replace th
 pi -e /absolute/checkout/packages/pi-delegate/dist/index.js -e /absolute/checkout/packages/pi-goal/dist/index.js
 ```
 
-For source development, load both `src/index.ts` paths instead. Build delegate first because the goal import resolves its supported public `/api` package entry. Co-loading order does not matter once extension loading is complete.
+For source development, load both `src/index.ts` paths instead. Build delegate first even for source loading because goal imports its supported public `/api` package entry. Co-loading order does not matter once extension loading is complete; avoid loading installed and explicit copies of the same extension together.
+
+See the [development guide](docs/development.md) for source-loading examples, checks, test coverage, and repository layout. There is no published goal installation command yet.
 
 ## Commands
 
-Begin a goal discussion while the parent is idle, using natural language:
+Begin a goal discussion while the parent is idle:
 
 ```text
-/goal Fix the parser regression and ensure the reproduction and existing parser tests pass
+/goal Fix the parser regression, add a reproduction test, and keep the parser tests passing. Allow at most 12 goal dispatches.
+```
+
+The parent organizes the objective and acceptance conditions, asking about necessary ambiguity or missing information. If an allowance is missing, supply it in a follow-up. Draft discussion is ordinary chat, not goal-authorized execution. Only choosing **Start** in the native selection authorizes the displayed objective, conditions, allowance, and cwd; chat assent or model-generated approval is not a substitute.
+
+```text
 /goal status
 /goal list
 /goal status <goal-id>
@@ -35,64 +60,41 @@ Begin a goal discussion while the parent is idle, using natural language:
 /goal resume <goal-id> 8
 ```
 
-The current parent agent organizes the objective and acceptance conditions, asking only about necessary ambiguity or missing information. Supply an explicit positive integer allowance in the request or a follow-up, for example, `Allow at most 12 goal dispatches.` There is no numeric default. Draft discussion is ordinary chat with normal model usage; it does not activate a goal, dispatch workers/reviewers or enter automatic continuation.
+The numbers are examples, not defaults. Status/list currently show JSON rather than a dashboard. A saved `active` status is not proof of a live process. Start/resume never silently replaces an active goal; pause it first.
 
-When the draft is ready, a native **Start / Cancel** selection displays the objective, acceptance conditions, allowance and working directory. Only choosing **Start** authorizes that displayed draft. Chat replies such as “go ahead” and model-generated approval fields are not substitutes. After confirmation the runtime rechecks and activates the displayed draft inside the live creation-tool invocation, so native abort still covers activation. The existing metered turn boundary admits the first coordinator after the draft tool finishes; no detached approval waits for an idle callback. Cancel/dismissal, new input, draft changes, pause, abort or scope teardown invalidate pending confirmation; late answers cannot start an outdated draft. Use `/goal pause` to discard a pending draft. Drafts are session-local and are not saved as active goals.
+The allowance counts goal-initiated coordinator checkpoints, worker dispatches, and independent reviewer dispatches together, not individual within-run host/model/tool turns. It is not an exact token, provider-request, cost, or wall-clock cap. Exhaustion saves progress and pauses without an extra wrap-up. A worker may use the last unit, leaving the goal unfinished because mandatory review cannot run.
 
-Structured JSON remains an internal tool/storage representation, not a user-facing creation requirement or an approval shortcut. Confirmation requires a dialog-capable TUI or participating RPC client; unavailable or unanswered confirmation never silently starts execution.
-
-The numbers are examples, not defaults. `/goal list` lists globally saved records; a saved `active` status is **not proof of a live process**. Start/resume never silently replaces another active goal; pause it first.
-
-### Allowance and stopping
-
-The allowance counts goal-initiated coordinator checkpoints, worker dispatches and independent reviewer dispatches together. An initial coordinator dispatch consumes a unit. Each extension-requested continuation consumes another; worker completion does not replenish the allowance. Existing within-run host/tool turns are not individual allowance units, so this is not a total provider-request, token, cost or wall-clock ceiling. Optional per-worker delegate time/turn budgets remain separate.
-
-When the next dispatch cannot fit, goal pauses without an extra model wrap-up. A worker may use the last unit, leaving no capacity for mandatory review; that goal remains unfinished. Only explicit user resume establishes a new allowance, retaining past attempts. Rejection/error never grants unlimited retries.
-
-Pause revokes new scheduling immediately, requests cancellation of only goal-owned children and waits for delegate cleanup. It does not roll back edits or external effects. Abort, branch navigation, reload and session shutdown stop owned work; they do not turn it into a background service. Ordinary unrelated delegations keep their own controls and query-only results.
+See [Usage](docs/usage.md) for the complete command/tool reference, worker options, evidence examples, and troubleshooting.
 
 ## Agent tools
 
-| Tool | Responsibility |
-| --- | --- |
-| `goal_propose` | Submit the current draft's objective, conditions and explicit user-supplied allowance for native Start/Cancel confirmation. Parent-only proposal data is not user authorization. |
-| `goal_status` | Read current runtime state or a saved global goal by ID. |
-| `goal_plan` | Upsert logical work items with acceptance conditions and a checkpoint. |
-| `goal_work` | Run one planned item through the shared delegate runtime, optionally selecting model/thinking level and a per-worker time/turn budget. |
-| `goal_accept` | Record the parent's explicit evidence assessment and relevant artifact paths; does not complete the goal. |
-| `goal_reinspect` | Record actual file/test/effect inspection after manual recovery, before new work. |
-| `goal_review` | Ask a fresh independent reviewer to assess the current objective, conditions and evidence; required for completion. |
-| `goal_block` | Pause with a concrete blocker requiring user action. |
+The parent receives `goal_propose`, `goal_status`, `goal_plan`, `goal_work`, `goal_accept`, `goal_review`, `goal_reinspect`, and `goal_block`. Goal tools are excluded from delegated children, including discoverable/codemode access.
 
-Worker `completed` is only an execution outcome. The parent must assess evidence, and every item must have explicit acceptance evidence before completion review. The independent reviewer returns reasons/evidence and an exact final `<approved/>` or `<disapproved/>` line. Failure, cancellation, partial/malformed output or outdated evidence cannot complete the goal. Artifact paths must name existing regular files; directory artifacts are rejected rather than compared using incomplete directory timestamps. Registered files are fingerprinted around review to detect changes during assessment. Review instructions are **not an enforced read-only sandbox**.
-
-Goal tools are parent-only and excluded from delegated children, including discoverable/codemode tool access. The runtime capability shares delegate's existing task discovery, admission, usage accounting and cleanup rather than starting another executor. API invocations are synchronous and cancellation belongs to their supplied signal; ordinary delegate background tasks still do not wake the parent or automatically deliver reports.
+Workers and reviewers use synchronous calls through the shared delegate runtime. Worker `completed` is only an execution outcome; the parent must assess actual evidence and every item must be accepted before independent completion review. Registered artifacts must be existing regular files, not directories. Review rejection, failure, partial/malformed output, stale evidence, or revoked authority cannot complete the goal.
 
 ## Global persistence and recovery
 
-Goal bookkeeping is stored under:
+Goal bookkeeping lives under `~/.pi/agent/goals/`, respecting the host-resolved agent root including `PI_CODING_AGENT_DIR`. Journals are goal-specific, not native Pi sessions; no goal metadata or locks are saved in the project or moved by a session-directory override.
 
-```text
-~/.pi/agent/goals/
-  <goal-id>.jsonl
-  <goal-id>.jsonl.lock   # only while an owner holds the journal
-```
+After restart or scope invalidation, nothing resumes automatically. Resume from the saved cwd with a finite allowance, inspect current files/tests and previous effects, then record findings through `goal_reinspect` before further work or review. There is no reconnection to dead children, blind task replay, automatic journal repair, or project relocation.
 
-`getAgentDir()` resolves the root, including `PI_CODING_AGENT_DIR`. A session-directory override does not move goals. No goal metadata, checkpoint or lock is saved under project-local `.pi/` or elsewhere in the working directory; project files that the work is intended to modify are unaffected by this storage rule. Storage errors never fall back to project-local files.
-
-The format references Pi sessions: a goal-specific versioned JSONL header with ID, timestamp and cwd, followed by typed, identified, timestamped parent-linked checkpoints. This is **not a native Pi session file**; goals do not go in `sessions/` or mutate session transcripts. Checkpoints retain objective, criteria, items, summaries/evidence, attempts, allowance, stop reasons and review results rather than depending only on ephemeral delegate handles/output files. Records may contain sensitive task/result data; treat the global directory accordingly.
-
-After restart, saved goals are inspectable but nothing resumes automatically. Resume from the original working directory with a finite allowance. Goal checks the directory and registered artifacts, marks ambiguous previous attempts interrupted, then requires the parent to inspect actual current files/tests and effects and call `goal_reinspect` before new work/review. No dead child process is reconnected and interrupted work is never blindly replayed. Missing evidence or a missing/mismatched cwd blocks execution rather than substituting another project.
-
-Exclusive per-goal leases prevent simultaneous owners. Explicit resume may reclaim a demonstrably dead process owner on the same host; live, foreign or uncertain owners are rejected. Malformed versions, torn tails and conflicts fail closed; list reports damaged records separately. The store preserves the last valid checkpoint in its recovery error instead of silently rewriting history. Automatic journal repair and project relocation are not provided; inspect/back up damaged records before manual intervention.
+Pause revokes scheduling immediately, cancels only goal-owned children, and waits for delegate cleanup. Edits and external effects remain. Abort, branch navigation, reload, session replacement, and shutdown invalidate live execution, not durable goal records. Ordinary unrelated delegate tasks retain their own ownership and query-only background results.
 
 ## Verification and boundaries
 
-```sh
-bun run --cwd packages/pi-goal test
-bun run --cwd packages/pi-goal typecheck
-```
+Goal does not provide an OS sandbox, enforced read-only review, automatic worktrees/merges, side-effect rollback, general DAG engine, recursive agent teams, or exact provider-billing cap. Saved objectives and criteria are currently immutable; task plans are flat upserts. Proposed additions belong in the [roadmap](docs/roadmap.md), not the current feature list.
 
-Tests use isolated temporary user roots and controlled outcomes. See [Spec 0019](../../.grimoire/spec/0019-bounded-goals-on-delegate.md) for the requirements and implementation evidence. Pinned-host tests do not establish other host versions, live-provider behavior or manual terminal keyboard/IME acceptance. POSIX mode privacy tests are skipped on Windows; Windows ACL isolation is not claimed.
+Tests use deterministic local providers and isolated temporary user roots. Pinned-host tests do not establish manual terminal keyboard/IME acceptance, live-provider behavior, other host versions, or Windows ACL isolation. See [Testing](docs/development.md#testing) and [Spec 0019](../../.grimoire/spec/0019-bounded-goals-on-delegate.md) for evidence and limits.
 
-No general DAG engine, recursive agent teams, automatic worktree/merge management, OS sandbox or exact provider-billing cap is supplied.
+## Documentation
+
+- [Usage guide](docs/usage.md) — creation, commands, agent tools, allowance, evidence, recovery, and troubleshooting.
+- [Runtime and safety](docs/runtime.md) — shared execution ownership, confirmation, continuation, persistence, review, and cancellation boundaries.
+- [Development guide](docs/development.md) — setup, source/built loading, checks, tests, and source ownership.
+- [Roadmap](docs/roadmap.md) — prioritized capability candidates, not implemented guarantees or release commitments.
+
+Documentation is maintained in English. Delegate's [public consumer API](../pi-delegate/docs/api.md) documents the integration consumed by goal; goal does not expose a separate supported programmatic API.
+
+## License
+
+[MIT](../../LICENSE).
