@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -852,5 +859,195 @@ describe("R7 adapter confirmation and native boundary admission", () => {
 			"coordinator",
 			"coordinator",
 		]);
+	});
+});
+
+describe("readable goal inspection", () => {
+	test("empty and draft inspection is human-readable and non-executing", async () => {
+		const h = await fixture();
+		await h.command("list");
+		expect(h.notices.at(-1)?.message).toContain("No saved goals.");
+		await h.command("status");
+		expect(h.notices.at(-1)?.message).toContain("No current goal or draft.");
+		const params = await h.begin();
+		const before = await h.status();
+		for (const command of ["", "status", "list", "status"])
+			await h.command(command);
+		const output = h.notices.map((notice) => notice.message).join("\n");
+		expect(output).toContain("Goal draft (not authorized to execute)");
+		expect(output).toContain("Fix the parser regression");
+		expect(output).toContain(params.draftId);
+		expect(await h.status()).toEqual(before);
+		expect(h.userMessages).toHaveLength(1); // Only the original draft discussion.
+		await expectNonExecuting(h);
+	});
+
+	test("saved lookup/list retain exact identity without acquiring the lease or writing", async () => {
+		const h = await fixture();
+		const journal = await h.store.create({ cwd: h.ctx.cwd, ...proposalValues });
+		await journal.update((state) => {
+			state.status = "active"; // Saved active is not this adapter's live authority.
+			state.run = { id: "previous-run", allowance: 7, used: 2 };
+			state.items = [
+				{
+					id: "parser",
+					title: "Parser fix",
+					acceptance: "Regression passes",
+					status: "pending",
+					evidence: [],
+					artifacts: [],
+				},
+			];
+			state.attempts = [
+				{
+					id: "worker",
+					kind: "worker",
+					itemId: "parser",
+					taskId: "old-task",
+					status: "completed",
+					summary: "PRIVATE REPORT NOT A LIST SUMMARY",
+				},
+			];
+		}, "saved-observation");
+		const before = journal.read();
+		try {
+			for (const command of [
+				"list",
+				`status ${before.id}`,
+				`status ${before.id}`,
+			])
+				await h.command(command);
+			const list = h.notices[0]?.message ?? "";
+			expect(list).toContain(`ID: ${before.id}`);
+			expect(list).toContain("0/1 accepted");
+			expect(list).not.toContain("PRIVATE REPORT");
+			const detail = h.notices.at(-1)?.message ?? "";
+			expect(detail).toContain("Saved goal");
+			expect(detail).toContain("not proof of live execution");
+			expect(detail).toContain("5 remaining");
+			expect(detail).toContain("Parser fix");
+			expect(await h.store.load(before.id)).toEqual(before);
+			expect(journal.read()).toEqual(before); // Inspection succeeds while someone else holds the lease.
+			await expect(h.store.open(before.id)).rejects.toThrow();
+			expect((await h.status()).state).toBeUndefined();
+			expect(h.executions()).toBe(0);
+			expect(h.messages).toEqual([]);
+		} finally {
+			await journal.close();
+		}
+	});
+
+	test("current status preserves structured tools, allowance and journal bytes", async () => {
+		const h = await fixture();
+		const params = await h.begin();
+		const start = h.tool("goal_propose", params);
+		h.dialogs[0]?.answer.resolve("Start");
+		expect((await start).details.started).toBe(true);
+		await h.tool("goal_plan", {
+			items: [
+				{ id: "one", title: "One", acceptance: "Verified" },
+				{ id: "two", title: "Two", acceptance: "Tests pass" },
+			],
+			checkpoint: "Await evidence",
+		});
+		await h.tool("goal_accept", {
+			itemId: "one",
+			evidence: ["Inspected actual output"],
+			artifacts: [],
+		});
+		const before = await h.status();
+		const path = join(
+			h.ctx.cwd,
+			"..",
+			"agent",
+			"goals",
+			`${before.state?.id}.jsonl`,
+		);
+		const bytes = await readFile(path, "utf8");
+		for (const command of ["", "status", "list", `status ${before.state?.id}`])
+			await h.command(command);
+		const output = h.notices.map((notice) => notice.message).join("\n");
+		expect(output).toContain("Current goal");
+		expect(output).toContain("1/2 accepted");
+		expect(output).toContain("6 remaining");
+		expect(output).toContain("Goal coordination authorized in this runtime");
+		expect(output).toContain("No current assessment");
+		expect(await h.status()).toEqual(before);
+		const structured = await h.tool("goal_status", { id: before.state?.id });
+		expect(structured.details.state).toEqual(before.state);
+		expect(structured.details.runtimeActive).toBe(true);
+		expect(await readFile(path, "utf8")).toBe(bytes);
+		expect(h.messages).toEqual([]);
+		expect(h.executions()).toBe(0);
+	});
+
+	test("mixed corrupt records remain separate from valid goals, without repair", async () => {
+		const h = await fixture();
+		const journal = await h.store.create({ cwd: h.ctx.cwd, ...proposalValues });
+		const saved = journal.read();
+		await journal.close();
+		const directory = join(h.ctx.cwd, "..", "agent", "goals");
+		const corrupt = join(directory, "broken.jsonl");
+		await writeFile(corrupt, "torn and unsupported journal\n");
+		const bytes = await readFile(corrupt, "utf8");
+		const names = await readdir(directory);
+		await h.command("list");
+		const output = h.notices.at(-1)?.message ?? "";
+		expect(output).toContain(`ID: ${saved.id}`);
+		expect(output).toContain("Unreadable goal records");
+		expect(output).toContain("ID: broken");
+		expect(h.notices.at(-1)?.level).toBe("info");
+		await h.command("status broken");
+		expect(h.notices.at(-1)?.level).toBe("error");
+		await h.command("status missing-goal");
+		expect(h.notices.at(-1)?.level).toBe("error");
+		await h.command("status ../invalid");
+		expect(h.notices.at(-1)?.level).toBe("error");
+		expect(await readFile(corrupt, "utf8")).toBe(bytes);
+		expect(await readdir(directory)).toEqual(names);
+		expect(await h.store.load(saved.id)).toEqual(saved);
+		expect(h.executions()).toBe(0);
+		expect(h.messages).toEqual([]);
+	});
+
+	test("overall storage failure is an error, not an empty saved list", async () => {
+		const h = await fixture();
+		const directory = join(h.ctx.cwd, "..", "agent", "goals");
+		await mkdir(join(directory, ".."), { recursive: true });
+		await writeFile(directory, "not a directory");
+		await h.command("list");
+		expect(h.notices.at(-1)?.level).toBe("error");
+		expect(h.notices.at(-1)?.message).not.toContain("No saved goals.");
+		expect(await readFile(directory, "utf8")).toBe("not a directory");
+		expect(h.messages).toEqual([]);
+		expect(h.executions()).toBe(0);
+	});
+
+	test("human error notifications escape terminal instructions without altering structured errors", async () => {
+		const h = await fixture();
+		const unsafe = "Storage failed\nSaved status: complete\x1b[2J";
+		const spy = spyOn(GoalStore.prototype, "list").mockRejectedValue(
+			new Error(unsafe),
+		);
+		try {
+			await h.command("list");
+			expect(h.notices.at(-1)).toEqual({
+				level: "error",
+				message: "Storage failed\\nSaved status: complete\\u001b[2J",
+			});
+		} finally {
+			spy.mockRestore();
+		}
+		const load = spyOn(GoalStore.prototype, "load").mockRejectedValue(
+			new Error(unsafe),
+		);
+		try {
+			const structured = await h.tool("goal_status", { id: "unavailable" });
+			expect(structured.isError).toBe(true);
+			expect(structured.details.error).toBe(unsafe);
+		} finally {
+			load.mockRestore();
+		}
+		await expectNonExecuting(h);
 	});
 });

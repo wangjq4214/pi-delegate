@@ -15,6 +15,12 @@ import {
 	GoalCreation,
 	type GoalProposal,
 } from "./creation.ts";
+import {
+	displayText,
+	formatCurrentGoal,
+	formatGoalList,
+	formatGoalStatus,
+} from "./presentation.ts";
 import { GoalStore } from "./store.ts";
 
 export const GOAL_TOOLS = [
@@ -61,7 +67,7 @@ export default function goal(pi: ExtensionAPI): void {
 	});
 	const notice = (ctx: ExtensionContext, error: unknown) =>
 		ctx.ui.notify(
-			error instanceof Error ? error.message : String(error),
+			displayText(error instanceof Error ? error.message : String(error)),
 			"error",
 		);
 	const strings = Type.Array(Type.String({ minLength: 1 }));
@@ -404,23 +410,16 @@ export default function goal(pi: ExtensionAPI): void {
 			try {
 				const input = args.trim();
 				if (!input || input === "status") {
-					ctx.ui.notify(JSON.stringify(report(), null, 2), "info");
+					ctx.ui.notify(formatCurrentGoal(report()), "info");
 					return;
 				}
 				if (input === "list") {
-					ctx.ui.notify(JSON.stringify(await store.list(), null, 2), "info");
+					ctx.ui.notify(formatGoalList(await store.list()), "info");
 					return;
 				}
 				if (input.startsWith("status ")) {
 					ctx.ui.notify(
-						JSON.stringify(
-							{
-								state: await store.load(input.slice(7).trim()),
-								note: "Saved state; not proof of live execution",
-							},
-							null,
-							2,
-						),
+						formatGoalStatus(await store.load(input.slice(7).trim())),
 						"info",
 					);
 					return;

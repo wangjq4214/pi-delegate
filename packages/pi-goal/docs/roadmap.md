@@ -33,7 +33,7 @@ Today, saved objectives and acceptance conditions are immutable. Plans support f
 
 **Value:** Make the current goal understandable without reading raw status JSON.
 
-Upstream provides compact and expanded dashboards with task progress, activity, usage, and review state. Current goal status/list commands primarily expose JSON; durable records already contain useful progress and allowance data.
+Upstream provides compact and expanded dashboards with task progress, activity, usage, and review state. Goal has readable on-demand status/list notifications, but no compact live goal progress view; durable records already contain useful progress and allowance data.
 
 - [ ] Show the objective, current work item or dispatch, accepted/remaining item counts, and remaining allowance in a compact view.
 - [ ] Surface pause/blocker reasons and the latest independent-review outcome.

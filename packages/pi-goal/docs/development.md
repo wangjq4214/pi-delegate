@@ -97,12 +97,14 @@ All paths below are relative to `packages/pi-goal/`:
 | File | Main coverage |
 | --- | --- |
 | `tests/creation.test.ts` | Session-local draft lifecycle, explicit allowance, immutable proposals, runtime approval, invalidation and single-use consumption. |
-| `tests/creation.adapter.test.ts` | Extension adapter confirmation, unavailable/failed UI, late callbacks, abort/cwd/lifecycle races, durable activation and initial coordinator admission/accounting. |
+| `tests/creation.adapter.test.ts` | Extension adapter confirmation, unavailable/failed UI, late callbacks, abort/cwd/lifecycle races, durable activation and initial coordinator admission/accounting; read-only human inspection, structured-result compatibility and storage/error presentation. |
 | `tests/creation.host.test.ts` | Actual pinned-host source/built confirmation flows, Cancel/dismissal, changed drafts, pause/abort, and mixed-tool/codemode initial accounting. |
 | `tests/controller.test.ts` | Shared finite allowance, work versus acceptance, independent review, artifact changes, cancellation, recovery/reinspection and persistence races. |
 | `tests/store.test.ts` | Journal validation, checkpoints, exclusive leases, process-exit recovery, corruption/torn writes, permissions, collisions and storage failures without project-local fallback. |
 | `tests/host.integration.test.ts` | Source/built co-loading in both orders, real worker/reviewer execution through the shared public delegate runtime, bounded continuation, global roots and fail-closed integration/storage cases. |
 | `tests/host.lifecycle.test.ts` | Owned-child cancellation without cancelling unrelated background work, navigation, shutdown/restart and revocation of pending native boundary continuation. |
+| `tests/presentation.test.ts` | Human summaries/details, acceptance/allowance/saved-live semantics, terminal-text safety, and real pinned-host notification wrapping/theme invalidation without manual TUI acceptance. |
+| `tests/inspection.host.test.ts` | Actual source/built RPC list/status output without delegate, exact saved lookup, mixed damaged/valid records and no model dispatch or journal mutation. |
 
 `tests/fixtures/host.ts` launches Pi 1.1.0 in RPC mode with isolated temporary home/agent/session roots, explicit extension lists and real fresh child processes. Built-mode cases require existing build output and fail if entries are missing; tests do not build it for you.
 

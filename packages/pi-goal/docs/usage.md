@@ -37,7 +37,11 @@ Cancel or dismiss the selection to abandon the proposal. New input, draft change
 | `/goal pause` | Revoke goal scheduling, cancel owned work, wait for cleanup, and discard any draft. |
 | `/goal resume <goal-id> <allowance>` | Explicitly resume a saved unfinished goal with a new positive integer allowance. |
 
-Status and list output currently use JSON notifications, not a dedicated dashboard. A saved `active` status is not proof of a live process. The no-ID status report includes `runtimeActive` and `reinspectionRequired` for the current runtime.
+Status and list use readable native notifications, with the host's Unicode wrapping and active theme rather than a dedicated dashboard. `/goal list` shows objective summaries, copyable exact IDs, saved status, accepted/total item counts and working directories. Damaged records appear separately without hiding valid goals; overall store errors are not reported as an empty list.
+
+Copy an ID into `/goal status <goal-id>` for objective, acceptance conditions, individual work-item progress, dispatch allowance, stop/recovery information and the latest current/stale review assessment. These are saved observations, not proof of a live process or ownership. Worker completion is not item acceptance, and all items accepted does not itself complete the goal. Missing run/review data is labelled unavailable rather than zero or approval.
+
+`/goal` and `/goal status` distinguish a non-executing draft, current runtime coordination authority and recovery reinspection requirements. They do not observe live subagent activity. Inspection does not start/resume work, acquire execution ownership, repair journals or renew allowance. Display text escapes terminal controls and embedded newlines; list objectives and detail review/checkpoint summaries may be explicitly truncated, but lookup IDs are not abbreviated. Model-facing `goal_status` remains structured JSON with `runtimeActive` and `reinspectionRequired` where applicable.
 
 Pause an active goal before starting or resuming another. Start and resume require an idle parent; saved-goal inspection does not authorize execution. Current commands do not provide goal revision, archival, or a goal picker; those are [roadmap candidates](roadmap.md).
 

@@ -60,7 +60,7 @@ The parent organizes the objective and acceptance conditions, asking about neces
 /goal resume <goal-id> 8
 ```
 
-The numbers are examples, not defaults. Status/list currently show JSON rather than a dashboard. A saved `active` status is not proof of a live process. Start/resume never silently replaces an active goal; pause it first.
+The numbers are examples, not defaults. Status/list show readable native notifications: saved-goal summaries retain exact IDs and working directories, and status details explain item acceptance, dispatch allowance, stop/recovery reasons and independent review. A saved `active` status is not proof of a live process. Inspection never starts or resumes work; start/resume never silently replaces an active goal, so pause it first. There is no live goal dashboard yet.
 
 The allowance counts goal-initiated coordinator checkpoints, worker dispatches, and independent reviewer dispatches together, not individual within-run host/model/tool turns. It is not an exact token, provider-request, cost, or wall-clock cap. Exhaustion saves progress and pauses without an extra wrap-up. A worker may use the last unit, leaving the goal unfinished because mandatory review cannot run.
 
