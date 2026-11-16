@@ -5,6 +5,7 @@ import type { PressureClock } from "../src/pressure.ts";
 import { AgentStatus } from "../src/status.ts";
 import { sumUsage } from "../src/usage.ts";
 import { statusRecords } from "./fixtures/status-records.ts";
+import { taskInput } from "./fixtures/task-record.ts";
 
 class Clock implements PressureClock {
 	seconds = 0;
@@ -300,4 +301,50 @@ test("usage/capacity alone never mounts an empty panel; expiry and clearing reta
 			expect(visibleWidth(line)).toBeLessThanOrEqual(width);
 	status.close();
 	expect(text()).toBe("");
+});
+
+test("hidden-only tasks retain truthful shared indicators but never expose rows through terminal retention", () => {
+	const { status, records, time, text, mounted } = setup();
+	const hidden = records.accept({ ...taskInput, task: "same", title: "same" });
+	status.show(hidden.progress, "consumer");
+	status.capacity({ occupied: 1, queued: 2, maximum: 4 });
+	status.total({ ...sumUsage([]), input: 17, totalTokens: 17 });
+	expect(mounted()).toBe(true);
+	expect(text()).toContain("1/4 active · ◷ 2 queued");
+	expect(text()).toContain("Σ Delegated total · ↑17");
+	expect(text()).not.toContain("#1");
+	expect(text()).not.toContain("same");
+	for (const phase of ["queued", "initializing", "running"] as const) {
+		hidden.progress.phase(phase);
+		expect(text()).not.toContain("#1");
+	}
+	hidden.progress.observe({ type: "agent_start" });
+	hidden.progress.observe({ type: "agent_settled" });
+	expect(text()).not.toContain("finishing");
+	hidden.progress.finish("completed");
+	time.advance(4.999);
+	expect(text()).toContain("Σ Delegated total");
+	expect(text()).not.toContain("completed");
+	for (const width of [1, 2, 8, 20, 80, 200])
+		for (const line of status.render(width))
+			expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+	time.advance(0.001);
+	expect(text()).toBe("");
+	expect(mounted()).toBe(false);
+	expect(time.jobs.size).toBe(0);
+	const ordinary = records.accept({
+		...taskInput,
+		task: "same",
+		title: "same",
+	});
+	status.show(ordinary.progress);
+	expect(text()).toContain("#2  same");
+	expect(text()).toContain("Σ Delegated total · ↑17");
+	expect(text()).not.toContain("#1");
+	records.invalidate(true);
+	status.clear();
+	const replacement = records.accept({ ...taskInput, task: "replacement" });
+	status.show(replacement.progress);
+	expect(text()).toContain("#1");
+	status.close();
 });

@@ -34,6 +34,9 @@ export const names = [
 export interface Options {
 	built?: boolean;
 	goalFirst?: boolean;
+	/** Route pending goal tools through a public nested-tool observation probe. */
+	progress?: boolean;
+	cleanupHold?: boolean;
 	scenario?:
 		| "complete"
 		| "mixed-creation"
@@ -163,6 +166,8 @@ export class Host {
 					PI_TELEMETRY: "0",
 					GOAL_HOST_LOGS: this.logs,
 					GOAL_HOST_SCENARIO: this.options.scenario ?? "complete",
+					GOAL_HOST_PROGRESS: this.options.progress ? "1" : "0",
+					GOAL_HOST_CLEANUP_HOLD: this.options.cleanupHold ? "1" : "0",
 					GOAL_HOST_REJECT: this.options.reject ? "1" : "0",
 					PI_DELEGATE_CHILD: undefined,
 					PI_DELEGATE_SNAPSHOT: undefined,

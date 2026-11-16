@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type {
 	DelegateClient,
+	DelegateExecutionOptions,
 	DelegateInput,
 	DelegateListInput,
 	DelegateObservation,
@@ -29,6 +30,7 @@ import {
 import { selectCwd } from "./cwd.ts";
 import { type DelegationOptions, failedResult } from "./delegation.ts";
 import { captureInheritance, DELEGATE_TOOL } from "./inheritance.ts";
+import { observeInvocation } from "./invocation-progress.ts";
 import { pressureParameters, resolvePressure } from "./pressure.ts";
 import { resultFormatParameter } from "./result-format.ts";
 import { runDelegation } from "./runner.ts";
@@ -211,6 +213,7 @@ export function registerDelegate(
 		params: DelegateInput,
 		ctx: ExtensionContext,
 		signal?: AbortSignal,
+		invocation: DelegateExecutionOptions = {},
 	) => {
 		const controller = new AbortController();
 		const uiController = new AbortController();
@@ -218,6 +221,7 @@ export function registerDelegate(
 			? AbortSignal.any([signal, controller.signal])
 			: controller.signal;
 		let record: TaskRecord | undefined;
+		let detachProgress: (() => void) | undefined;
 		try {
 			combined.throwIfAborted();
 			assertOpen();
@@ -252,7 +256,17 @@ export function registerDelegate(
 				budget,
 			});
 			const progress = record.progress;
-			updateStatus(() => status.show(progress));
+			updateStatus(() => status.show(progress, invocation.presentation));
+			detachProgress = observeInvocation(
+				records,
+				record,
+				combined,
+				invocation.onProgress,
+			);
+			// An observer may synchronously invalidate the scope during acceptance.
+			if (!record.valid()) controller.abort();
+			combined.throwIfAborted();
+			assertOpen();
 			const options: DelegationOptions = {
 				...inherited,
 				requestedConfiguration,
@@ -279,6 +293,8 @@ export function registerDelegate(
 					),
 			});
 			active.set(controller, operation);
+			// Admission may publish initialization before active registration returns.
+			if (!record.valid()) controller.abort();
 			return await operation;
 		} catch (error) {
 			const result = failedResult(error, combined.aborted);
@@ -286,6 +302,7 @@ export function registerDelegate(
 		} finally {
 			// Dialogs belong to this invocation, including when the child fails.
 			// Do not abort the execution signal and turn a completed result into cancellation.
+			detachProgress?.();
 			uiController.abort();
 			active.delete(controller);
 		}
@@ -436,7 +453,8 @@ export function registerDelegate(
 	);
 	const client: DelegateClient = {
 		version: 1,
-		async execute(input, ctx, signal) {
+		capabilities: { invocationProgress: true },
+		async execute(input, ctx, signal, options) {
 			assertOpen();
 			if (input.background)
 				return failedResult(
@@ -444,7 +462,7 @@ export function registerDelegate(
 						"DelegateClient v1 execute is synchronous; background:true is unsupported",
 					),
 				);
-			const result = await execute(input, ctx, signal);
+			const result = await execute(input, ctx, signal, options);
 			if (!("usage" in result))
 				throw new Error("Unexpected background acknowledgement");
 			return result;

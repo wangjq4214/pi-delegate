@@ -21,6 +21,7 @@ import {
 	formatGoalList,
 	formatGoalStatus,
 } from "./presentation.ts";
+import { GoalProgressView } from "./progress-view.ts";
 import { GoalStore } from "./store.ts";
 
 export const GOAL_TOOLS = [
@@ -43,12 +44,27 @@ export default function goal(pi: ExtensionAPI): void {
 	let activating: GoalProposal | undefined;
 	const clearDraft = () => {
 		creation.cancel();
+		view.refresh();
 	};
-	const controller = new GoalController(store, (input, signal) => {
+	const delegateClient = () => {
+		const client = getDelegateClient(pi);
+		if (client.capabilities?.invocationProgress !== true)
+			throw new Error(
+				"pi-goal requires pi-delegate invocation progress / consumer presentation support; update pi-delegate",
+			);
+		return client;
+	};
+	const controller = new GoalController(store, (input, signal, onProgress) => {
 		if (!context) throw new Error("No current parent context is available");
-		return getDelegateClient(pi).execute(input, context, signal);
+		return delegateClient().execute(input, context, signal, {
+			presentation: "consumer",
+			onProgress,
+		});
 	});
+	const view = new GoalProgressView(controller, () => creation.status());
 	const report = () => ({
+		activity: controller.progress().dispatch,
+		stopping: controller.progress().stopping,
 		draft: creation.status(),
 		state: controller.status(),
 		runtimeActive: controller.active,
@@ -116,7 +132,7 @@ export default function goal(pi: ExtensionAPI): void {
 		ctx: ExtensionContext,
 		signal: AbortSignal,
 	) => {
-		getDelegateClient(pi);
+		delegateClient();
 		activating = proposal;
 		// Keep confirmation and persistence inside the live native tool run. An
 		// approval must never outlive that run while waiting for an idle callback.
@@ -170,6 +186,7 @@ export default function goal(pi: ExtensionAPI): void {
 		}),
 		async execute(_id, params, signal, _update, ctx) {
 			context = ctx;
+			view.bind(ctx);
 			let proposal: GoalProposal | undefined;
 			let approved = false;
 			try {
@@ -179,6 +196,7 @@ export default function goal(pi: ExtensionAPI): void {
 				if (!creation.status())
 					throw new Error("Use /goal <objective> to begin a goal discussion");
 				proposal = creation.prepare(params.draftId, params, ctx.cwd);
+				view.refresh();
 				if (!ctx.hasUI)
 					throw new Error(
 						"User confirmation UI is unavailable; the goal has not started",
@@ -292,6 +310,7 @@ export default function goal(pi: ExtensionAPI): void {
 		}),
 		async execute(_id, params, signal, _onUpdate, ctx) {
 			context = ctx;
+			view.bind(ctx);
 			const abort = () => {
 				void pause(ctx, "Goal work invocation aborted").catch((error) =>
 					notice(ctx, error),
@@ -349,6 +368,7 @@ export default function goal(pi: ExtensionAPI): void {
 		parameters: Type.Object({}),
 		async execute(_id, _params, signal, _onUpdate, ctx) {
 			context = ctx;
+			view.bind(ctx);
 			const abort = () => {
 				void pause(ctx, "Goal review invocation aborted").catch((error) =>
 					notice(ctx, error),
@@ -406,6 +426,7 @@ export default function goal(pi: ExtensionAPI): void {
 			"Goal: <natural-language objective>, status [id], list, pause, or resume <id> <allowance>",
 		async handler(args, ctx) {
 			context = ctx;
+			view.bind(ctx);
 			let resumed = false;
 			try {
 				const input = args.trim();
@@ -438,7 +459,7 @@ export default function goal(pi: ExtensionAPI): void {
 					);
 				if (controller.active || activating)
 					throw new Error("Pause the current goal before starting another");
-				getDelegateClient(pi);
+				delegateClient();
 				clearDraft();
 				if (input.startsWith("resume ")) {
 					const parts = input.split(/\s+/);
@@ -453,6 +474,7 @@ export default function goal(pi: ExtensionAPI): void {
 					await dispatchInitial(ctx);
 				} else {
 					creation.begin(input, ctx.cwd);
+					view.refresh();
 					pi.sendUserMessage(
 						`Discuss this goal draft; do not execute it yet:\n${input}`,
 					);
@@ -465,8 +487,13 @@ export default function goal(pi: ExtensionAPI): void {
 		},
 	});
 
+	pi.on("session_start", (_event, ctx) => {
+		context = ctx;
+		view.bind(ctx);
+	});
 	pi.on("input", async (_event, ctx) => {
 		creation.invalidate();
+		view.refresh();
 		if (activating)
 			await pause(ctx, "New user input invalidated pending goal activation");
 	});
@@ -531,20 +558,25 @@ export default function goal(pi: ExtensionAPI): void {
 			await pause(ctx, "Parent aborted; resume explicitly after inspection");
 	});
 	pi.on("session_before_tree", async (event, ctx) => {
-		if (event.preparation.targetId !== event.preparation.oldLeafId)
+		if (event.preparation.targetId !== event.preparation.oldLeafId) {
+			view.dispose();
 			await pause(ctx, "Branch navigation invalidated goal execution");
+		}
 	});
 	pi.on("session_tree", async (event, ctx) => {
 		// New source-branch work may have been accepted while navigation awaited.
-		if (event.newLeafId !== event.oldLeafId)
+		if (event.newLeafId !== event.oldLeafId) {
+			view.dispose();
 			await pause(
 				ctx,
 				"Committed branch navigation invalidated goal execution",
 			);
+		}
 	});
 	pi.on("session_before_switch", clearDraft);
 	pi.on("session_before_fork", clearDraft);
 	pi.on("session_shutdown", async (_event, ctx) => {
+		view.dispose();
 		await pause(ctx, "Session runtime stopped; resume explicitly");
 		pendingCoordinator = false;
 	});

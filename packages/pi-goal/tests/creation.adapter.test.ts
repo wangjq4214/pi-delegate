@@ -15,11 +15,19 @@ import {
 	type ExtensionCommandContext,
 	type ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
+import type {
+	DelegateClient,
+	DelegateExecutionOptions,
+} from "@wangjq4214/pi-delegate/api";
 import { GoalController } from "../src/controller.ts";
 import goal from "../src/index.ts";
 import type { GoalState } from "../src/model.ts";
 import { GoalStore } from "../src/store.ts";
 
+function required<T>(value: T | undefined): T {
+	if (value === undefined) throw new Error("Missing required test observation");
+	return value;
+}
 function deferred<T>() {
 	let resolve!: (value: T) => void;
 	let reject!: (reason: unknown) => void;
@@ -38,6 +46,8 @@ interface Report {
 	draft?: { id: string; request: string; proposal?: unknown };
 	state?: GoalState;
 	runtimeActive: boolean;
+	activity?: import("../src/controller.ts").GoalDispatchObservation;
+	stopping?: boolean;
 	started?: boolean;
 	error?: string;
 }
@@ -52,7 +62,13 @@ const proposalValues = {
 	allowance: 7,
 };
 
-async function fixture() {
+async function fixture(
+	options: {
+		capability?: boolean;
+		tui?: boolean;
+		execute?: DelegateClient["execute"];
+	} = {},
+) {
 	const directory = await mkdtemp(join(tmpdir(), "pi-goal-creation-adapter-"));
 	const agentRoot = join(directory, "agent");
 	const cwd = join(directory, "project");
@@ -71,6 +87,10 @@ async function fixture() {
 	const messages: unknown[] = [];
 	const userMessages: string[] = [];
 	const notices: { message: string; level: string }[] = [];
+	const widgets = new Map<
+		string,
+		{ render(width: number): string[]; invalidate(): void }
+	>();
 	const dialogs: {
 		title: string;
 		options: string[];
@@ -89,9 +109,12 @@ async function fixture() {
 	events.on("@wangjq4214/pi-delegate:discover", (request) => {
 		(request as { reply(value: unknown): void }).reply({
 			version: 1,
-			execute: async () => {
+			...(options.capability === false
+				? {}
+				: { capabilities: { invocationProgress: true } }),
+			execute: async (...args: Parameters<DelegateClient["execute"]>) => {
 				executions++;
-				return unexpected();
+				return options.execute ? options.execute(...args) : unexpected();
 			},
 			status: unexpected,
 			list: unexpected,
@@ -122,6 +145,7 @@ async function fixture() {
 	} as unknown as ExtensionAPI;
 	const ctx = {
 		cwd,
+		mode: options.tui ? "tui" : "rpc",
 		hasUI: true,
 		isIdle: () => idleNow,
 		waitForIdle: () => {
@@ -132,6 +156,17 @@ async function fixture() {
 			aborts++;
 		},
 		ui: {
+			theme: { fg: (_color: string, text: string) => text },
+			setWidget(
+				key: string,
+				factory?: (tui: unknown) => {
+					render(width: number): string[];
+					invalidate(): void;
+				},
+			) {
+				if (factory) widgets.set(key, factory({ requestRender() {} }));
+				else widgets.delete(key);
+			},
 			notify: (message: string, level: string) => {
 				notices.push({ message, level });
 			},
@@ -202,6 +237,7 @@ async function fixture() {
 		ctx,
 		pi,
 		tools,
+		widgets,
 		dialogs,
 		messages,
 		userMessages,
@@ -1050,4 +1086,103 @@ describe("readable goal inspection", () => {
 		}
 		await expectNonExecuting(h);
 	});
+});
+
+describe("live goal public exchange and widget lifecycle", () => {
+	test("missing invocation capability is a visible compatibility error, not a mute or dispatch", async () => {
+		const h = await fixture({ capability: false, tui: true });
+		await h.command("Discuss a bounded goal");
+		expect(h.notices.at(-1)?.message).toContain(
+			"requires pi-delegate invocation progress",
+		);
+		expect(h.executions()).toBe(0);
+		expect(h.widgets.size).toBe(0);
+		await expectNonExecuting(h);
+	});
+
+	for (const eventName of [
+		"session_before_tree",
+		"session_tree",
+		"session_shutdown",
+	] as const) {
+		test(`${eventName} disposes goal widget before cleanup; late public callbacks cannot remount it`, async () => {
+			const entered = deferred<DelegateExecutionOptions>();
+			const finish = deferred<Awaited<ReturnType<DelegateClient["execute"]>>>();
+			const cancelled: Awaited<ReturnType<DelegateClient["execute"]>> = {
+				content: [{ type: "text", text: "Result" }],
+				details: { status: "cancelled", taskId: "exact-real-subagent" },
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				isError: false,
+			};
+			const h = await fixture({
+				tui: true,
+				execute: async (_input, _ctx, _signal, options) => {
+					if (!options) throw new Error("Missing invocation options");
+					entered.resolve(options);
+					return finish.promise;
+				},
+			});
+			cleanups.push(async () => {
+				finish.resolve(cancelled);
+			});
+			const params = await h.begin();
+			const proposing = h.tool("goal_propose", params);
+			await Bun.sleep(0);
+			required(h.dialogs[0]).answer.resolve("Start");
+			expect((await proposing).isError).not.toBe(true);
+			await h.tool("goal_plan", {
+				items: [{ id: "one", title: "Actual item", acceptance: "Verified" }],
+				checkpoint: "Plan",
+			});
+			const working = h.tool("goal_work", {
+				itemId: "one",
+				task: "Execute once",
+			});
+			const options = await entered.promise;
+			expect(options.presentation).toBe("consumer");
+			const render = () =>
+				required(h.widgets.get("pi-goal:progress")).render(160).join("\n");
+			expect(render()).toContain("waiting for delegate acceptance");
+			options.onProgress?.({
+				taskId: "exact-real-subagent",
+				phase: "running",
+				cancelling: false,
+			});
+			expect(render()).toContain("Worker · running");
+			expect(render()).toContain("Item: one · Actual item");
+			expect(render()).toContain("Subagent: exact-real-subagent");
+			expect((await h.status()).activity?.task?.taskId).toBe(
+				"exact-real-subagent",
+			);
+			const oldComponent = required(h.widgets.get("pi-goal:progress"));
+			const invalidating = h.emit(
+				eventName,
+				eventName === "session_before_tree"
+					? { preparation: { targetId: "new", oldLeafId: "old" } }
+					: { newLeafId: "new", oldLeafId: "old" },
+			);
+			await Bun.sleep(0); // Earlier public shutdown hooks may yield before goal disposal.
+			expect(h.widgets.size).toBe(0);
+			options.onProgress?.({
+				taskId: "late-old-task",
+				phase: "running",
+				cancelling: false,
+			});
+			expect(oldComponent.render(160)).toEqual([]);
+			expect(h.widgets.size).toBe(0);
+			finish.resolve(cancelled);
+			await Promise.all([working, invalidating]);
+			expect(h.executions()).toBe(1);
+			expect((await h.status()).runtimeActive).toBe(false);
+			expect((await h.status()).activity).toBeUndefined();
+			expect(h.widgets.size).toBe(0);
+		});
+	}
 });

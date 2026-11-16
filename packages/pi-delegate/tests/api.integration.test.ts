@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { DelegateResult } from "../src/api.ts";
+import type { DelegateExecutionProgress, DelegateResult } from "../src/api.ts";
 import { RpcProcess } from "../src/rpc.ts";
 import { resolveCli } from "../src/runner.ts";
 import { processExited } from "./fixtures/process-exit.ts";
@@ -77,10 +77,29 @@ for (const built of [false, true]) {
 			if (entry?.type !== "custom") throw new Error("Missing consumer result");
 			const data = entry.data as {
 				result: DelegateResult;
+				progress: DelegateExecutionProgress[];
 				list: { details: { tasks: { taskId: string }[] } };
 				status: { details: unknown };
 			};
 			expect(data.result.details.status).toBe("completed");
+			expect(data.progress.map((value) => value.phase)).toEqual([
+				"queued",
+				"initializing",
+				"running",
+				"cleanup",
+				"completed",
+			]);
+			expect(
+				data.progress.every(
+					(value) => value.taskId === data.result.details.taskId,
+				),
+			).toBe(true);
+			expect(data.progress.every((value) => !value.cancelling)).toBe(true);
+			const firstProgress = entries.findIndex(
+				(e) => e.type === "custom" && e.customType === "api:progress",
+			);
+			expect(firstProgress).toBeGreaterThanOrEqual(0);
+			expect(firstProgress).toBeLessThan(entries.indexOf(entry));
 			expect(data.result.usage.totalTokens).toBe(9); // search, codemode, final answer: 3 tokens each.
 			const output = JSON.parse(data.result.content[0]?.text ?? "{}");
 			expect(output.child).toBe(true);

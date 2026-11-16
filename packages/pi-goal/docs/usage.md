@@ -41,9 +41,19 @@ Status and list use readable native notifications, with the host's Unicode wrapp
 
 Copy an ID into `/goal status <goal-id>` for objective, acceptance conditions, individual work-item progress, dispatch allowance, stop/recovery information and the latest current/stale review assessment. These are saved observations, not proof of a live process or ownership. Worker completion is not item acceptance, and all items accepted does not itself complete the goal. Missing run/review data is labelled unavailable rather than zero or approval.
 
-`/goal` and `/goal status` distinguish a non-executing draft, current runtime coordination authority and recovery reinspection requirements. They do not observe live subagent activity. Inspection does not start/resume work, acquire execution ownership, repair journals or renew allowance. Display text escapes terminal controls and embedded newlines; list objectives and detail review/checkpoint summaries may be explicitly truncated, but lookup IDs are not abbreviated. Model-facing `goal_status` remains structured JSON with `runtimeActive` and `reinspectionRequired` where applicable.
+`/goal` and `/goal status` distinguish a non-executing draft, current runtime coordination authority and recovery reinspection requirements. They do not observe live subagent activity. Inspection does not start/resume work, acquire execution ownership, repair journals or renew allowance. Display text escapes terminal controls and embedded newlines; list objectives and detail review/checkpoint summaries may be explicitly truncated, but lookup IDs are not abbreviated. Model-facing `goal_status` remains structured JSON with `runtimeActive`, `reinspectionRequired`, current invocation `activity` and `stopping` where applicable. Activity is ephemeral and may be unavailable before acceptance; saved-ID lookup does not establish live child execution.
 
 Pause an active goal before starting or resuming another. Start and resume require an idle parent; saved-goal inspection does not authorize execution. Current commands do not provide goal revision, archival, or a goal picker; those are [roadmap candidates](roadmap.md).
+
+## Live TUI progress
+
+The above-editor goal view updates during synchronous work and independent review. It shows the objective, accepted/total items, remaining **dispatch allowance**, and current activity. Worker success is execution, not evidence acceptance; even all items accepted still requires current affirmative independent review.
+
+Before delegate accepts an invocation, the view says it is waiting and has no subagent ID. After acceptance it shows the exact queryable taskId and observed queue, initialization, running or cleanup phase. Queued work has not started a child. Cancellation requested is not cleanup completed. Coordination/result assessment, pause/blocker/exhaustion, recovery reinspection and latest review are separate from child execution. Unknown observations are not inferred as running or approved.
+
+Only that goal worker/reviewer's compact Agents row is replaced, from acceptance through terminal retention. Ordinary synchronous/background calls, including matching titles, retain their rows. Hidden goal tasks remain in `delegate_list`, `delegate_status` and `/delegates`, with available reports/errors. Their synchronous handles do not acquire independent cancel/steer controls. Shared capacity and delegated usage still include them.
+
+The widget belongs to this runtime, not a saved globally selected goal. Navigation, replacement, reload and shutdown dispose it; saved attempts never reconnect themselves. Disposing presentation alone does not cancel execution. `/goal pause` uses the existing owned abort signal and waits for cleanup. RPC/non-TUI workflows continue without mounting this view. The view uses the active theme, escapes untrusted controls, and wraps exact subagent IDs rather than abbreviating them. Styling and retention cadence are not execution guarantees.
 
 ## Allowance and stopping
 
@@ -139,11 +149,13 @@ Every item must be explicitly accepted before review. The reviewer receives the 
 
 Only affirmative, completed, non-partial review of the current state can complete the goal. Rejection, failure, cancellation, malformed output, changed registered files during review, or revoked authority leaves it unfinished. The parent may choose further bounded work while capacity remains or expose a blocker. There is no review bypass or separately configurable reviewer model yet.
 
-Tool responses contain JSON text and structured details. Current-runtime reports expose `draft`, `state`, `runtimeActive`, and `reinspectionRequired` where applicable; saved-ID queries return the saved state and current runtime activity for that ID. Errors set `isError` and include the current report. Durable attempt summaries are bounded, not full transcripts; inspect actual files and delegate results when a summary is truncated or incomplete.
+Tool responses contain JSON text and structured details. Current-runtime reports expose `draft`, `state`, `runtimeActive`, `reinspectionRequired`, ephemeral `activity`, and `stopping` where applicable; saved-ID queries return the saved state and current runtime activity for that ID. Errors set `isError` and include the current report. Durable attempt summaries are bounded, not full transcripts; inspect actual files and delegate results when a summary is truncated or incomplete.
 
 ## Pause and recovery
 
 Pause stops new scheduling immediately and requests cancellation of only goal-owned children. Wait for cleanup before treating those children as settled. Existing edits and external effects remain. Abort, reload, branch navigation, session replacement, and shutdown invalidate execution rather than creating a persistent background service.
+
+The parent may still process a returned tool result and respond normally after pause. Pause stops new goal work, not every native model turn in the parent session; it does not globally cancel unrelated work.
 
 After restart, inspect saved state and resume deliberately from its original working directory:
 

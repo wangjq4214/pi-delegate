@@ -27,6 +27,7 @@ export type { AcceptedPressure, StatusObserver } from "./progress.ts";
 /** Visual owner only: handles are invalid after scope changes; results live elsewhere. */
 export class AgentStatus {
 	private rows = new Map<number, TaskProgress>();
+	private consumerRows = new Set<number>();
 	private generation = 0;
 	private ui?: ExtensionContext["ui"];
 	private requestRender?: () => void;
@@ -77,6 +78,7 @@ export class AgentStatus {
 		this.cancelTimer?.();
 		this.cancelTimer = undefined;
 		this.rows.clear();
+		this.consumerRows.clear();
 		this.ui?.setWidget("pi-delegate:agents", undefined);
 		this.requestRender = undefined;
 		this.mount();
@@ -89,8 +91,13 @@ export class AgentStatus {
 	}
 
 	/** Display a shared record without taking ownership of its lifetime. */
-	show(row: TaskProgress): void {
+	show(
+		row: TaskProgress,
+		presentation: "default" | "consumer" = "default",
+	): void {
 		if (!this.ui) return;
+		// Capture exact invocation intent before mounting or requesting a first render.
+		if (presentation === "consumer") this.consumerRows.add(row.id);
 		this.rows.set(row.id, row);
 		this.mount();
 		this.refresh();
@@ -101,7 +108,10 @@ export class AgentStatus {
 		if (!this.rows.size || width <= 0) return [];
 		const fg = (color: ThemeColor, text: string) =>
 			theme ? theme.fg(color, text) : text;
-		const summaries = [...this.rows.values()].map((row) => {
+		const visibleRows = [...this.rows.values()].filter(
+			(row) => !this.consumerRows.has(row.id),
+		);
+		const summaries = visibleRows.map((row) => {
 			const tool = row.latestTool;
 			const color: ThemeColor = row.status
 				? outcomeColor(row.status)
@@ -228,8 +238,10 @@ export class AgentStatus {
 		this.cancelTimer = undefined;
 		const now = this.time.now();
 		for (const row of this.rows.values()) {
-			if (row.terminalAt !== undefined && now >= row.terminalAt + 5)
+			if (row.terminalAt !== undefined && now >= row.terminalAt + 5) {
 				this.rows.delete(row.id);
+				this.consumerRows.delete(row.id);
+			}
 		}
 		this.requestRender?.();
 		if (!this.rows.size) {

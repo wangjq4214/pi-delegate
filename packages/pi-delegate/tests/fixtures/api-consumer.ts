@@ -50,6 +50,9 @@ export default async function consumer(pi: ExtensionAPI): Promise<void> {
 			const signal = task.includes("hang")
 				? AbortSignal.timeout(2500)
 				: undefined;
+			if (client.capabilities?.invocationProgress !== true)
+				throw new Error("Missing invocation-progress capability");
+			const progress: PublicAPI.DelegateExecutionProgress[] = [];
 			const result = await client.execute(
 				{
 					task,
@@ -59,9 +62,17 @@ export default async function consumer(pi: ExtensionAPI): Promise<void> {
 				},
 				ctx,
 				signal,
+				{
+					presentation: "consumer",
+					onProgress(value) {
+						progress.push(value);
+						pi.appendEntry("api:progress", value);
+					},
+				},
 			);
 			pi.appendEntry("api:result", {
 				result,
+				progress,
 				list: client.list(),
 				status: result.details.taskId
 					? client.status(result.details.taskId)

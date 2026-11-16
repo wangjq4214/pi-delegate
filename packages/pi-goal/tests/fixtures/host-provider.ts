@@ -37,7 +37,17 @@ export default function fixture(pi: ExtensionAPI): void {
 			commands: pi.getCommands().map((c) => c.name),
 		}),
 	);
-	pi.on("session_shutdown", () => trace("shutdown"));
+	pi.on("session_shutdown", async () => {
+		trace("shutdown");
+		if (!child || process.env.GOAL_HOST_CLEANUP_HOLD !== "1") return;
+		trace("cleanup-held");
+		const deadline = Date.now() + 25000;
+		while (!existsSync(join(logs, `${process.pid}.cleanup-release`))) {
+			if (Date.now() > deadline) throw new Error("Cleanup release timed out");
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+		trace("cleanup-released");
+	});
 	pi.on("agent_before_settle", (e) => {
 		trace("boundary", {
 			draft: lastDraft,
@@ -263,6 +273,10 @@ export default function fixture(pi: ExtensionAPI): void {
 							details: m.details,
 						})),
 					});
+					const goalInvoke = (name: string, args: ToolCall["arguments"]) =>
+						process.env.GOAL_HOST_PROGRESS === "1"
+							? invoke("host_api", { goalTool: name, goalArgs: args })
+							: invoke(name, args);
 					if (child) {
 						const task = users.find((u) => u.startsWith("Task:\n")) ?? "";
 						const reviewer = task.includes("Independently assess this goal");
@@ -380,7 +394,15 @@ export default function fixture(pi: ExtensionAPI): void {
 						return;
 					}
 					const latest = (name: string) =>
-						results.filter((m) => m.toolName === name).at(-1);
+						results
+							.filter(
+								(m) =>
+									m.toolName === name ||
+									(m.toolName === "host_api" &&
+										(m.details as { hostTool?: string } | undefined)
+											?.hostTool === name),
+							)
+							.at(-1);
 					if (!latest("goal_plan"))
 						invoke("goal_plan", {
 							items: [
@@ -393,7 +415,7 @@ export default function fixture(pi: ExtensionAPI): void {
 							checkpoint: "Bounded fixture plan",
 						});
 					else if (!latest("goal_work"))
-						invoke("goal_work", {
+						goalInvoke("goal_work", {
 							itemId: "artifact",
 							task:
 								process.env.GOAL_HOST_SCENARIO === "hold"
@@ -424,7 +446,7 @@ export default function fixture(pi: ExtensionAPI): void {
 								artifacts: ["artifact.txt"],
 							});
 						}
-					} else if (!latest("goal_review")) invoke("goal_review", {});
+					} else if (!latest("goal_review")) goalInvoke("goal_review", {});
 					else
 						respond(
 							"Coordinator finished; only independent approval can complete the goal",

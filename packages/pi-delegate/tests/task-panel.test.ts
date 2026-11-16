@@ -12,10 +12,43 @@ import {
 	stripTerminalSequences,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
+import { AgentStatus } from "../src/status.ts";
 import { registerTaskPanel, TaskPanel } from "../src/task-panel.ts";
 import { TaskRecords } from "../src/tasks.ts";
 import { statusUI } from "./fixtures/status-ui.ts";
 import { taskInput, taskResult } from "./fixtures/task-record.ts";
+
+test.serial(
+	"consumer-hidden synchronous records stay visible and read-only in the on-demand panel",
+	async () => {
+		const s = await setup(() => 32);
+		const status = new AgentStatus();
+		status.bind({ mode: "tui", ui: s.host.ui });
+		const off = s.records.subscribe(status.update);
+		try {
+			const record = s.records.accept({
+				...taskInput,
+				mode: "synchronous",
+				title: "Consumer hidden",
+			});
+			status.show(record.progress, "consumer");
+			expect(status.render(200).join("\n")).not.toContain("Consumer hidden");
+			expect(s.frame()).toContain("Consumer hidden");
+			s.panel.handleInput(enter);
+			expect(s.frame()).toContain(record.taskId);
+			expect(s.frame()).toContain("Synchronous tasks are read-only");
+			record.complete(taskResult());
+			expect(s.records.list().total).toBe(1);
+			s.panel.handleInput(tab);
+			expect(s.frame()).toContain("available result");
+			expect(s.calls).toEqual([]);
+		} finally {
+			off();
+			status.close();
+			s.dispose();
+		}
+	},
+);
 
 async function setup(height = () => 24) {
 	const host = await statusUI();

@@ -64,13 +64,37 @@ export interface DelegateWaitInput {
 	timeoutSeconds?: number;
 }
 
+/** Ephemeral observations for one accepted synchronous invocation. */
+export interface DelegateExecutionProgress {
+	taskId: string;
+	phase:
+		| "queued"
+		| "initializing"
+		| "running"
+		| "cleanup"
+		| "completed"
+		| "incomplete"
+		| "failed"
+		| "cancelled";
+	cancelling: boolean;
+}
+
+export interface DelegateExecutionOptions {
+	/** Consumer replaces only this invocation's compact Agents row. */
+	presentation?: "default" | "consumer";
+	/** Best-effort snapshots; observer failures never affect execution. */
+	onProgress?: (progress: DelegateExecutionProgress) => void;
+}
+
 export interface DelegateClient {
 	readonly version: 1;
+	readonly capabilities?: { invocationProgress: true };
 	/** Uses the same execution owner as the tool; resolves after child cleanup. */
 	execute(
 		input: DelegateInput,
 		ctx: ExtensionContext,
 		signal?: AbortSignal,
+		options?: DelegateExecutionOptions,
 	): Promise<DelegateResult>;
 	status(taskId: string): DelegateObservation;
 	list(input?: DelegateListInput): DelegateObservation;

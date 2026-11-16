@@ -16,6 +16,16 @@ Each worker/reviewer runs in a fresh child session. Goal explicitly supplies its
 
 Goal returns immediately when loaded in a delegate child. Its tool names are declared parent-only through delegate's public integration, including discoverable and codemode access. This prevents recursive orchestration through those registered capabilities; it is not an operating-system restriction on arbitrary subprocess creation.
 
+## Live progress and selective presentation
+
+Goal requires delegate's advertised `capabilities.invocationProgress` support. Missing capability is a visible compatibility error; there is no private-import or global-mute fallback. The optional public execute exchange scopes `presentation: "consumer"` and `onProgress` to each worker/reviewer invocation. Delegate publishes only accepted task identities and observed phases before terminal return. Goal correlates these with its own attempt/item; it never searches titles.
+
+The controller publishes an ephemeral projection of its authoritative journal snapshot, runtime authority, recovery state and current invocation observations. UI phases are not saved statuses or evidence acceptance. The TUI view owns only its widget/subscription, not scheduling, children or accounting. Observation/redraw/disposal produces no dispatch charges, model calls or messages. Non-TUI structured inspection and execution require no widget.
+
+Only goal-managed per-task compact Agents rows are suppressed; default clients and unrelated work retain theirs, including terminal retention. Hidden tasks remain queryable and visible in `/delegates`, and consumed usage/capacity remain in the shared indicators. Synchronous query IDs do not confer background controls. Ordinary background results remain query-only.
+
+Pause revokes authority and shows stopping while the existing owned signal and delegate cleanup settle. View disposal alone never cancels an invocation. Scope invalidation disposes view resources; invocation/generation guards discard late observations, and late results cannot restore authority or resurrect the old view. Saved active/running records are not proof of live execution. Review freshness/approval rules below are unchanged.
+
 ## Draft confirmation and activation
 
 `/goal <objective>` begins a session-local draft, not an active goal. The current parent clarifies the request through ordinary user-driven chat. Drafting does not authorize goal dispatches, run automatic goal continuation, or claim that normal chat usage is covered by an unapproved execution allowance.
@@ -96,6 +106,8 @@ Records can contain sensitive task text, evidence, paths, output summaries, and 
 ## Pause, teardown, and side effects
 
 Pause synchronously revokes scheduling authority before awaiting journal writes or cleanup. It aborts goal-owned queued/running work through the existing delegate owner, waits for settlement, persists available outcomes, and releases the lease. Cancellation is not an instantaneous process-stop guarantee.
+
+Pause prevents further goal-driven coordinator, worker and reviewer dispatches; it does not globally abort the parent session. After an already-running tool returns its cancellation/result, the host may perform its ordinary within-run model processing, for example to acknowledge the pause. That is not a new goal dispatch or automatic goal resume. Observation and redraw must not add model calls of their own.
 
 If a returned native continuation is still pending admission, goal also revokes that boundary through host abort. Ordinary unrelated delegate children retain their own ownership; goal pause does not cancel them. Current operations are serialized, so goal does not dispatch a parallel pool of item workers of its own.
 

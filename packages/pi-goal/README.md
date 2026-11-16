@@ -14,13 +14,14 @@ This is a **private local workspace package**, not yet included in npm/tag publi
 - **Independent completion review:** a fresh reviewer must approve the current objective and evidence before the goal completes.
 - **Global persistence and deliberate recovery:** save goal-specific JSONL records under the global Pi agent root; resume explicitly after inspecting actual effects.
 - **Shared delegate runtime:** use delegate's supported public API, admission, task records, cancellation, and usage accounting instead of another executor.
+- **Live goal progress:** a compact themed view above the editor shows accepted counts, remaining dispatch allowance, current worker/reviewer and exact subagent task ID while work is pending. Only goal-owned compact Agents rows are replaced; ordinary delegate tasks remain visible.
 
 ## Requirements
 
 - Git and Bun 1.4.1 or later for local setup.
 - Node.js 22.19 or later; `node` must be available on `PATH` when a Bun-hosted Pi launches delegate children.
 - A compatible Pi host. Current implementation evidence targets Pi 1.1.0; other host versions are not currently verified.
-- Both workspace extensions, plus a dialog-capable TUI or participating RPC client for creation confirmation.
+- Both compatible workspace extensions (including delegate's invocation-progress capability), plus a dialog-capable TUI or participating RPC client for creation confirmation.
 
 ## Local setup
 
@@ -60,7 +61,7 @@ The parent organizes the objective and acceptance conditions, asking about neces
 /goal resume <goal-id> 8
 ```
 
-The numbers are examples, not defaults. Status/list show readable native notifications: saved-goal summaries retain exact IDs and working directories, and status details explain item acceptance, dispatch allowance, stop/recovery reasons and independent review. A saved `active` status is not proof of a live process. Inspection never starts or resumes work; start/resume never silently replaces an active goal, so pause it first. There is no live goal dashboard yet.
+The numbers are examples, not defaults. Status/list show readable native notifications: saved-goal summaries retain exact IDs and working directories, and status details explain item acceptance, dispatch allowance, stop/recovery reasons and independent review. A saved `active` status is not proof of a live process. Inspection never starts or resumes work; start/resume never silently replaces an active goal, so pause it first. The TUI also provides compact live goal progress; RPC/non-TUI execution does not mount a widget.
 
 The allowance counts goal-initiated coordinator checkpoints, worker dispatches, and independent reviewer dispatches together, not individual within-run host/model/tool turns. It is not an exact token, provider-request, cost, or wall-clock cap. Exhaustion saves progress and pauses without an extra wrap-up. A worker may use the last unit, leaving the goal unfinished because mandatory review cannot run.
 
