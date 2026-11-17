@@ -1156,8 +1156,13 @@ describe("live goal public exchange and widget lifecycle", () => {
 				cancelling: false,
 			});
 			expect(render()).toContain("Worker · running");
-			expect(render()).toContain("Item: one · Actual item");
-			expect(render()).toContain("Subagent: exact-real-subagent");
+			expect(render()).toContain("one · Actual item");
+			expect(render()).not.toContain("exact-real-subagent");
+			await h.command("status");
+			expect(h.notices.at(-1)?.message).toContain(
+				"Subagent: exact-real-subagent",
+			);
+			expect(h.notices.at(-1)?.message).toContain("Worker · running");
 			expect((await h.status()).activity?.task?.taskId).toBe(
 				"exact-real-subagent",
 			);

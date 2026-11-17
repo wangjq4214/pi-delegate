@@ -294,7 +294,7 @@ test("pre-acceptance failure invents no ID or executing child; non-TUI mounting 
 	view.dispose();
 });
 
-test("rendering is display-width safe, exact-ID preserving, theme-current and text-only at narrow and normal widths", async () => {
+test("rendering is display-width safe, hides compact UUIDs, stays theme-current and text-only", async () => {
 	const { controller } = await fixture(async () => completed);
 	const base = controller.progress();
 	required(base.state).objective =
@@ -324,13 +324,11 @@ test("rendering is display-width safe, exact-ID preserving, theme-current and te
 			expect(line).not.toContain("\x1b]");
 			expect(line).not.toContain("\x1b[2J");
 		}
-		expect(lines.join("").replaceAll(" ", "")).toContain(
-			`Subagent: ${completed.details.taskId}`.replaceAll(" ", ""),
-		);
+		expect(lines.join("")).not.toContain(completed.details.taskId);
 	}
 	const output = renderGoalProgress(base, undefined, 200).join("\n");
 	expect(output).toContain("\\u001b");
-	expect(output).toContain("queued for admission; child not started");
+	expect(output).toContain("queued; child not started");
 	const ui = uiFixture(controller);
 	expect(required(ui.component()).render(80).join("")).toContain("\x1b[31m");
 	ui.theme();

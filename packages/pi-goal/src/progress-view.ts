@@ -3,14 +3,22 @@ import type {
 	Theme,
 	ThemeColor,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { GoalController, GoalProgress } from "./controller.ts";
 import type { GoalCreation } from "./creation.ts";
-import { displayText } from "./presentation.ts";
+import { describeGoalActivity, displayText } from "./presentation.ts";
 
 type Draft = ReturnType<GoalCreation["status"]>;
 const widgetKey = "pi-goal:progress";
-const terminal = new Set(["completed", "incomplete", "failed", "cancelled"]);
+const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/** A bounded first-clause summary; the original objective stays in details. */
+function title(value: string): string {
+	const clause =
+		value.trim().split(/(?:[!?。！？;；，,]\s*|\.(?:\s|$)|\r?\n)/u, 1)[0] ||
+		value;
+	return displayText(clause);
+}
 
 /** A text-only, ephemeral projection; it neither accepts evidence nor owns execution. */
 export function renderGoalProgress(
@@ -18,131 +26,131 @@ export function renderGoalProgress(
 	draft: Draft,
 	width: number,
 	theme?: Pick<Theme, "fg">,
+	frame = 0,
 ): string[] {
 	if (width <= 0) return [];
 	const lines: string[] = [];
-	const line = (text: string, color: ThemeColor = "muted") => {
-		const safe = truncateToWidth(displayText(text), width);
-		lines.push(theme ? theme.fg(color, safe) : safe);
+	const paint = (text: string, color?: ThemeColor) => {
+		const safe = displayText(text);
+		return color && theme ? theme.fg(color, safe) : safe;
 	};
+	const line = (text: string) => lines.push(truncateToWidth(text, width));
 	const state = progress.state;
-	if (draft && !progress.runtimeActive) {
-		line(`Goal draft · ${draft.request}`, "accent");
-		line("Not authorized · no plan or executing subagent");
+	if (draft && !progress.runtimeActive && !progress.stopping) {
+		line(
+			`${paint("◇ Goal draft", "accent")} · ${truncateToWidth(paint(title(draft.request)), 56)}`,
+		);
+		line(paint("Not authorized · no plan or executing subagent", "muted"));
 		return lines;
 	}
 	if (!state) {
-		line("Goal · no current goal or draft");
+		line(paint("Goal · no current goal or draft", "muted"));
 		return lines;
 	}
-	line(`Goal · ${state.objective}`, "accent");
 	const accepted = state.items.filter(
 		(item) => item.status === "accepted",
 	).length;
-	const allowance = state.run
-		? `${state.run.allowance - state.run.used} dispatches remaining / ${state.run.allowance}`
-		: "dispatch allowance unavailable";
-	line(`${accepted}/${state.items.length} accepted · ${allowance}`);
-
-	const dispatch = progress.dispatch;
-	if (progress.stopping) {
+	const prefix = `${paint("◆ Goal", "accent")} · `;
+	const count = `${paint(`${accepted}/${state.items.length}`, "accent")}${paint(" accepted", "muted")}`;
+	const titleWidth = width - visibleWidth(prefix) - visibleWidth(count) - 2;
+	if (titleWidth >= 4) {
+		const heading =
+			prefix +
+			truncateToWidth(paint(title(state.objective)), Math.min(56, titleWidth));
 		line(
-			dispatch && !dispatch.settled
-				? "Stopping · cancellation requested; waiting for owned cleanup"
-				: "Stopping · settling goal ownership; no running child",
-			"warning",
-		);
-	} else if (dispatch) {
-		const role = dispatch.kind === "reviewer" ? "Independent review" : "Worker";
-		const task = dispatch.task;
-		const activity =
-			dispatch.settled || (task && terminal.has(task.phase))
-				? "result assessment; execution ended"
-				: task?.cancelling || task?.phase === "cleanup"
-					? "stopping / cleanup; waiting for settlement"
-					: task?.phase === "queued"
-						? "queued for admission; child not started"
-						: task?.phase === "initializing"
-							? "initializing"
-							: task?.phase === "running"
-								? "running"
-								: task
-									? "phase unavailable"
-									: "waiting for delegate acceptance; subagent unavailable";
-		line(`${role} · ${activity}`, "accent");
-		if (dispatch.kind === "worker")
-			line(`Item: ${dispatch.itemId} · ${dispatch.itemTitle}`);
-	} else if (!progress.runtimeActive) {
-		line(
-			state.status === "complete"
-				? "Complete · current independent review approved"
-				: "Paused / inactive · no running child",
-			state.status === "complete" ? "success" : "warning",
-		);
-	} else if (progress.reinspectionRequired) {
-		line(
-			"Recovery · reinspection required before dispatch; no current child",
-			"warning",
+			heading +
+				" ".repeat(
+					Math.max(2, width - visibleWidth(heading) - visibleWidth(count)),
+				) +
+				count,
 		);
 	} else {
-		line(
-			!state.items.length
-				? "Coordination · no plan yet; no current child"
-				: accepted === state.items.length
-					? "Coordination · independent review required; no current child"
-					: "Coordination · plan / assess evidence; no current child",
-		);
+		line(prefix + paint(title(state.objective)));
+		line(count);
 	}
-	if (dispatch?.task) {
-		// Exact accepted query identity, never abbreviated even at narrow widths.
-		for (const part of wrapTextWithAnsi(
-			`Subagent: ${displayText(dispatch.task.taskId)}`,
-			width,
-		))
-			lines.push(theme ? theme.fg("dim", part) : part);
-	}
-	if (progress.stopReason || state.stopReason)
-		line(`Stop: ${progress.stopReason ?? state.stopReason}`, "warning");
-	if (progress.reinspectionRequired && (dispatch || !progress.runtimeActive))
-		line("Recovery: reinspection required", "warning");
-	const review = state.review;
-	const previous = state.attempts
-		.filter((attempt) => attempt.kind === "reviewer")
-		.at(-1);
+
+	const activity = describeGoalActivity(progress);
+	const symbol = activity.animated
+		? (frames[frame % frames.length] ?? frames[0])
+		: activity.symbol;
+	const dispatch = progress.dispatch;
+	const item =
+		dispatch?.kind === "worker" && (progress.runtimeActive || progress.stopping)
+			? ` · ${dispatch.itemId ?? "item unavailable"} · ${dispatch.itemTitle ?? "title unavailable"}`
+			: "";
+	line(`${paint(`${symbol} ${activity.text}`, activity.color)}${paint(item)}`);
+	const remaining = state.run
+		? state.run.allowance - state.run.used
+		: undefined;
 	line(
-		review
-			? `Review: ${review.workRevision !== state.workRevision ? "stale; unfinished" : review.approved ? (state.status === "complete" ? "approved" : "approval recorded; not complete") : "not approved; unfinished"} · ${review.summary}`
-			: previous
-				? `Review: previous ${previous.status}; no current approval · ${previous.summary}`
-				: "Review: not yet assessed",
+		state.run
+			? `${paint(`${remaining}/${state.run.allowance}`, remaining !== undefined && remaining <= 1 ? "warning" : "muted")}${paint(" dispatches left", "dim")}`
+			: paint("Dispatch allowance unavailable", "muted"),
 	);
+
+	if (progress.stopReason || state.stopReason)
+		line(paint(`Stop: ${progress.stopReason ?? state.stopReason}`, "warning"));
+	if (progress.reinspectionRequired && (dispatch || !progress.runtimeActive))
+		line(paint("Recovery: reinspection required", "warning"));
+	const review = state.review;
+	if (review && activity.color !== "success") {
+		const outcome =
+			review.workRevision !== state.workRevision
+				? "stale; unfinished"
+				: review.approved
+					? "approval recorded; not complete"
+					: "not approved; unfinished";
+		line(
+			`${paint(`Review: ${outcome}`, "warning")} · ${paint(review.summary, "muted")}`,
+		);
+	} else if (!review) {
+		const previous = state.attempts
+			.filter((attempt) => attempt.kind === "reviewer")
+			.at(-1);
+		if (previous)
+			line(
+				`${paint(`Review: previous ${previous.status}; no current approval`, "warning")} · ${paint(previous.summary, "muted")}`,
+			);
+	}
 	const last = state.attempts.at(-1);
 	if (
 		last &&
-		(last.status === "failed" ||
-			last.status === "cancelled" ||
-			last.status === "incomplete" ||
-			last.status === "interrupted")
+		["failed", "cancelled", "incomplete", "interrupted"].includes(last.status)
 	)
-		line(`Last ${last.kind}: ${last.status} · ${last.summary}`, "warning");
+		line(
+			`${paint(`Last ${last.kind}: ${last.status}`, last.status === "failed" ? "error" : "warning")} · ${paint(last.summary, "muted")}`,
+		);
 	return lines;
 }
 
-/** Owns only its widget and subscription. Disposal is never execution cancellation. */
+function scheduleAnimation(tick: () => void): () => void {
+	const timer = setInterval(tick, 120);
+	timer.unref();
+	return () => clearInterval(timer);
+}
+
+/** Owns only its widget, observations and animation. Disposal never cancels execution. */
 export class GoalProgressView {
 	private ui?: ExtensionContext["ui"];
 	private unsubscribe?: () => void;
 	private requestRender?: () => void;
 	private generation = 0;
 	private mounted = false;
+	private snapshot?: GoalProgress;
+	private frame = 0;
+	private animation?: { cancel: () => void };
 
 	constructor(
 		private controller: GoalController,
 		private draft: () => Draft,
+		private schedule: (tick: () => void) => () => void = scheduleAnimation,
 	) {}
 
 	bind(ctx: Pick<ExtensionContext, "mode" | "ui">): void {
-		if (ctx.mode !== "tui") return;
+		if (ctx.mode !== "tui") {
+			this.dispose();
+			return;
+		}
 		if (this.ui === ctx.ui) return;
 		this.dispose();
 		this.ui = ctx.ui;
@@ -150,12 +158,37 @@ export class GoalProgressView {
 		this.refresh();
 	}
 
+	private animate(active: boolean): void {
+		if (!active) {
+			const old = this.animation;
+			this.animation = undefined;
+			old?.cancel();
+			this.frame = 0;
+			return;
+		}
+		if (this.animation) return;
+		const generation = this.generation;
+		const animation = { cancel: () => {} };
+		this.animation = animation;
+		animation.cancel = this.schedule(() => {
+			if (generation !== this.generation || this.animation !== animation)
+				return;
+			this.frame = (this.frame + 1) % frames.length;
+			try {
+				this.requestRender?.();
+			} catch {
+				/* Presentation cannot affect execution. */
+			}
+		});
+	}
+
 	refresh(): void {
 		const ui = this.ui;
 		if (!ui) return;
 		try {
-			if (!this.mounted && (this.controller.status() || this.draft())) {
-				this.mounted = true;
+			// Clone authoritative state only on observation changes, never on animation ticks.
+			this.snapshot = this.controller.progress();
+			if (!this.mounted && (this.snapshot.state || this.draft())) {
 				const generation = this.generation;
 				ui.setWidget(
 					widgetKey,
@@ -164,13 +197,14 @@ export class GoalProgressView {
 							this.requestRender = () => tui.requestRender();
 						return {
 							render: (width) => {
-								if (generation !== this.generation) return [];
+								if (generation !== this.generation || !this.snapshot) return [];
 								try {
 									return renderGoalProgress(
-										this.controller.progress(),
+										this.snapshot,
 										this.draft(),
 										width,
 										ui.theme,
+										this.frame,
 									);
 								} catch {
 									return [
@@ -186,15 +220,21 @@ export class GoalProgressView {
 					},
 					{ placement: "aboveEditor" },
 				);
+				this.mounted = true;
 			}
+			this.animate(
+				this.mounted && describeGoalActivity(this.snapshot).animated,
+			);
 			this.requestRender?.();
 		} catch {
+			this.animate(false);
 			/* UI failure cannot dispatch, revoke authority or accept evidence. */
 		}
 	}
 
 	dispose(): void {
 		this.generation++;
+		this.animate(false);
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
 		this.requestRender = undefined;
@@ -204,6 +244,7 @@ export class GoalProgressView {
 			/* Already gone. */
 		}
 		this.ui = undefined;
+		this.snapshot = undefined;
 		this.mounted = false;
 	}
 }

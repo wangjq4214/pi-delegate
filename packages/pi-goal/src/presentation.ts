@@ -1,3 +1,5 @@
+import type { ThemeColor } from "@earendil-works/pi-coding-agent";
+import type { GoalDispatchObservation, GoalProgress } from "./controller.ts";
 import type { GoalCreation } from "./creation.ts";
 import type { GoalState } from "./model.ts";
 import type { GoalStore } from "./store.ts";
@@ -13,6 +15,82 @@ export function displayText(value: string): string {
 			if (character === "\t") return "\\t";
 			return `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`;
 		},
+	);
+}
+
+/** A shared human projection of live observations, never saved-attempt inference. */
+export function describeGoalActivity(progress: GoalProgress): {
+	text: string;
+	color: ThemeColor;
+	symbol: string;
+	animated: boolean;
+} {
+	const { state, dispatch } = progress;
+	const activity = (
+		text: string,
+		color: ThemeColor = "muted",
+		symbol = "○",
+		animated = false,
+	) => ({ text, color, symbol, animated });
+	if (progress.stopping)
+		return activity(
+			dispatch && !dispatch.settled
+				? "Stopping · waiting for owned cleanup"
+				: "Stopping · settling goal ownership; no running child",
+			"warning",
+			"■",
+		);
+	if (!progress.runtimeActive) {
+		const approved =
+			state?.status === "complete" &&
+			state.review?.approved &&
+			state.review.workRevision === state.workRevision;
+		return approved
+			? activity("Complete · independent review approved", "success", "✓")
+			: activity("Paused / inactive · no running child", "warning", "Ⅱ");
+	}
+	if (dispatch) {
+		const role = dispatch.kind === "reviewer" ? "Independent review" : "Worker";
+		const task = dispatch.task;
+		if (
+			dispatch.settled ||
+			(task &&
+				["completed", "incomplete", "failed", "cancelled"].includes(task.phase))
+		)
+			return activity(`${role} · result assessment; execution ended`);
+		if (task?.cancelling || task?.phase === "cleanup")
+			return activity(
+				`${role} · stopping / cleanup; waiting for settlement`,
+				"warning",
+				"■",
+			);
+		if (task?.phase === "running")
+			// The host has no activity-specific cyan token; use its cool syntax foreground.
+			return activity(`${role} · running`, "syntaxVariable", "●", true);
+		if (task?.phase === "queued")
+			return activity(`${role} · queued; child not started`, "muted", "◷");
+		if (task?.phase === "initializing")
+			return activity(`${role} · initializing`, "muted", "◌");
+		return activity(
+			task
+				? `${role} · phase unavailable`
+				: `${role} · waiting for delegate acceptance`,
+		);
+	}
+	if (progress.reinspectionRequired)
+		return activity(
+			"Recovery · reinspection required; no current child",
+			"warning",
+			"!",
+		);
+	const accepted =
+		state?.items.filter((item) => item.status === "accepted").length ?? 0;
+	return activity(
+		!state?.items.length
+			? "Coordination · no plan yet; no current child"
+			: accepted === state.items.length
+				? "Coordination · independent review required; no current child"
+				: "Coordination · plan / assess evidence; no current child",
 	);
 }
 
@@ -96,7 +174,12 @@ export function formatGoalList(
 
 export function formatGoalStatus(
 	state: GoalState,
-	current?: { runtimeActive: boolean; reinspectionRequired: boolean },
+	current?: {
+		runtimeActive: boolean;
+		reinspectionRequired: boolean;
+		activity?: GoalDispatchObservation;
+		stopping?: boolean;
+	},
 ): string {
 	const lines = [
 		current ? "Current goal" : "Saved goal",
@@ -106,9 +189,15 @@ export function formatGoalStatus(
 		`Saved status: ${state.status}`,
 		current
 			? current.runtimeActive
-				? "Runtime: Goal coordination authorized in this runtime; child activity is not observed here."
+				? "Runtime: Goal coordination authorized in this runtime; activity below is a current observation."
 				: "Runtime: Inactive in this runtime; saved status is not proof of live execution."
 			: "Saved observation only; not proof of live execution or ownership.",
+		...(current
+			? [
+					`Activity: ${displayText(describeGoalActivity({ state, runtimeActive: current.runtimeActive, reinspectionRequired: current.reinspectionRequired, stopping: current.stopping ?? false, dispatch: current.activity }).text)}`,
+					`Subagent: ${current.activity?.task && (current.runtimeActive || current.stopping) ? displayText(current.activity.task.taskId) : "unavailable (no current observed subagent identity)"}`,
+				]
+			: []),
 		`Progress: ${progress(state)}`,
 		"Worker completion is not item acceptance; all items accepted is not goal completion.",
 		`Dispatch allowance: ${allowance(state)}`,
@@ -144,6 +233,8 @@ export function formatCurrentGoal(report: {
 	state?: GoalState;
 	runtimeActive: boolean;
 	reinspectionRequired: boolean;
+	activity?: GoalDispatchObservation;
+	stopping?: boolean;
 }): string {
 	const sections: string[] = [];
 	if (report.state) sections.push(formatGoalStatus(report.state, report));

@@ -120,7 +120,7 @@ describe("goal human presentation", () => {
 			reinspectionRequired: true,
 		});
 		expect(current).toContain("Goal coordination authorized in this runtime");
-		expect(current).toContain("child activity is not observed here");
+		expect(current).toContain("no current child");
 		expect(current).toContain("Required before further work or review");
 		expect(
 			formatCurrentGoal({
