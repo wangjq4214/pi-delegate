@@ -268,7 +268,12 @@ test.serial(
 		const require = createRequire(
 			import.meta.resolve("@earendil-works/pi-coding-agent"),
 		);
-		const { visibleWidth, stripTerminalSequences } = await import(
+		const {
+			getCapabilities,
+			setCapabilities,
+			visibleWidth,
+			stripTerminalSequences,
+		} = await import(
 			pathToFileURL(require.resolve("@earendil-works/pi-tui")).href
 		);
 		const { InteractiveMode } = await import(
@@ -281,7 +286,7 @@ test.serial(
 				join(getPackageDir(), "dist/modes/interactive/theme/theme.js"),
 			).href
 		);
-		initTheme("dark");
+		const capabilities = getCapabilities();
 		type Component = { render(width: number): string[]; invalidate(): void };
 		const children: Component[] = [];
 		const receiver = {
@@ -296,6 +301,9 @@ test.serial(
 		};
 		const goal = state();
 		try {
+			// The two themes' dim colors can quantize to the same 256-color index.
+			setCapabilities({ ...capabilities, trueColor: true });
+			initTheme("dark");
 			for (const message of [
 				formatGoalList({ goals: [goal], errors: [] }),
 				formatGoalStatus(goal),
@@ -331,6 +339,7 @@ test.serial(
 			expect(stripTerminalSequences(light)).toBe(stripTerminalSequences(dark));
 			expect(light).not.toBe(dark);
 		} finally {
+			setCapabilities(capabilities);
 			themes.setTheme("dark");
 		}
 	},
