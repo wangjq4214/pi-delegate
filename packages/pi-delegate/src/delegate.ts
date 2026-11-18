@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { type Static, Type, type Usage } from "@earendil-works/pi-ai";
+import type { Usage } from "@earendil-works/pi-ai";
 import {
 	defineTool,
 	type ExtensionAPI,
@@ -7,6 +7,7 @@ import {
 	type RpcExtensionUIRequest,
 	type RpcExtensionUIResponse,
 } from "@earendil-works/pi-coding-agent";
+import { type Static, Type } from "typebox";
 import type {
 	DelegateClient,
 	DelegateExecutionOptions,

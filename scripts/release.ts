@@ -8,15 +8,18 @@ import { isDeepStrictEqual } from "node:util";
 
 export const repository = "wangjq4214/pi-delegate";
 export const packageDirectories = [
+	// Publish delegate before goal, which requires the matching registry version.
 	"pi-delegate",
 	"pi-open-tui",
 	"pi-dollar-skills",
+	"pi-goal",
 ] as const;
 
 interface Manifest {
 	name: string;
 	version: string;
 	private?: boolean;
+	dependencies?: Record<string, string>;
 	publishConfig: { access: string };
 	repository: { url: string; directory: string };
 	files: string[];
@@ -97,6 +100,12 @@ export function loadPackages(root: string, tag: string): ReleasePackage[] {
 			throw new Error(
 				`${directory}: expected public ${version}, found ${manifest.version}`,
 			);
+		}
+		if (
+			directory === "pi-goal" &&
+			manifest.dependencies?.["@wangjq4214/pi-delegate"] !== version
+		) {
+			throw new Error(`pi-goal: expected pi-delegate dependency ${version}`);
 		}
 		if (
 			manifest.repository?.url !== `git+https://github.com/${repository}.git` ||
@@ -190,6 +199,7 @@ export function verifyTarball(
 		"name",
 		"version",
 		"private",
+		"dependencies",
 		"publishConfig",
 		"repository",
 		"files",
@@ -222,7 +232,7 @@ export function verifyArtifacts(
 	const names = readdirSync(output).sort();
 	if (!isDeepStrictEqual(names, packages.map((pkg) => pkg.filename).sort())) {
 		throw new Error(
-			"Release directory must contain exactly the three expected tarballs",
+			`Release directory must contain exactly the ${packages.length} expected tarballs`,
 		);
 	}
 	for (const pkg of packages)

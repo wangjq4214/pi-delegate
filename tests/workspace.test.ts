@@ -116,12 +116,16 @@ test("dollar skills is a public independently loadable Pi extension", () => {
 	}
 });
 
-test("goal is a local private package consuming delegate's supported API without joining publication", () => {
+test("goal is a public Pi extension consuming the aligned delegate API", () => {
 	const goal = manifest("packages/pi-goal");
 	const delegate = manifest("packages/pi-delegate");
 	expect(goal.name).toBe("@wangjq4214/pi-goal");
-	expect(goal.private).toBe(true);
-	expect(goal.dependencies[delegate.name]).toBe("workspace:*");
+	expect(goal.private).toBeUndefined();
+	expect(goal.publishConfig.access).toBe("public");
+	expect(goal.repository.directory).toBe("packages/pi-goal");
+	expect(goal.files).toContain("docs");
+	expect(goal.version).toBe(delegate.version);
+	expect(goal.dependencies[delegate.name]).toBe(delegate.version);
 	expect(goal.pi.extensions).toEqual(["./dist/index.js"]);
 	expect(goal.dependencies["@wangjq4214/pi-open-tui"]).toBeUndefined();
 	expect(delegate.exports["./api"]).toBeDefined();

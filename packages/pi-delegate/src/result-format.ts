@@ -1,4 +1,4 @@
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 
 import { budgetInstructions, type ExecutionBudget } from "./budget.ts";
 export type ResultFormat = "handoff";

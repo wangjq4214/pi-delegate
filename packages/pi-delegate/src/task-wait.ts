@@ -1,4 +1,4 @@
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { type Clock, taskClock } from "./clock.ts";
 import type { TaskRecords, TaskSummary } from "./tasks.ts";
 

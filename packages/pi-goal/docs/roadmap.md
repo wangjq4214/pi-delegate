@@ -71,13 +71,12 @@ These follow the revision, visibility, and reviewer improvements above.
 
 **Boundaries:** Current storage already fails closed on corruption and can reclaim a demonstrably dead same-host owner during explicit resume. Diagnostics must preserve that behavior. Repair is not automatic execution recovery, blind task replay, project relocation, or permission to steal a live/uncertain lease. Keep unsupported damage visible rather than silently rewriting history.
 
-### Installation, publishing, and configuration usability
+### Configuration usability
 
 - [ ] Prepare a supported install path that explains the delegate dependency and how both extensions are loaded.
-- [ ] Evaluate inclusion in package/tag publishing, with built-package compatibility and co-loading verification.
 - [ ] Add settings presentation only for concrete configuration needs, with explicit source, scope, precedence, and validation.
 
-**Boundaries:** Goal remains a private local workspace package until publication is separately authorized and verified. Installing an npm dependency does not automatically load its Pi extension. Configuration must not introduce project-local goal bookkeeping, incompatible hidden defaults, or a duplicate delegate runtime.
+**Boundaries:** Installing an npm dependency does not automatically load its Pi extension. Configuration must not introduce project-local goal bookkeeping, incompatible hidden defaults, or a duplicate delegate runtime.
 
 ## Further evaluation
 

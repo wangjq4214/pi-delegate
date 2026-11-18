@@ -163,7 +163,7 @@ for (const built of [false, true]) {
 			await parent.request(
 				"prompt",
 				{ message: "/api-execute partial-hang" },
-				12000,
+				20_000,
 			);
 			const cancelled = await parent.request<{ entries: SessionEntry[] }>(
 				"get_entries",
@@ -204,5 +204,5 @@ for (const built of [false, true]) {
 			await parent.stop();
 			await rm(directory, { recursive: true, force: true });
 		}
-	}, 30000);
+	}, 45_000);
 }

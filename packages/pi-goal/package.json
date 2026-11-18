@@ -1,10 +1,20 @@
 {
 	"name": "@wangjq4214/pi-goal",
-	"version": "0.5.1",
-	"private": true,
+	"version": "0.6.0",
 	"license": "MIT",
 	"type": "module",
 	"description": "Bounded, globally persisted goals coordinated through pi-delegate.",
+	"keywords": [
+		"pi-package"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/wangjq4214/pi-delegate.git",
+		"directory": "packages/pi-goal"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
 	"engines": {
 		"node": ">=22.19.0"
 	},
@@ -15,6 +25,7 @@
 	},
 	"files": [
 		"dist",
+		"docs",
 		"README.md"
 	],
 	"scripts": {
@@ -25,7 +36,8 @@
 		"test": "bun test"
 	},
 	"dependencies": {
-		"@wangjq4214/pi-delegate": "workspace:*"
+		"@wangjq4214/pi-delegate": "0.6.0",
+		"typebox": "1.3.27"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-ai": "*",
@@ -35,7 +47,6 @@
 	"devDependencies": {
 		"@earendil-works/pi-ai": "1.1.0",
 		"@earendil-works/pi-coding-agent": "1.1.0",
-		"@earendil-works/pi-tui": "1.1.0",
-		"typebox": "1.3.27"
+		"@earendil-works/pi-tui": "1.1.0"
 	}
 }

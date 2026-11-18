@@ -1,4 +1,4 @@
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { type Clock as PressureClock, taskClock } from "./clock.ts";
 
 export interface ExecutionBudget {

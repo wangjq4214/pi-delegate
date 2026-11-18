@@ -4,7 +4,12 @@ import { defineConfig } from "rolldown";
 export default defineConfig({
 	input: "src/index.ts",
 	platform: "node",
-	external: [/^node:/, /^@earendil-works\//, /^@wangjq4214\/pi-delegate/],
+	external: [
+		/^node:/,
+		/^@earendil-works\//,
+		/^@wangjq4214\/pi-delegate/,
+		"typebox",
+	],
 	plugins: [
 		{
 			name: "include-license",

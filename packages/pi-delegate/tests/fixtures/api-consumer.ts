@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Type } from "@earendil-works/pi-ai";
@@ -47,29 +47,44 @@ export default async function consumer(pi: ExtensionAPI): Promise<void> {
 	pi.registerCommand("api-execute", {
 		handler: async (task, ctx) => {
 			const client = api.getDelegateClient(pi);
-			const signal = task.includes("hang")
-				? AbortSignal.timeout(2500)
-				: undefined;
 			if (client.capabilities?.invocationProgress !== true)
 				throw new Error("Missing invocation-progress capability");
-			const progress: PublicAPI.DelegateExecutionProgress[] = [];
-			const result = await client.execute(
-				{
-					task,
-					title: "goal-like API work",
-					context: "consumer explicit context",
-					resultFormat: "handoff",
-				},
-				ctx,
-				signal,
-				{
-					presentation: "consumer",
-					onProgress(value) {
-						progress.push(value);
-						pi.appendEntry("api:progress", value);
-					},
-				},
+			// Cancel only after the fixture has produced its text, not relative to
+			// process startup (which may consume the entire timer on slower hosts).
+			const partial =
+				task === "partial-hang" ? new AbortController() : undefined;
+			const signal = partial
+				? AbortSignal.any([partial.signal, AbortSignal.timeout(15_000)])
+				: undefined;
+			const marker = join(
+				process.env.FIXTURE_LOG_DIR ?? "",
+				"partial-generations",
 			);
+			const poll =
+				partial &&
+				setInterval(() => {
+					if (existsSync(marker)) partial.abort();
+				}, 25);
+			const progress: PublicAPI.DelegateExecutionProgress[] = [];
+			const result = await client
+				.execute(
+					{
+						task,
+						title: "goal-like API work",
+						context: "consumer explicit context",
+						resultFormat: "handoff",
+					},
+					ctx,
+					signal,
+					{
+						presentation: "consumer",
+						onProgress(value) {
+							progress.push(value);
+							pi.appendEntry("api:progress", value);
+						},
+					},
+				)
+				.finally(() => clearInterval(poll));
 			pi.appendEntry("api:result", {
 				result,
 				progress,

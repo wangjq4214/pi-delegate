@@ -8,8 +8,8 @@ A Bun + TypeScript monorepo with four packages:
 | --- | --- | --- |
 | [`@wangjq4214/pi-delegate`](packages/pi-delegate/README.md) | Pi extension for RPC subagent delegation | Existing extension; npm name and behavior preserved |
 | [`@wangjq4214/pi-open-tui`](packages/pi-open-tui/README.md) | Configurable Pi terminal UI extension imported from OldSuns/pi-open-tui | Public npm package; based on upstream v0.3.11 |
-| [`@wangjq4214/pi-dollar-skills`](packages/pi-dollar-skills/README.md) | Dollar skill autocomplete and full instruction injection | Public-publishable extension; initial npm publication requires maintainer setup; tested with Pi 1.4.0 |
-| [`@wangjq4214/pi-goal`](packages/pi-goal/README.md) | Bounded goals with global persistence and independent review, built on delegate | Private local workspace package; not enrolled in the release pipeline |
+| [`@wangjq4214/pi-dollar-skills`](packages/pi-dollar-skills/README.md) | Dollar skill autocomplete and full instruction injection | Public Pi extension tested with Pi 1.4.0 |
+| [`@wangjq4214/pi-goal`](packages/pi-goal/README.md) | Bounded goals with global persistence and independent review, built on delegate | Public Pi extension; install alongside the matching delegate release; tested with Pi 1.1.0 |
 
 `pi-open-tui` is not a delegate UI extraction. Goal depends on delegate's public consumer API; the other packages remain independent. No shared runtime package or Turbo/Nx layer is introduced.
 
@@ -55,7 +55,7 @@ The root is private and is not a Pi package. Build/pack/publish each package fro
 
 ## Releases
 
-Push a stable `vX.Y.Z` tag after aligning all three package versions. GitHub Actions validates, builds and packs the tagged revision, publishes through npm Trusted Publishing, then completes the GitHub Release with all three tarballs. npm trust and the new package's one-time initial publication require maintainer setup; adding the workflow does not perform that setup or publish anything. See [the release guide](docs/releasing.md) for setup, version preparation and partial-failure recovery.
+Push a stable `vX.Y.Z` tag after aligning all four package versions. GitHub Actions validates, builds and packs the tagged revision, publishes through npm Trusted Publishing, then completes the GitHub Release with all four tarballs. New packages require one-time npm setup. See the [release guide](docs/releasing.md) for setup, version preparation and partial-failure recovery.
 
 ## Layout
 

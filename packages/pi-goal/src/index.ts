@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import { Type } from "@earendil-works/pi-ai";
 import {
 	type ExtensionAPI,
 	type ExtensionContext,
@@ -9,6 +8,7 @@ import {
 	getDelegateClient,
 	registerParentOnlyTools,
 } from "@wangjq4214/pi-delegate/api";
+import { Type } from "typebox";
 import { allowanceValue, GoalController } from "./controller.ts";
 import {
 	confirmationText,

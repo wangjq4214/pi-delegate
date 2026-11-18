@@ -4,7 +4,7 @@ Coordinate bounded goals through fresh pi-delegate workers, with durable progres
 
 The parent discusses the objective, plans work, and assesses evidence; delegate executes bounded work and a separate reviewer checks completion. Inspired by [pi-goal-x](https://github.com/tmonk/pi-goal-x), not a port of its runtime or project-local storage.
 
-This is a **private local workspace package**, not yet included in npm/tag publishing. Both goal and delegate must be loaded in the same parent session; installing an npm dependency does not automatically load its Pi extension.
+Both goal and delegate must be loaded in the same parent session; installing an npm dependency does not automatically load its Pi extension.
 
 ## Features
 
@@ -20,8 +20,17 @@ This is a **private local workspace package**, not yet included in npm/tag publi
 
 - Git and Bun 1.4.1 or later for local setup.
 - Node.js 22.19 or later; `node` must be available on `PATH` when a Bun-hosted Pi launches delegate children.
-- A compatible Pi host. Current implementation evidence targets Pi 1.1.0; other host versions are not currently verified.
-- Both compatible workspace extensions (including delegate's invocation-progress capability), plus a dialog-capable TUI or participating RPC client for creation confirmation.
+- A compatible Pi host: full integration tests use Pi 1.1.0, and the first release was smoke-tested for installation and command registration on Pi 1.5.2.
+- Both compatible extensions (including delegate's invocation-progress capability), plus a dialog-capable TUI or participating RPC client for creation confirmation.
+
+## Install from npm
+
+```sh
+pi install npm:@wangjq4214/pi-delegate
+pi install npm:@wangjq4214/pi-goal
+```
+
+Install or update both extensions to the same release, then start Pi in your project. If one is already installed, update it instead of loading a second copy. Git and Bun are only needed for the source checkout setup below.
 
 ## Local setup
 
@@ -41,7 +50,7 @@ pi -e /absolute/checkout/packages/pi-delegate/dist/index.js -e /absolute/checkou
 
 For source development, load both `src/index.ts` paths instead. Build delegate first even for source loading because goal imports its supported public `/api` package entry. Co-loading order does not matter once extension loading is complete; avoid loading installed and explicit copies of the same extension together.
 
-See the [development guide](docs/development.md) for source-loading examples, checks, test coverage, and repository layout. There is no published goal installation command yet.
+See the [development guide](docs/development.md) for source-loading examples, checks, test coverage, and repository layout.
 
 ## Commands
 

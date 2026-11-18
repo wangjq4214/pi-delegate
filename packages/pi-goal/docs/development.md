@@ -53,7 +53,7 @@ Rolldown builds a Node.js ESM extension with a source map and emits `dist/LICENS
 
 ### Package and integration boundaries
 
-`@wangjq4214/pi-goal` is a **private local workspace package**. Its version and `files` list do not imply a public release or registry installation workflow. It has no `prepack` or `build:watch` script; do not copy delegate's publishing assumptions here. The private workspace root is not itself a Pi extension package.
+`@wangjq4214/pi-goal` is published by the workspace release workflow. Its npm dependency pins the matching delegate release; Bun links the matching workspace package during development. Goal has no `prepack` or `build:watch` script. The private workspace root is not itself a Pi extension package.
 
 Goal has no public programmatic API or exported library subpath. Its source exports are implementation details. In contrast, delegate exposes the supported `@wangjq4214/pi-delegate/api` boundary used by goal to share execution, admission, records and accounting with the loaded delegate extension. Do not replace that boundary with imports of delegate's private executor internals or a goal-owned child runner. See [delegate runtime and safety](../../pi-delegate/docs/runtime.md).
 
