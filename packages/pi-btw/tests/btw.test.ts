@@ -4,14 +4,24 @@ import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
+import { createEventBus, initTheme } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, visibleWidth } from "@earendil-works/pi-tui";
 import type {
 	DelegateClient,
 	DelegateResult,
 } from "@wangjq4214/pi-delegate/api";
+import {
+	getUserBoxBorder,
+	LEGACY_DEFAULT_CONFIG,
+} from "../../pi-open-tui/src/config.ts";
+import { registerSideChatPresentation } from "../../pi-open-tui/src/side-chat-frame.ts";
+import { UiRefresh } from "../../pi-open-tui/src/ui-refresh.ts";
 import btw from "../src/index.ts";
 
-function setup(supportsProgress = true) {
+function setup(
+	supportsProgress = true,
+	configure?: (pi: ExtensionAPI, ctx: ExtensionCommandContext) => void,
+) {
 	type Handler = Parameters<ExtensionAPI["registerCommand"]>[1]["handler"];
 	type Options = Exclude<
 		Parameters<ExtensionCommandContext["ui"]["custom"]>[1],
@@ -62,6 +72,7 @@ function setup(supportsProgress = true) {
 			],
 		},
 		ui: {
+			theme: { fg: (_: string, value: string) => value },
 			notify(message: string) {
 				notices.push(message);
 			},
@@ -90,6 +101,24 @@ function setup(supportsProgress = true) {
 			},
 		},
 	} as unknown as ExtensionCommandContext;
+	const bus = createEventBus();
+	bus.on("@wangjq4214/pi-delegate:discover", (request) => {
+		const payload = request as { reply(value: unknown): void };
+		payload.reply({
+			version: 1,
+			capabilities: supportsProgress ? { invocationProgress: true } : undefined,
+			execute(...args: Parameters<DelegateClient["execute"]>) {
+				calls.push(args);
+				const result = Promise.withResolvers<DelegateResult>();
+				results.push(result);
+				return result.promise;
+			},
+			status() {},
+			list() {},
+			wait() {},
+			cancel() {},
+		});
+	});
 	const api = {
 		registerCommand(name: string, command: { handler: Handler }) {
 			expect(name).toBe("btw");
@@ -107,28 +136,10 @@ function setup(supportsProgress = true) {
 		sendUserMessage() {
 			transcriptWrites++;
 		},
-		events: {
-			emit(_: string, payload: { reply(value: unknown): void }) {
-				payload.reply({
-					version: 1,
-					capabilities: supportsProgress
-						? { invocationProgress: true }
-						: undefined,
-					execute(...args: Parameters<DelegateClient["execute"]>) {
-						calls.push(args);
-						const result = Promise.withResolvers<DelegateResult>();
-						results.push(result);
-						return result.promise;
-					},
-					status() {},
-					list() {},
-					wait() {},
-					cancel() {},
-				});
-			},
-		},
+		events: bus,
 	};
 	btw(api as unknown as ExtensionAPI);
+	configure?.(api as unknown as ExtensionAPI, ctx);
 	return {
 		ask: (question: string) => handler?.(question, ctx),
 		calls,
@@ -294,7 +305,7 @@ test("scrolling exposes long answers without losing the composer in a short term
 	);
 	await Promise.resolve();
 	expect(h.component?.render(60).join("\n")).toContain("line 20");
-	for (let i = 0; i < 7; i++) h.component?.handleInput("\x1b[5~");
+	for (let i = 0; i < 24; i++) h.component?.handleInput("\x1b[5~");
 	const lines = h.component?.render(60) ?? [];
 	expect(lines.join("\n")).toContain("Long answer please");
 	expect(lines.join("\n")).toContain(CURSOR_MARKER);
@@ -305,4 +316,131 @@ test("scrolling exposes long answers without losing the composer in a short term
 	h.component?.handleInput("\x1b[200~你好\n\x1b[31m世界\x1b[0m\x1b[201~");
 	h.component?.handleInput("\r");
 	expect(h.calls[1]?.[0]?.task).toBe("你好 世界");
+});
+
+test("pads the native overlay on all sides and renders replies as Pi Markdown", async () => {
+	initTheme();
+	const h = setup();
+	await h.ask("Show formatting");
+	h.results[0]?.resolve(answer("**bold answer**"));
+	await Promise.resolve();
+	const lines = (h.component?.render(60) ?? []).map(stripVTControlCharacters);
+	expect(lines[0]).toBe(" ".repeat(60));
+	expect(lines.at(-1)).toBe(" ".repeat(60));
+	expect(lines[1]).toStartWith("  /btw");
+	expect(lines[1]).toEndWith("  ");
+	expect(lines.join("\n")).toContain("  bold answer");
+	expect(lines.join("\n")).not.toContain("**bold answer**");
+});
+
+test("Open TUI styles individual controls, not the outer overlay; Workline follows side runs", async () => {
+	const config = structuredClone(LEGACY_DEFAULT_CONFIG);
+	config.userMessageLayout = "compact";
+	config.icons.mode = "ascii";
+	config.editorBorderStyle = "surround";
+	config.workline.attachToBorder = true;
+	let active = false;
+	let subscriptions = 0;
+	const refresh = new UiRefresh();
+	const h = setup(true, (pi, ctx) => {
+		registerSideChatPresentation(
+			pi,
+			() => (active ? config : undefined),
+			() => ctx.ui.theme,
+			{
+				subscribe(interval, tick) {
+					subscriptions++;
+					const stop = refresh.subscribe(interval, tick);
+					return () => {
+						subscriptions--;
+						stop();
+					};
+				},
+				requestRender: (tick) => refresh.requestRender(tick),
+			},
+		);
+	});
+	await h.ask("side question");
+	await h.ask("");
+	h.component?.handleInput("draft survives");
+	const render = (width = 60) => h.component?.render(width) ?? [];
+	const plain = () => render().map(stripVTControlCharacters);
+	expect(plain()[0]).toBe(" ".repeat(60));
+	expect(plain().find((line) => line.includes("side question"))).toStartWith(
+		"   side question",
+	);
+	active = true;
+	h.calls[0]?.[3]?.onProgress?.({
+		taskId: "fixture",
+		phase: "running",
+		cancelling: false,
+	});
+	expect(plain()[0]).toBe(" ".repeat(60));
+	expect(plain().find((line) => line.includes("side question"))).toStartWith(
+		"  |",
+	);
+	expect(plain().find((line) => line.includes("running"))).toStartWith("  ╭");
+	expect(plain().find((line) => line.includes("draft survives"))).toStartWith(
+		"  │",
+	);
+	expect(subscriptions).toBe(1);
+	config.userBoxBorder = {
+		...getUserBoxBorder(config),
+		enabled: true,
+		style: "double",
+		top: { enabled: true },
+		bottom: { enabled: true },
+		left: { enabled: true },
+		right: { enabled: true },
+	};
+	expect(plain()).toContain(`  +${"=".repeat(54)}+  `);
+	expect(plain()[0]).toBe(" ".repeat(60));
+	config.editorBorderStyle = "minimal";
+	config.workline.attachToBorder = false;
+	expect(plain().find((line) => line.includes("running"))).toMatch(
+		/^ {4}.*running/,
+	);
+	expect(plain().find((line) => line.includes("draft survives"))).not.toContain(
+		"│",
+	);
+	for (const [width, height] of [
+		[10, 2],
+		[8, 4],
+		[60, 5],
+		[1, 1],
+	] as const) {
+		h.terminal.rows = height;
+		const lines = render(width);
+		expect(lines.length).toBe(height);
+		expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+		expect(lines.join("\n")).toContain(CURSOR_MARKER);
+	}
+	h.terminal.rows = 30;
+	h.results[0]?.resolve(answer("side answer"));
+	await Promise.resolve();
+	expect(plain().find((line) => line.includes("done"))).toBeDefined();
+	expect(plain().join("\n")).toContain("side answer");
+	const answerRow = plain().findIndex((line) => line.trim() === "side answer");
+	expect(plain()[answerRow - 2]).toContain("+====");
+	expect(plain()[answerRow - 1]?.trim()).toBe("");
+	expect(subscriptions).toBe(0);
+	active = false;
+	expect(plain()[0]).toBe(" ".repeat(60));
+	expect(plain().find((line) => line.includes("draft survives"))).not.toContain(
+		"│",
+	);
+	expect(h.focusCount).toBe(1);
+	active = true;
+	await h.ask("another side question");
+	render();
+	const previousAnswer = plain().findIndex(
+		(line) => line.trim() === "side answer",
+	);
+	expect(previousAnswer).toBeGreaterThanOrEqual(0);
+	expect(plain()[previousAnswer + 1]?.trim()).toBe("");
+	expect(plain()[previousAnswer + 2]).toContain("+====");
+	expect(subscriptions).toBe(1);
+	h.component?.handleInput("\x1b");
+	expect(subscriptions).toBe(0);
+	expect(h.calls[1]?.[2]?.aborted).toBe(false);
 });

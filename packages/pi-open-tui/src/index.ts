@@ -20,6 +20,7 @@ import { ToolPresentation } from "./tool-presentation.ts";
 import { PeekController } from "./peek-controller.ts";
 import { UiRefresh } from "./ui-refresh.ts";
 import { REPLY_STATUS_GUIDANCE, renderReplyStatusCapsules } from "./reply-status-capsules.ts";
+import { registerSideChatPresentation } from "./side-chat-frame.ts";
 
 type PendingUiChange = "install" | "uninstall";
 
@@ -57,6 +58,7 @@ export default function (pi: ExtensionAPI) {
 	};
 	let active = false;
 	let lastCtx: ExtensionContext | undefined;
+	registerSideChatPresentation(pi, () => active && config.enabled ? config : undefined, () => lastCtx?.ui.theme, refresh);
 	const hasReplyTransform = typeof pi.registerMarkdownTransformer === "function";
 	const replyCapsulesEnabled = () => hasReplyTransform && config.enabled && config.replyStatusCapsules.enabled
 		&& !!lastCtx && isTuiContext(lastCtx);

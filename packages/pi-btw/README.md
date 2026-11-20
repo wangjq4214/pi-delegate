@@ -13,6 +13,11 @@ to send, use ↑/↓ or Page Up/Page Down to scroll, and press Escape to hide
 the chat and return to the main editor. Run `/btw <question>` to send directly
 without taking focus from the main editor.
 
+The overlay uses the active Pi theme. Open TUI, when enabled, styles the
+composer, individual User messages, and the side chat's own Workline—not the
+outer overlay. Otherwise these use Pi's native appearance. The overlay reduces
+padding and decoration on small terminals. It does not show tool calls.
+
 Ask follow-up questions in the same overlay. Hiding and reopening it preserves
 the chat until you switch branches or sessions. Each request can see a bounded
 snapshot of recent main dialogue and completed side-chat exchanges. Side

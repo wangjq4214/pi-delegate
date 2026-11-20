@@ -66,7 +66,7 @@ function configureCursor(tui: TUI, cursorStyle: CursorStyle): void {
 	if (sequence) tui.terminal.write(sequence);
 }
 
-function roundedBorder(
+export function roundedBorder(
 	width: number,
 	kind: "top" | "bottom",
 	paint: (s: string) => string,
