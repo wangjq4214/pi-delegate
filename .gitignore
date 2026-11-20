@@ -3,6 +3,7 @@ dist/
 coverage/
 .codegraph/
 .pi/
+.omnidiff.toml
 *.tsbuildinfo
 .env
 .env.*
