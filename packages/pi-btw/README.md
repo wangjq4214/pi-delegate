@@ -8,15 +8,16 @@ bun run --filter @wangjq4214/pi-delegate build
 bun run --filter @wangjq4214/pi-btw build
 pi -e ./packages/pi-delegate/dist/index.js -e ./packages/pi-btw/dist/index.js
 ```
-Use `/btw <question>` to ask a side question. The right-side overlay does not
-resize the main chat or take editor focus. Use `/btw` with no argument to
-focus the open overlay (or reopen it after closing); use the arrow keys to
-scroll and Escape to close.
+Run `/btw` to open a centered chat overlay with a focused input. Press Enter
+to send, use ↑/↓ or Page Up/Page Down to scroll, and press Escape to hide
+the chat and return to the main editor. Run `/btw <question>` to send directly
+without taking focus from the main editor.
 
-The child sees a bounded snapshot of recent dialogue from the current branch.
-Questions and answers are not added to the main conversation. Only the
-current side question is retained by the overlay; there is no separate saved
-chat or streamed answer. Delegate retains its normal task records.
+Ask follow-up questions in the same overlay. Hiding and reopening it preserves
+the chat until you switch branches or sessions. Each request can see a bounded
+snapshot of recent main dialogue and completed side-chat exchanges. Side
+questions and answers never enter the main conversation. There is no saved
+side chat or streamed answer. Delegate retains its normal task records.
 
 The child inherits tools just like an ordinary delegate invocation. This is
 not a read-only mode: inherited tools may run commands, modify files, or have
