@@ -13,6 +13,13 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "..");
+const packages = [
+	"pi-btw",
+	"pi-delegate",
+	"pi-open-tui",
+	"pi-dollar-skills",
+	"pi-goal",
+];
 
 function withRepository(check: (cwd: string) => void) {
 	const cwd = mkdtempSync(join(tmpdir(), "pi-delegate-hook-"));
@@ -40,12 +47,7 @@ function withRepository(check: (cwd: string) => void) {
 			join(cwd, "node_modules"),
 			"junction",
 		);
-		for (const name of [
-			"pi-delegate",
-			"pi-open-tui",
-			"pi-dollar-skills",
-			"pi-goal",
-		]) {
+		for (const name of packages) {
 			const modules = join("packages", name, "node_modules");
 			if (existsSync(join(root, modules)))
 				symlinkSync(join(root, modules), join(cwd, modules), "junction");
@@ -59,12 +61,7 @@ function withRepository(check: (cwd: string) => void) {
 	} finally {
 		// Remove the junction before recursive cleanup; never traverse project dependencies.
 		rmSync(join(cwd, "node_modules"), { force: true, recursive: true });
-		for (const name of [
-			"pi-delegate",
-			"pi-open-tui",
-			"pi-dollar-skills",
-			"pi-goal",
-		])
+		for (const name of packages)
 			rmSync(join(cwd, "packages", name, "node_modules"), {
 				force: true,
 				recursive: true,

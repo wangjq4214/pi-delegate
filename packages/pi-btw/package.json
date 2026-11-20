@@ -1,0 +1,46 @@
+{
+	"name": "@wangjq4214/pi-btw",
+	"version": "0.1.0",
+	"license": "MIT",
+	"type": "module",
+	"description": "Side questions in a Pi overlay using normal delegate tool inheritance.",
+	"keywords": [
+		"pi-package"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/wangjq4214/pi-delegate.git",
+		"directory": "packages/pi-btw"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"pi": {
+		"extensions": [
+			"./dist/index.js"
+		]
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "rolldown -c",
+		"dev": "pi -e ./src/index.ts",
+		"start": "pi -e ./dist/index.js",
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@wangjq4214/pi-delegate": "0.6.1"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "1.1.0",
+		"@earendil-works/pi-tui": "1.1.0"
+	},
+	"private": true
+}

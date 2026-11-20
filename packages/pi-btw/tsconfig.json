@@ -1,0 +1,9 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"paths": {
+			"@wangjq4214/pi-delegate/api": ["../pi-delegate/src/api.ts"]
+		}
+	},
+	"include": ["src/**/*.ts", "tests/**/*.ts"]
+}
