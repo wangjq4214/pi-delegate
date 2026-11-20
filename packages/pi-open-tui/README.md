@@ -157,6 +157,7 @@ Key options:
 | `footerSegments.capitalizeProviderName` | Boolean | Capitalizes the first character of the provider name in the footer; set it to `false` to keep the provider's original casing |
 | `telemetry` | Boolean flags | Enables telemetry and its individual measurements |
 | `thinkingPeek.lines` | Legacy storage: `0`, `1`, `2` | Off (`0`) / On (`1` or `2`); title-only tree, latest four titles |
+| `replyStatusCapsules` | `{ enabled: false, icons: "text" }` | Inline Assistant reply capsules; icons: `text`, `nerd`, `none` |
 | `toolBoxBorder` | Enabled, style, status/static color, four edge enabled/char controls | Tools frame; disabled by default. Saved default: `double`, `status`, top/left on, bottom/right off. Fixed colors use theme tokens such as `muted` or `accent` |
 
 In **Tools**, the first three rows are **Enhanced presentation**, **Compression**, and **Border style**. The first two are independent On/Off switches; Border style cycles Off, Single, Bold, Double, Dashed and Custom. Off hides all subsequent border controls without erasing their stored choices. **User / Skill** has one **Enabled** switch combining layout and frame activation: Off restores native User/Skill presentation and hides every other setting; On exposes the saved style, colors and edges. Existing compact rails count as enabled without a startup rewrite; explicit User styling edits activate that group’s configured frame. Both groups retain independent four-edge/symbol controls. Fixed-color inputs appear only in fixed mode; stored colors can also affect compact rails, with legacy dormant Tool colors preserved until an explicit Tool presentation edit. Symbol/color inputs use Enter to save, Esc to cancel and empty to reset; symbols must occupy one visible column. Right edges remain optional and off by default.
@@ -260,6 +261,10 @@ When Pi's **Hide thinking** setting is enabled, Open TUI replaces the collapsed 
 ```
 
 Examples use portable Unicode icons; Nerd Font mode and ASCII icons/connectors follow the existing icon setting. There is no one/two-line selection or configurable title-count budget. For compatibility, `thinkingPeek.lines` remains the storage key: `0` means Off, `1` and `2` both mean On. Panel edits save `0`/`1` and retain unrelated/unknown preferences. Existing enabled/disabled choices and the enabled default are preserved, without a startup rewrite.
+
+### Reply status capsules
+
+In `/open-tui` → **General**, enable **Reply status capsules** (off by default). Open TUI asks the model to use markers such as `**[success: Tests passed 3/3]**` where useful. The category (`success`, `failure`, `warning`, or `action`) selects the capsule style; only the model-written label is shown. Old fixed-label markers appear as ordinary Markdown, and saved messages are unchanged. **Reply status icons** cycles Text, Nerd Font, and None; None keeps the colored label. Text and None use Unicode caps rather than Nerd Font glyphs. The exact outline depends on the terminal font. Labels report the model's status, not independent verification; an action label does not pause the run. Requires the Pi Markdown transformer API (available in Pi 1.1.0).
 
 Workline, enhanced-tool elapsed display and thinking animation share one demand-driven UI scheduler. Due updates are aligned and render requests are coalesced; no dynamic consumers means no periodic wakeups. Consumers keep independent measurements and appropriate cadences. This does not poll Git/runtime data on animation ticks or take over native/third-party timers. Reduced redundant refresh work is an implementation goal, not a measured CPU-performance guarantee.
 

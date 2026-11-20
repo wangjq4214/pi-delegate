@@ -4,7 +4,7 @@ import { defineConfig } from "rolldown";
 export default defineConfig({
 	input: "src/index.ts",
 	platform: "node",
-	external: [/^node:/, /^@earendil-works\//],
+	external: ["marked", /^node:/, /^@earendil-works\//],
 	plugins: [
 		{
 			name: "include-license",

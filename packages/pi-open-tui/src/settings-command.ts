@@ -41,6 +41,8 @@ const COPY = {
 			inlineFooter: "Inline footer",
 			unifiedFooter: "Unified two-row footer",
 			thinkingPeek: "Thinking titles",
+			replyStatusCapsules: "Reply status capsules",
+			replyStatusIcons: "Reply status icons",
 			toolPresentation: "Enhanced presentation",
 			language: "Language",
 			cursorStyle: "Cursor style",
@@ -83,6 +85,7 @@ const COPY = {
 			cursorStyles: { block: "Block", bar: "Bar", underline: "Underline" },
 			editorBorderStyles: { surround: "Surround", minimal: "Minimal" },
 			icons: { auto: "Auto", nerd: "Nerd", unicode: "Unicode", ascii: "ASCII" },
+			replyIcons: { text: "Text", nerd: "Nerd Font", none: "None" },
 			borderStyles: { single: "Single", bold: "Bold", double: "Double", dashed: "Dashed", custom: "Custom" },
 			borderColorModes: { status: "Execution status", static: "Fixed color", theme: "Theme" },
 			default: "Default",
@@ -103,6 +106,8 @@ const COPY = {
 			inlineFooter: "内联底栏",
 			unifiedFooter: "统一双行底栏",
 			thinkingPeek: "思考标题",
+			replyStatusCapsules: "回复状态胶囊",
+			replyStatusIcons: "回复状态图标",
 			toolPresentation: "增强展示",
 			language: "语言",
 			cursorStyle: "光标样式",
@@ -145,6 +150,7 @@ const COPY = {
 			cursorStyles: { block: "块", bar: "竖线", underline: "下划线" },
 			editorBorderStyles: { surround: "环绕", minimal: "简洁" },
 			icons: { auto: "自动", nerd: "Nerd", unicode: "Unicode", ascii: "ASCII" },
+			replyIcons: { text: "文本", nerd: "Nerd Font", none: "无图标" },
 			borderStyles: { single: "单线", bold: "粗线", double: "双线", dashed: "虚线", custom: "自定义" },
 			borderColorModes: { status: "跟随执行状态", static: "固定配色", theme: "跟随主题" },
 			default: "默认",
@@ -209,6 +215,8 @@ function buildFeaturesItems(config: OpenTuiConfig, copy: SettingsCopy): SettingI
 		{ id: "thinkingPeek", label: copy.labels.thinkingPeek, currentValue: flag(config.thinkingPeek.lines > 0) },
 		{ id: "inlineFooter", label: copy.labels.inlineFooter, currentValue: flag(config.inlineFooter) },
 		{ id: "unifiedFooter", label: copy.labels.unifiedFooter, currentValue: flag(config.unifiedFooter) },
+		{ id: "replyStatusCapsules", label: copy.labels.replyStatusCapsules, currentValue: flag(config.replyStatusCapsules.enabled) },
+		{ id: "replyStatusIcons", label: copy.labels.replyStatusIcons, currentValue: copy.values.replyIcons[config.replyStatusCapsules.icons] },
 	];
 }
 
@@ -324,6 +332,11 @@ function handleSettingChange(
 		if (itemId === "unifiedFooter") return { ...config, unifiedFooter: !config.unifiedFooter };
 		if (itemId === "settingsLanguage") return toggleLanguage(config);
 		if (itemId === "thinkingPeek") return cycleThinkingPeek(config);
+		if (itemId === "replyStatusCapsules") return { ...config, replyStatusCapsules: { ...config.replyStatusCapsules, enabled: !config.replyStatusCapsules.enabled } };
+		if (itemId === "replyStatusIcons") {
+			const icons = ({ text: "nerd", nerd: "none", none: "text" } as const)[config.replyStatusCapsules.icons];
+			return { ...config, replyStatusCapsules: { ...config.replyStatusCapsules, icons } };
+		}
 	}
 	if (tab === "icons") {
 		if (itemId === "mode") return cycleIconMode(config);

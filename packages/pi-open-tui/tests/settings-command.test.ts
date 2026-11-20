@@ -92,6 +92,22 @@ async function openSettings(
 	};
 }
 
+test("reply capsules default off and the icon modes cycle independently", async () => {
+	const { component, getConfig, waitForClose } = await openSettings();
+	for (let i = 0; i < 5; i++) component.handleInput("\x1b[B");
+	assert.match(selectedLine(component), /Reply status capsules.*Off/);
+	component.handleInput("\r");
+	assert.equal(getConfig().replyStatusCapsules.enabled, true);
+	component.handleInput("\x1b[B");
+	assert.match(selectedLine(component), /Reply status icons.*Text/);
+	for (const icons of ["nerd", "none", "text"]) {
+		component.handleInput("\r");
+		assert.equal(getConfig().replyStatusCapsules.icons, icons);
+		assert.equal(getConfig().replyStatusCapsules.enabled, true);
+	}
+	component.handleInput("\x1b");
+	await waitForClose();
+});
 function selectedLine(component: SettingsComponent): string {
 	return component.render(80).find((line) => line.includes("→ ")) ?? "";
 }

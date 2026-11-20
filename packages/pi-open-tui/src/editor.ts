@@ -400,6 +400,10 @@ export function installEditor(
 			hostAdapters?.refresh();
 			activeTui?.requestRender();
 		},
+		invalidateTranscript(): void {
+			activeTui?.invalidate();
+			activeTui?.requestRender();
+		},
 		getViewportWidth(): number | undefined {
 			const columns = activeTui?.terminal?.columns;
 			return typeof columns === "number" && Number.isFinite(columns) ? Math.max(1, Math.floor(columns)) : undefined;

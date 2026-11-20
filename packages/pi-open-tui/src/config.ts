@@ -63,6 +63,8 @@ export interface TelemetryConfig {
 	cost: boolean;
 }
 
+export const REPLY_STATUS_ICON_MODES = ["text", "nerd", "none"] as const;
+export type ReplyStatusIconMode = typeof REPLY_STATUS_ICON_MODES[number];
 export interface ThinkingPeekConfig {
 	/** Legacy storage: 0 is Off, 1/2 are On. This is no longer a body-row budget. */
 	lines: ThinkingPeekLines;
@@ -98,6 +100,7 @@ export function getExtensionStatusPreference(config: OpenTuiConfig, key: string)
 export interface OpenTuiConfig {
 	enabled: boolean;
 	inlineFooter: boolean;
+	replyStatusCapsules: { enabled: boolean; icons: ReplyStatusIconMode };
 	unifiedFooter: boolean;
 	extensionStatusItems: Record<string, ExtensionStatusPreference>;
 	toolPresentation: boolean;
@@ -123,6 +126,7 @@ export const LEGACY_DEFAULT_CONFIG: OpenTuiConfig = {
 	enabled: true,
 	inlineFooter: false,
 	unifiedFooter: false,
+	replyStatusCapsules: { enabled: false, icons: "text" },
 	extensionStatusItems: {},
 	toolPresentation: true,
 	settingsLanguage: "en",
@@ -240,6 +244,7 @@ function normalizeConfig(value: unknown): OpenTuiConfig {
 	config.messageLayout = enumValue(config.messageLayout, ["normal", "compact"], LEGACY_DEFAULT_CONFIG.messageLayout);
 	config.icons.mode = enumValue(config.icons.mode, ["auto", "nerd", "unicode", "ascii"], LEGACY_DEFAULT_CONFIG.icons.mode);
 	config.thinkingPeek.lines = enumValue(config.thinkingPeek.lines, [0, 1, 2], LEGACY_DEFAULT_CONFIG.thinkingPeek.lines);
+	config.replyStatusCapsules.icons = enumValue(config.replyStatusCapsules.icons, REPLY_STATUS_ICON_MODES, "text");
 	if (config.toolBoxBorder) {
 		config.toolBoxBorder.style = enumValue(config.toolBoxBorder.style, ["single", "bold", "double", "dashed", "custom"], LEGACY_DEFAULT_CONFIG.toolBoxBorder.style);
 		config.toolBoxBorder.colorMode = enumValue(config.toolBoxBorder.colorMode, ["status", "static"], LEGACY_DEFAULT_CONFIG.toolBoxBorder.colorMode);

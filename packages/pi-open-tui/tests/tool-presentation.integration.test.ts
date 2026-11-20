@@ -30,6 +30,7 @@ const hostTheme = await import(pathToFileURL(join(getPackageDir(), "dist/modes/i
 const { UserMessageComponent } = await import(pathToFileURL(join(getPackageDir(), "dist/modes/interactive/components/user-message.js")).href);
 const { SkillInvocationMessageComponent } = await import(pathToFileURL(join(getPackageDir(), "dist/modes/interactive/components/skill-invocation-message.js")).href);
 const { AssistantMessageComponent } = await import(pathToFileURL(join(getPackageDir(), "dist/modes/interactive/components/assistant-message.js")).href);
+import { renderReplyStatusCapsules } from "../src/reply-status-capsules.ts";
 initTheme("dark");
 
 async function fixture(t: test.TestContext, mode: "regular" | "fullscreen" = "regular") {
@@ -949,6 +950,119 @@ test("actual codemode sandbox streams dynamic calls, caught child errors, output
 	assert.ok(written.content.some((part) => part.type === "text" && part.text.includes("mutation survives")));
 });
 
+test("Assistant reply capsules use the public Markdown path, preserve prose and wrap intact", () => {
+	const source = "- **[success: Tests passed 3/3]** unit suite\n- **[success: Lint passed]**\n- **[failure: Build failed]** no bundle\n- **[warning: Tests not run]** caveat\n- **[action: Confirm version]** provide input\n- **[成功]** legacy Chinese\n- **[Failure]** legacy English\n- **[warning: Missing a_b & `config`]**";
+	const message = { role: "assistant", content: [{ type: "text", text: source }], stopReason: "stop" };
+	let mode: "text" | "nerd" | "none" = "text";
+	let enabled = true;
+	const assistant = new AssistantMessageComponent(message, false, hostTheme.getMarkdownTheme(), "", 1, [
+		(markdown: string, ctx: Parameters<typeof renderReplyStatusCapsules>[1]) =>
+			enabled ? renderReplyStatusCapsules(markdown, ctx, mode) : markdown,
+	]);
+	const native = new AssistantMessageComponent(message, false, hostTheme.getMarkdownTheme(), "", 1);
+	const first: string = assistant.render(60).join("\n");
+	for (const [bg, label] of [
+		["27;73;56", "✓\u00a0Tests\u00a0passed\u00a03/3"], ["27;73;56", "✓\u00a0Lint\u00a0passed"],
+		["99;44;57", "×\u00a0Build\u00a0failed"], ["84;64;22", "!\u00a0Tests\u00a0not\u00a0run"],
+		["35;69;121", "→\u00a0Confirm\u00a0version"],
+		["84;64;22", "!\u00a0Missing\u00a0a_b\u00a0&\u00a0`config`"],
+	]) {
+		assert.ok(first.includes(`\x1b[48;2;${bg};38;2;`));
+		assert.ok(first.split("\n").some((line) => styledRuns(line).some((run) => run.text.includes(label) && run.bg === `48;2;${bg}`)), label);
+	}
+	const legacyRows = (lines: string[]) => lines.filter((line) => /legacy (?:Chinese|English)/.test(line));
+	const nativeLegacyRows = legacyRows(native.render(60));
+	assert.equal(nativeLegacyRows.length, 2);
+	assert.deepEqual(legacyRows(assistant.render(60)), nativeLegacyRows);
+	assert.doesNotMatch(first, /(?:success|failure|warning|action):/);
+	assert.match(first, /◖.*✓ Tests passed 3\/3.*◗.*unit suite/);
+	assert.match(styledRuns(first.split("\n").find((line) => line.includes("unit suite"))!).find((run) => run.text.includes("unit suite"))!.bg, /^default$/);
+	assert.doesNotMatch(first, /[\uE000-\uF8FF]/);
+	mode = "none"; assistant.invalidate();
+	assert.match(assistant.render(60).join("\n"), /m Tests passed 3\/3 \x1b/);
+	mode = "nerd"; assistant.invalidate();
+	assert.match(assistant.render(60).join("\n"), /\uE0B6.*\uF00C.*\uE0B4/);
+	enabled = false; assistant.invalidate();
+	assert.deepEqual(assistant.render(60), native.render(60));
+	assert.equal(message.content[0]!.text, source);
+
+	enabled = true; mode = "text";
+	assistant.invalidate();
+	assert.equal(assistant.render(60).join("\n"), first);
+	const prefix = "前缀和文字 ";
+	assistant.updateContent({ ...message, content: [{ type: "text", text: prefix + "**[action: 请确认版" }] }, true);
+	assert.doesNotMatch(assistant.render(20).join("\n"), /48;2;/);
+	assistant.updateContent({ ...message, content: [{ type: "text", text: prefix + "**[action: 请确认版本]**" }] }, true);
+	const wrapped: string[] = assistant.render(20);
+	assert.ok(wrapped.every((line) => visibleWidth(line) <= 20));
+	assert.ok(wrapped.some((line) => /◖.*→ 请确认版本.*◗/.test(line)));
+	assert.doesNotMatch(assistant.render(8).join("\n"), /48;2;/, "too narrow: use readable Markdown");
+});
+
+test("status markers in non-prose or incomplete Markdown pass through byte for byte", () => {
+	const source = "> A quote\n**[success: Tests passed]**\n\n- Quote:\n  > **[failure: Build failed]**\n\n~~~md\n**[warning: Not checked]**\n~~~\n\n    **[success: It works]**\n\n`**[success: 已通过]**`\n\n[**[failure: Failed]**](https://example.org)\n\nPartial **[warning: Not checked]*";
+	const ctx = { messageType: "assistant", availableWidth: 80, isStreaming: true } as const;
+	assert.equal(renderReplyStatusCapsules(source, ctx, "text"), source);
+	for (const example of [
+		"Escaped \\**[success: Passed]**", "<code>**[success: Passed]**</code>",
+		"**[Success]**\n\n[Success]: https://example.org",
+		"**[success: Tests passed]**\n\n[success: tests passed]: https://example.org",
+		"**[info: Unknown category]**", "**[success:   ]**", "**[success: Two\nlines]**",
+		"**[success: Text\x1b[2J]**", "**[success: Text\u009b2J]**",
+	]) {
+		assert.equal(renderReplyStatusCapsules(example, ctx, "text"), example);
+	}
+	for (const messageType of ["user", "assistant-thinking"] as const) {
+		const marker = "**[warning: Not checked]**";
+		assert.equal(renderReplyStatusCapsules(marker, { ...ctx, messageType }, "text"), marker);
+	}
+});
+test("capsule guidance and transform are both gated by preference, TUI mode and host support", async (t) => {
+	const dir = await mkdtemp(join(tmpdir(), "open-tui-capsule-gates-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	process.env.PI_CODING_AGENT_DIR = dir;
+	t.after(async () => {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previous;
+		await rm(dir, { recursive: true, force: true });
+	});
+	const config = structuredClone(DEFAULT_CONFIG);
+	for (const key of Object.keys(config.footerSegments) as Array<keyof typeof config.footerSegments>) config.footerSegments[key] = false;
+	const source = "**[warning: Build not run]** Explanation";
+	const transformContext = { messageType: "assistant", availableWidth: 80, isStreaming: false } as const;
+	for (const [supported, enabled, mode] of [
+		[true, true, "tui"], [true, false, "tui"], [true, true, "rpc"], [false, true, "tui"],
+	] as const) {
+		config.replyStatusCapsules.enabled = enabled;
+		await writeFile(join(dir, "open-tui.json"), JSON.stringify(config));
+		const handlers = new Map<string, (event: any, ctx: ExtensionContext) => unknown>();
+		let transform: Parameters<ExtensionAPI["registerMarkdownTransformer"]>[0] | undefined;
+		openTui({
+			on(name: string, handler: (event: any, ctx: ExtensionContext) => unknown) { handlers.set(name, handler); },
+			registerCommand() {},
+			...(supported ? { registerMarkdownTransformer: (fn: typeof transform) => { transform = fn; } } : {}),
+		} as unknown as ExtensionAPI);
+		const ctx = { hasUI: true, mode, cwd: dir, ui: { notify() {}, setFooter() {}, setEditorComponent() {} } } as unknown as ExtensionContext;
+		await handlers.get("session_start")!({ type: "session_start" }, ctx);
+		const sections = { existing: "Do not replace this" } as Record<string, string>;
+		await handlers.get("before_agent_start")!({ type: "before_agent_start", systemPromptOptions: { sections } }, ctx);
+		const shouldRender = supported && enabled && mode === "tui";
+		const guidance = sections["open-tui-reply-status"];
+		assert.equal(!!guidance, shouldRender);
+		if (guidance) {
+			assert.match(guidance, /Use status markers by default/);
+			assert.match(guidance, /waiting for approval, a choice, or missing information, even if the reply is only one sentence/);
+			assert.ok(guidance.includes("**[action: Confirm the commit]** Commit with this message?"));
+			assert.match(guidance, /Skip markers for ordinary explanations/);
+			for (const category of ["success", "failure", "warning", "action"]) assert.ok(guidance.includes(`**[${category}: `));
+			assert.doesNotMatch(guidance, /\*\*\[(Success|Failure|Warning|Needs your action|成功|失败|警告|需你处理)\]\*\*/);
+		}
+		assert.equal(sections.existing, "Do not replace this");
+		assert.equal((transform?.(source, transformContext) ?? source) !== source, shouldRender);
+		await handlers.get("session_shutdown")!({ type: "session_shutdown" }, ctx);
+		assert.equal(transform?.(source, transformContext) ?? source, source);
+	}
+});
 test("unsupported public capability preserves native presentation and emits an explicit notice", async (t) => {
 	const dir = await mkdtemp(join(tmpdir(), "open-tui-unsupported-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;

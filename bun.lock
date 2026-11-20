@@ -84,6 +84,9 @@
     "packages/pi-open-tui": {
       "name": "@wangjq4214/pi-open-tui",
       "version": "0.6.1",
+      "dependencies": {
+        "marked": "18.0.11",
+      },
       "devDependencies": {
         "@earendil-works/pi-ai": "1.1.0",
         "@earendil-works/pi-coding-agent": "1.1.0",

@@ -19,6 +19,7 @@ import {
 import { ToolPresentation } from "./tool-presentation.ts";
 import { PeekController } from "./peek-controller.ts";
 import { UiRefresh } from "./ui-refresh.ts";
+import { REPLY_STATUS_GUIDANCE, renderReplyStatusCapsules } from "./reply-status-capsules.ts";
 
 type PendingUiChange = "install" | "uninstall";
 
@@ -56,6 +57,18 @@ export default function (pi: ExtensionAPI) {
 	};
 	let active = false;
 	let lastCtx: ExtensionContext | undefined;
+	const hasReplyTransform = typeof pi.registerMarkdownTransformer === "function";
+	const replyCapsulesEnabled = () => hasReplyTransform && config.enabled && config.replyStatusCapsules.enabled
+		&& !!lastCtx && isTuiContext(lastCtx);
+	if (hasReplyTransform) {
+		pi.registerMarkdownTransformer((markdown, ctx) => replyCapsulesEnabled()
+			? renderReplyStatusCapsules(markdown, ctx, config.replyStatusCapsules.icons) : markdown);
+	}
+	pi.on("before_agent_start", (event, ctx) => {
+		if (replyCapsulesEnabled() && isTuiContext(ctx)) {
+			event.systemPromptOptions.sections["open-tui-reply-status"] = REPLY_STATUS_GUIDANCE;
+		}
+	});
 	let requestFooterRender: (() => void) | undefined;
 	let stopWorklineRefresh: (() => void) | undefined;
 	let footer: ReturnType<typeof installFooter> | undefined;
@@ -125,6 +138,7 @@ export default function (pi: ExtensionAPI) {
 				(targetChanged) => peekController.refreshLayout(targetChanged),
 			);
 			active = true;
+			if (replyCapsulesEnabled()) editor.invalidateTranscript();
 			if (state.workingSince !== undefined) startWorkingTimer();
 		}
 	};
@@ -352,6 +366,9 @@ export default function (pi: ExtensionAPI) {
 			const cursorStyleChanged = config.cursorStyle !== newConfig.cursorStyle;
 			const borderStyleChanged = config.editorBorderStyle !== newConfig.editorBorderStyle;
 			const previousPeekLines = config.thinkingPeek.lines;
+			const replyRenderingChanged = config.enabled !== newConfig.enabled
+				|| config.replyStatusCapsules.enabled !== newConfig.replyStatusCapsules.enabled
+				|| config.replyStatusCapsules.icons !== newConfig.replyStatusCapsules.icons;
 			try {
 				saveConfig(newConfig);
 			} catch (error) {
@@ -361,6 +378,7 @@ export default function (pi: ExtensionAPI) {
 					: `open-tui: settings applied for this session only; save failed: ${detail}`, "warning");
 			}
 			config = newConfig;
+			if (replyRenderingChanged && hasReplyTransform) editor?.invalidateTranscript();
 			toolPresentation.configChanged();
 			startWorkingTimer();
 			editor?.requestRender();
