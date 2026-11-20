@@ -247,11 +247,11 @@ test("bare command opens a focused composer; reopening retains the conversation 
 	h.component?.handleInput("Two options?");
 	h.component?.handleInput("\r");
 	expect(h.calls[0]?.[0]?.task).toBe("Two options?");
+	h.results[0]?.resolve(answer("One: tea. Two: coffee."));
+	await Promise.resolve();
 	h.component?.handleInput("\x1b");
 	expect(h.component).toBeUndefined();
 	expect(h.calls[0]?.[2]?.aborted).toBe(false);
-	h.results[0]?.resolve(answer("One: tea. Two: coffee."));
-	await Promise.resolve();
 
 	await h.ask("");
 	expect(h.component?.render(60).join("\n")).toContain("Two: coffee.");
@@ -267,6 +267,40 @@ test("bare command opens a focused composer; reopening retains the conversation 
 	});
 	expect(h.component?.render(60).join("\n")).toContain("Two options?");
 	expect(h.transcriptWrites).toBe(0);
+});
+
+test("Escape cancels all pending side requests, then closes without waiting for them", async () => {
+	const h = setup();
+	await h.ask("First side question");
+	await h.ask("Second side question");
+	await h.ask("");
+	expect(h.component?.focused).toBe(true);
+	expect(h.component?.render(60).join("\n")).toContain("Esc: stop");
+
+	h.component?.handleInput("\x1b");
+	expect(h.calls.map((call) => call[2]?.aborted)).toEqual([true, true]);
+	expect(h.component?.focused).toBe(true);
+	expect(h.component?.render(60).join("\n")).toContain("Esc: close");
+
+	// Both delegate promises are still unresolved when the window closes.
+	h.component?.handleInput("\x1b");
+	expect(h.component).toBeUndefined();
+
+	for (const result of h.results) {
+		result.resolve({
+			...answer(""),
+			details: { status: "cancelled" },
+			content: [],
+			isError: true,
+		});
+	}
+	await h.ask("");
+	const reopened = h.component?.render(60).join("\n");
+	expect(reopened).toContain("First side question");
+	expect(reopened).toContain("Second side question");
+	expect(reopened).toContain("cancelled");
+	h.component?.handleInput("\x1b");
+	expect(h.component).toBeUndefined();
 });
 
 test("switching branch or session aborts pending questions and discards old history and late results", async () => {
@@ -441,6 +475,9 @@ test("Open TUI styles individual controls, not the outer overlay; Workline follo
 	expect(plain()[previousAnswer + 2]).toContain("+====");
 	expect(subscriptions).toBe(1);
 	h.component?.handleInput("\x1b");
+	expect(h.calls[1]?.[2]?.aborted).toBe(true);
+	expect(h.component).toBeDefined();
+	h.component?.handleInput("\x1b");
+	expect(h.component).toBeUndefined();
 	expect(subscriptions).toBe(0);
-	expect(h.calls[1]?.[2]?.aborted).toBe(false);
 });

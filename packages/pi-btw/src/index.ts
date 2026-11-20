@@ -150,6 +150,18 @@ export default function btw(pi: ExtensionAPI): void {
 		previous?.dispose?.();
 		previous?.close?.();
 	};
+	const canStop = () =>
+		Array.from(pending).some((controller) => !controller.signal.aborted);
+	const onEscape = () => {
+		if (!canStop()) {
+			close();
+			return;
+		}
+		for (const controller of pending) {
+			if (!controller.signal.aborted) controller.abort();
+		}
+		view?.refresh?.();
+	};
 	const clear = () => {
 		turns.length = 0;
 		for (const controller of pending) controller.abort();
@@ -175,7 +187,7 @@ export default function btw(pi: ExtensionAPI): void {
 						prompt: "",
 						placeholder: "Ask a side question…",
 					});
-					input.onEscape = close;
+					input.onEscape = onEscape;
 					input.onSubmit = (value) => {
 						const question = value.trim();
 						if (!question) return;
@@ -332,7 +344,12 @@ export default function btw(pi: ExtensionAPI): void {
 							...body,
 							...composer,
 							...(hint
-								? [theme.fg("dim", "Enter: send · ↑↓: scroll · Esc: close")]
+								? [
+										theme.fg(
+											"dim",
+											`Enter: send · ↑↓: scroll · Esc: ${canStop() ? "stop" : "close"}`,
+										),
+									]
 								: []),
 							...(vertical ? [""] : []),
 						].map(row);
@@ -351,7 +368,7 @@ export default function btw(pi: ExtensionAPI): void {
 						render: renderContent,
 						handleInput(data) {
 							if (matchesKey(data, Key.escape)) {
-								close();
+								onEscape();
 								return;
 							}
 							const step = matchesKey(data, Key.up)
@@ -428,7 +445,10 @@ export default function btw(pi: ExtensionAPI): void {
 			if (!pending.has(controller)) return;
 			turn.status = status;
 			turn.answer = answer;
-			if (finished) turn.finishedAt = Date.now();
+			if (finished) {
+				pending.delete(controller);
+				turn.finishedAt = Date.now();
+			}
 			view?.refresh?.();
 		};
 
@@ -461,11 +481,9 @@ export default function btw(pi: ExtensionAPI): void {
 						true,
 					);
 				})
-				.catch((error: unknown) => update("failed", String(error), true))
-				.finally(() => pending.delete(controller));
+				.catch((error: unknown) => update("failed", String(error), true));
 		} catch (error) {
 			update("failed", String(error), true);
-			pending.delete(controller);
 		}
 	}
 

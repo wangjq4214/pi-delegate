@@ -9,9 +9,12 @@ bun run --filter @wangjq4214/pi-btw build
 pi -e ./packages/pi-delegate/dist/index.js -e ./packages/pi-btw/dist/index.js
 ```
 Run `/btw` to open a centered chat overlay with a focused input. Press Enter
-to send, use ↑/↓ or Page Up/Page Down to scroll, and press Escape to hide
-the chat and return to the main editor. Run `/btw <question>` to send directly
-without taking focus from the main editor.
+to send and use ↑/↓ or Page Up/Page Down to scroll. While the overlay has focus,
+Escape stops all pending side requests without interrupting the main chat.
+Press Escape again to close the overlay and return to the main editor without
+waiting for cancellation to finish. When there is nothing to stop, Escape closes
+the overlay on the first press. Run `/btw <question>` to send directly without
+taking focus from the main editor.
 
 The overlay uses the active Pi theme. Open TUI, when enabled, styles the
 composer, individual User messages, and the side chat's own Workline—not the
